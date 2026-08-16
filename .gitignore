@@ -1,0 +1,58 @@
+# Dependencies (re-created by `npm install`)
+node_modules/
+
+# Build output (the .exe / installer that electron-builder produces)
+dist/
+out/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Machine-local Claude permissions (not shared between computers)
+.claude/settings.local.json
+
+# Mobile-app source copied in only as a reference for the AI port (not shipped)
+_mobile-ai-reference/
+
+# Offline OCR — large, reproducible binaries are NOT committed:
+#  - engine vendor files reproduced by `node scripts/copy-vendor.js` (postinstall)
+#  - trained models fetched by `npm run fetch-ocr-models`
+# (electron-builder still bundles them from disk at package time.)
+assets/ocr/worker.min.js
+assets/ocr/*.wasm
+assets/ocr/*.wasm.js
+assets/ocr/tesseract-core*.js
+assets/ocr/tessdata/*.traineddata
+
+# pdf.js cMaps + standard fonts — reproduced from the pdfjs-dist devDep by
+# `node scripts/copy-vendor.js` (postinstall); large + regenerable.
+assets/pdfjs/cmaps/
+assets/pdfjs/standard_fonts/
+
+# Release artefacts produced by BUILD.cmd / electron-builder (never commit)
+BilimHezinisi-Source-*.zip
+*.appx
+*.msix
+*.msixbundle
+*.appxupload
+
+# Code-signing material must never be committed
+*.pfx
+*.p12
+*.cer
+*.snk
+
+# Files staged for deletion by tooling (not part of the project)
+_to_delete/
