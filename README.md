@@ -62,7 +62,7 @@ uninstalling and reinstalling the app.
 
 ```bash
 git clone https://github.com/kelemdepter-rgb/BilimHezinisi-desktop.git
-cd bilim-hezinisi
+cd BilimHezinisi-desktop
 npm install            # postinstall rebuilds better-sqlite3 and copies vendor files
 npm run fetch-ocr-models   # downloads the offline OCR trained data
 npm start              # run in development

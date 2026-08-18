@@ -56,3 +56,7 @@ BilimHezinisi-Source-*.zip
 
 # Files staged for deletion by tooling (not part of the project)
 _to_delete/
+
+# Release notes drafted locally for copying into the GitHub release form
+# (the release body lives on GitHub, not in the repo)
+RELEASE-NOTES-*.md

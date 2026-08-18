@@ -1,6 +1,6 @@
 # Microsoft Store submission guide — Bilim Hezinisi
 
-Everything in this file is about getting `bilim-hezinisi` onto the Microsoft
+Everything in this file is about getting `BilimHezinisi-desktop` onto the Microsoft
 Store as a **free** download. Work through it top to bottom.
 
 Repository: <https://github.com/kelemdepter-rgb/BilimHezinisi-desktop>
@@ -40,12 +40,33 @@ changes.
 
 ## 2. Reserve the app name
 
-Partner Center → **Apps and games** → **New product** → **MSIX or PWA app**.
+Reserve **two** names. Reservations are free and unlimited.
 
-Reserve: **`Bilim Hezinisi`**
+**First, create the product with the Latin name.** Partner Center →
+**Apps and games** → **New product** → **MSIX or PWA app** → reserve:
 
-If it is taken, try `Bilim Hezinisi - Uyghur Library`. You can reserve several
-names; the one you pick becomes the Store listing title.
+```
+Bilim Hezinisi
+```
+
+Create the product with this one, because `Package/Identity/Name` is derived
+from the name the product is created with and **can never be changed
+afterwards**. Starting from ASCII guarantees a clean identity. Users never see
+it.
+
+**Then add the Uyghur name.** Inside the product → **Product management** →
+**Manage app names** → *Reserve more names* → paste (do not retype):
+
+```
+بىلىم خەزىنىسى
+```
+
+This second name is the one customers will see. It **must** match
+`build.appx.displayName` in `package.json` byte for byte, or the package upload
+fails with *"The name found in the package is not one of your reserved app
+names."*
+
+If `Bilim Hezinisi` is taken, try `Bilim Hezinisi - Uyghur Library`.
 
 ---
 
@@ -73,6 +94,16 @@ Open `package.json` and replace the placeholders in `build.appx`:
 
 These three strings must match Partner Center **character for character**, or
 the upload is rejected.
+
+Leave the rest of the block alone. In particular:
+
+| Field | Value | Why |
+| --- | --- | --- |
+| `displayName` | `بىلىم خەزىنىسى` | Shown in the Store and after install. Must be a reserved name. |
+| `publisherDisplayName` | `Bilim Hezinisi` | Must equal the Partner Center publisher display name. |
+| `applicationId` | `BilimHezinisi` | Internal identifier; must stay ASCII. |
+| `artifactName` | `BilimHezinisi-Store-${version}.appx` | A file name; must stay ASCII. |
+| `languages` | `["ug-arab", "en-US"]` | `ug-arab` is Uyghur in Arabic script. Plain `ug` is **not** on the Store's supported-language list and can fail certification. |
 
 ---
 
@@ -122,8 +153,12 @@ Upload the **unsigned** package to Partner Center. The Store re-signs it.
 ### Category
 **Books & reference** (secondary: Education)
 
-### Title
-`Bilim Hezinisi`
+### Title (Product name)
+
+Set the **Product name** dropdown to `بىلىم خەزىنىسى` for **every** language
+listing, including the English one. The Store then shows the Uyghur name to
+everyone, while the English description keeps the app findable and readable for
+non-Uyghur speakers.
 
 ### Short description (English, ≤ 200 characters)
 
@@ -205,7 +240,7 @@ At least one, at most ten. **1366 × 768** or larger, PNG. Suggested set:
 `https://github.com/kelemdepter-rgb/BilimHezinisi-desktop/blob/main/PRIVACY.md`
 
 (or enable GitHub Pages and use
-`https://kelemdepter-rgb.github.io/bilim-hezinisi/PRIVACY.html`)
+`https://kelemdepter-rgb.github.io/BilimHezinisi-desktop/PRIVACY.html`)
 
 ### Support contact
 

@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="ug" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بىلىم خەزىنىسى — Microsoft Store قوللانمىسى</title>
+<style>
+  :root{
+    --bg:#07161D; --card:#102A32; --card2:#143840; --card3:#0A1F26;
+    --line:#1E4A52; --gold:#E8C46A; --teal:#3FA697;
+    --text:#E8F0EF; --text2:#A9C2C0; --text3:#78968F;
+    --ok:#4FB783; --warn:#E9A94E; --danger:#E36B6B;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:'UKIJ Tuz','UKIJ Ekran','Noto Sans Arabic',Tahoma,'Segoe UI',sans-serif;
+    line-height:2.05; font-size:15.5px; padding:0 0 90px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:900px;margin:0 auto;padding:0 20px}
+
+  /* ---------- header ---------- */
+  header{background:linear-gradient(160deg,#0E2A31 0%,#07161D 100%);
+    border-bottom:1px solid var(--line);padding:36px 0 28px}
+  header h1{font-size:25px;font-weight:700;color:var(--gold);line-height:1.7;margin-bottom:6px}
+  header p{color:var(--text2);font-size:14.5px}
+  .meta{display:flex;flex-wrap:wrap;gap:9px;margin-top:15px}
+  .pill{background:var(--card);border:1px solid var(--line);border-radius:999px;
+    padding:5px 14px;font-size:12.5px;color:var(--text2)}
+  .pill b{color:var(--gold);font-weight:600}
+
+  /* ---------- progress ---------- */
+  .progress{position:sticky;top:0;z-index:20;background:rgba(7,22,29,.95);
+    backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:9px 0;margin-bottom:20px}
+  .bar{height:7px;background:var(--card2);border-radius:99px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--teal),var(--gold));transition:width .3s}
+  .pct{font-size:12.5px;color:var(--text2);margin-top:5px;text-align:center}
+  .pct b{color:var(--gold)}
+
+  /* ---------- status board ---------- */
+  .board{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:18px 20px;margin:22px 0}
+  .board h2{font-size:16px;color:var(--gold);margin-bottom:12px}
+  .board .row{display:flex;gap:11px;align-items:flex-start;padding:6px 0;font-size:14px}
+  .board .row .m{flex:0 0 22px;text-align:center;font-size:15px}
+  .board .row.d span{color:var(--text3)}
+
+  /* ---------- stage ---------- */
+  .stage{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    margin-bottom:20px;overflow:hidden}
+  .stage-head{display:flex;align-items:center;gap:13px;padding:15px 20px;
+    background:var(--card2);border-bottom:1px solid var(--line)}
+  .num{flex:0 0 34px;height:34px;border-radius:10px;background:var(--gold);color:#07161D;
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;
+    font-family:'Segoe UI',sans-serif}
+  .stage-head h2{font-size:17.5px;font-weight:700;flex:1;line-height:1.6}
+  .time{font-size:12px;color:var(--text3);white-space:nowrap;direction:ltr;font-family:'Segoe UI',sans-serif}
+  .stage-body{padding:16px 20px 20px}
+
+  /* ---------- steps ---------- */
+  .step{display:flex;gap:12px;padding:9px 0;align-items:flex-start;
+    border-bottom:1px dashed rgba(30,74,82,.5)}
+  .step:last-child{border-bottom:none}
+  .step input[type=checkbox]{flex:0 0 19px;width:19px;height:19px;margin-top:7px;
+    cursor:pointer;accent-color:var(--teal)}
+  .step label{flex:1;cursor:pointer}
+  .step.done label{color:var(--text3);text-decoration:line-through;text-decoration-color:var(--text3)}
+  .sub{display:block;font-size:13px;color:var(--text2);margin-top:1px;line-height:1.9}
+
+  /* ---------- inline bits ---------- */
+  code,kbd,.btn{background:var(--card3);border:1px solid var(--line);border-radius:6px;
+    padding:2px 8px;font-family:'Consolas','Courier New',monospace;font-size:12.5px;
+    color:var(--gold);direction:ltr;display:inline-block;line-height:1.7}
+  kbd{color:var(--teal)}
+  .btn{background:rgba(63,166,151,.15);border-color:rgba(63,166,151,.5);color:var(--teal);
+    font-family:inherit;font-size:13px;font-weight:600}
+  a{color:var(--teal)}
+
+  /* ---------- callouts ---------- */
+  .note,.warn,.danger,.why{border-radius:10px;padding:12px 15px;margin:13px 0;
+    font-size:14px;line-height:1.95;border-right:3px solid}
+  .note{background:rgba(63,166,151,.08);border-color:var(--teal)}
+  .warn{background:rgba(233,169,78,.09);border-color:var(--warn)}
+  .danger{background:rgba(227,107,107,.09);border-color:var(--danger)}
+  .why{background:rgba(255,255,255,.028);border-color:var(--text3)}
+  .note>b:first-child,.warn>b:first-child,.danger>b:first-child,.why>b:first-child{
+    display:block;margin-bottom:3px}
+  .note>b:first-child{color:var(--teal)}
+  .warn>b:first-child{color:var(--warn)}
+  .danger>b:first-child{color:var(--danger)}
+  .why>b:first-child{color:var(--text2)}
+
+  /* ---------- copy box ---------- */
+  .copybox{background:var(--card3);border:1px solid var(--line);border-radius:10px;
+    margin:11px 0;overflow:hidden}
+  .cb-head{display:flex;align-items:center;gap:10px;padding:7px 12px;
+    background:rgba(30,74,82,.4);border-bottom:1px solid var(--line)}
+  .cb-head span{flex:1;font-size:12.5px;color:var(--text2)}
+  .cb-head button{background:var(--teal);color:#06181A;border:none;border-radius:6px;
+    padding:4px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s}
+  .cb-head button:hover{background:var(--gold)}
+  .cb-head button.copied{background:var(--ok)}
+  .copybox pre{padding:11px 14px;margin:0;direction:ltr;text-align:left;
+    font-family:'Consolas','Courier New',monospace;font-size:12.5px;line-height:1.75;
+    color:#CFE3E1;white-space:pre-wrap;word-break:break-word;max-height:330px;overflow:auto}
+  .copybox pre.uy{direction:rtl;text-align:right;font-family:inherit;font-size:15px;line-height:1.95;color:var(--gold)}
+  .copybox pre.rtl{direction:rtl;text-align:right;font-family:inherit;font-size:14px;line-height:1.95}
+
+  /* ---------- tables ---------- */
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:right;vertical-align:top}
+  th{background:var(--card2);color:var(--gold);font-weight:600}
+  td.yes{color:var(--ok);font-weight:700;white-space:nowrap;text-align:center}
+  td.no{color:var(--text3);white-space:nowrap;text-align:center}
+
+  h3{font-size:15.5px;color:var(--gold);margin:20px 0 8px;font-weight:700;
+     padding-bottom:5px;border-bottom:1px solid rgba(30,74,82,.6)}
+  h3:first-child{margin-top:0}
+  .lead{color:var(--text2);font-size:14px;margin-bottom:12px}
+  footer{margin-top:34px;padding-top:20px;border-top:1px solid var(--line);
+    color:var(--text3);font-size:13px}
+  details{background:var(--card3);border:1px solid var(--line);border-radius:10px;
+    padding:11px 15px;margin:9px 0}
+  summary{cursor:pointer;color:var(--warn);font-weight:600;font-size:14px}
+  details p{margin-top:9px;font-size:13.5px;color:var(--text2);line-height:1.95}
+</style>
+</head>
+<body>
+
+<header><div class="wrap">
+  <h1>بىلىم خەزىنىسى → Microsoft Store</h1>
+  <p>ھېسابات ئېچىشتىن تارتىپ تەستىققىچە — قەدەممۇقەدەم</p>
+  <div class="meta">
+    <span class="pill">خىراجەت <b>0 دوللار</b></span>
+    <span class="pill">ئىش ۋاقتى <b>~1.5 سائەت</b></span>
+    <span class="pill">تەستىق <b>24–72 سائەت</b></span>
+    <span class="pill">نەشرى <b>v3.1.0</b></span>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<div class="progress">
+  <div class="bar"><i id="bar"></i></div>
+  <div class="pct"><b id="pct">0</b>% — <span id="cnt">0 / 0</span></div>
+</div>
+
+<!-- ══════════ ھالەت تاختىسى ══════════ -->
+<div class="board">
+  <h2>ھازىرقى ھالەت</h2>
+  <div class="row d"><span class="m">✅</span><span>دېتال GitHub تا ئاشكارا، v3.1.0 چىقىرىلدى</span></div>
+  <div class="row d"><span class="m">✅</span><span>ئىجازەتنامە، مەخپىيەتلىك سىياسىتى، مەنبە باياناتى تەييار</span></div>
+  <div class="row d"><span class="m">✅</span><span>Store بوغچىسىنىڭ سەپلىمىسى ۋە رەسىملىرى تەييار</span></div>
+  <div class="row d"><span class="m">✅</span><span>دېتال نامى <b style="color:var(--gold)">بىلىم خەزىنىسى</b> قىلىپ تەڭشەلدى، تىل كودى <code>ug-arab</code></span></div>
+  <div class="row"><span class="m">⬜</span><span><b>قالغىنى:</b> ھېسابات ئېچىش → نام بەند قىلىش → بوغچا ياساش → تىزىملىك تولدۇرۇش → يوللاش</span></div>
+</div>
+
+<div class="note">
+  <b>مۇشۇ قوللانمىنى قانداق ئىشلىتىسىز</b>
+  ھەر بىر قەدەمنى قىلىپ بولۇپ، يېنىدىكى كىچىك رامكىنى بەلگىلەڭ — يۇقىرىدىكى سىزىق ئىلگىرىلەيدۇ. كۆك «كۆچۈرۈش» كۇنۇپكىسى بار يەرلەردە <b>چوقۇم كۆچۈرۈپ چاپلاڭ، قولدا يازماڭ</b>.
+</div>
+
+<!-- ══════════ 0 ══════════ -->
+<div class="stage">
+  <div class="stage-head"><div class="num">0</div><h2>ئالدىن تەييارلاڭ</h2><div class="time">5 min</div></div>
+  <div class="stage-body">
+    <div class="step"><input type="checkbox"><label><b>پاسپورت ياكى كىملىك</b> — ئەسلى نۇسخىسى<span class="sub">Microsoft ئۇنى رەسىمگە تارتقۇزۇپ تەكشۈرىدۇ. كۆچۈرۈلمە ياكى ئېكران رەسىمى بولمايدۇ.</span></label></div>
+    <div class="step"><input type="checkbox"><label><b>كامېرىسى بار تېلېفون</b><span class="sub">كىملىك ۋە سەلفى تېلېفوندا تارتىلىدۇ. يورۇق جايدا، سايە چۈشمىگەن ھالەتتە بولۇڭ.</span></label></div>
+    <div class="step"><input type="checkbox"><label><b>ئېلخەت</b> <code>kelemdepter@gmail.com</code><span class="sub">Microsoft ھېساباتى تېخى يوق بولسا، تىزىملىتىش جەريانىدا شۇ يەردە شۇ ئېلخەت بىلەن ئېچىلىدۇ. Gmail بولسىمۇ بولىدۇ.</span></label></div>
+    <div class="step"><input type="checkbox"><label><b>كومپيۇتېرىڭىزدا دېتال ئىشلەپ تۇرسۇن</b><span class="sub">4-باسقۇچتا ئېكران رەسىمى تارتىمىز</span></label></div>
+  </div>
+</div>
+
+<!-- ══════════ 1 ══════════ -->
+<div class="stage">
+  <div class="stage-head"><div class="num">1</div><h2>ياسىغۇچى ھېساباتى ئېچىش</h2><div class="time">15–30 min</div></div>
+  <div class="stage-body">
+
+    <div class="danger">
+      <b>⚠️ ئىككى نەرسىنى ئېسىڭىزدە تۇتۇڭ</b>
+      <div style="margin-bottom:7px"><b style="color:var(--danger)">بىرىنچى —</b> چوقۇم تۆۋەندىكى ئادرېستىن باشلاڭ. بىۋاسىتە Partner Center غا كىرسىڭىز <u>كونا، پۇللۇق جەريان</u> چىقىپ قالىدۇ.</div>
+      <div><b style="color:var(--danger)">ئىككىنچى —</b> ھېسابات تىپىنى <code>Individual</code> قىلىڭ. كېيىن ئۇنى <code>Company</code> غا ئۆزگەرتكىلى <u>مەڭگۈ بولمايدۇ</u>. دېتالىڭىز پۇل ئالمىغاچقا Individual دەل توغرا.</div>
+    </div>
+
+    <div class="copybox">
+      <div class="cb-head"><span>تىزىملىتىش ئادرېسى — بىردىنبىر توغرا كىرىش ئېغىزى</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+      <pre>https://storedeveloper.microsoft.com</pre>
+    </div>
+
+    <div class="step"><input type="checkbox"><label>يۇقىرىقى ئادرېسنى برائۇزېردا ئېچىڭ</label></div>
+    <div class="step"><input type="checkbox"><label><span class="btn">Get started for free</span> نى بېسىڭ</label></div>
+    <div class="step"><input type="checkbox"><label><span class="btn">Individual developer (free)</span> نى تاللاڭ<span class="sub">Company ئەمەس. ھېچقانداق ھەق تەلەپ قىلىنمايدۇ.</span></label></div>
+    <div class="step"><input type="checkbox"><label>Microsoft ھېساباتىڭىز بىلەن كىرىڭ<span class="sub">ھېساب يوق بولسا <b>Create one!</b> نى بېسىپ <code>kelemdepter@gmail.com</code> بىلەن يېڭىسىنى ئېچىڭ</span></label></div>
+    <div class="step"><input type="checkbox"><label>دۆلەت/رايوننى تاللاڭ<span class="sub">ھازىر تۇرۇۋاتقان دۆلىتىڭىزنى تاللاڭ — كىملىكىڭىزدىكى بىلەن ماس كېلىشى كېرەك</span></label></div>
+    <div class="step"><input type="checkbox"><label><b>كىملىك تەكشۈرۈش</b> — كىملىك رەسىمى ۋە سەلفى<span class="sub">تېلېفونغا ئۇلانما كېلىدۇ. كىملىكنى تەكشى قويۇپ، يورۇق يەردە، ئىسسىز-چاڭسىز تارتىڭ. كۆزەينەك تاقىماڭ.</span></label></div>
+
+    <div class="step"><input type="checkbox"><label><b>Publisher display name</b> رامكىسىغا يېزىڭ:</label></div>
+    <div class="copybox">
+      <div class="cb-head"><span>تارقاتقۇچى ئىسمى</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+      <pre>Bilim Hezinisi</pre>
+    </div>
+    <div class="why">
+      <b>نېمىشقا بۇ يەردە لاتىنچە؟</b>
+      بۇ سىزنىڭ <b>تارقاتقۇچى</b> ئىسمىڭىز — Store دا «by Bilim Hezinisi» دەپ كۆرۈنىدۇ. دېتالنىڭ ئۆز نامى ئەمەس. دېتالنىڭ نامى ئۇيغۇرچە بولىدۇ، ئۇنى 2-باسقۇچتا قىلىمىز. بۇ ئىسىم بوغچىڭىزدىكى بىلەن ھەرپمۇھەرپ ئوخشاش بولۇشى شەرت، شۇڭا ئۆزگەرتمەڭ.
+    </div>
+
+    <div class="step"><input type="checkbox"><label>Contact / support email غا يېزىڭ: <code>kelemdepter@gmail.com</code><span class="sub">مەخپىيەتلىك سىياسىتىڭىزدىكى ئادرېس بىلەن ئوخشاش بولسۇن — پەرقلىق بولسا تەستىقتا سوئال چىقىدۇ</span></label></div>
+    <div class="step"><input type="checkbox"><label>كېلىشىمنى قوبۇل قىلىپ تاماملاڭ</label></div>
+    <div class="step"><input type="checkbox"><label>~5 مىنۇت كۈتۈپ بەتنى يېڭىلاڭ<span class="sub">✅ <b>Apps &amp; Games</b> رامكىسى كۆرۈنسە ھېسابات تەييار بولغان بولىدۇ</span></label></div>
+
+    <details><summary>❓ كىملىك رەسىمىم ۋە سەلفىم ئاشكارىلىنامدۇ؟</summary>
+      <p><b>ياق.</b> Microsoft نىڭ رەسمىي ھۆججىتىدە ئېنىق يېزىلغان: <i>«Your ID information is used solely for verification and processed securely per Microsoft's privacy standards. Microsoft may retain non-PII data like Publisher name and country...»</i> ــ يەنى كىملىك ئۇچۇرى <b>پەقەت دەلىللەش ئۈچۈنلا</b> ئىشلىتىلىدۇ. ئۇزۇن مۇددەت ساقلىنىدىغىنى پەقەت تارقاتقۇچى ئىسمى ۋە دۆلىتىدەك شەخسىي بولمىغان ئۇچۇرلار.</p>
+      <p>Store بېتىڭىزدە <b>پەقەت</b> مۇشۇلار كۆرۈنىدۇ: تارقاتقۇچى ئىسمى (<code>Bilim Hezinisi</code>)، دېتال نامى، چۈشەندۈرۈش، ئېكران رەسىملىرى، مەخپىيەتلىك سىياسىتىنىڭ ئۇلانمىسى. كىملىكىڭىز ياكى سەلفىڭىز ھېچقايسى بەتتە، ھېچكىمگە كۆرۈنمەيدۇ.</p>
+      <p><b>مۇھىم:</b> <code>Individual</code> ھېساباتتا ئالاقە ئۇچۇرى (ئادرېس، تېلېفون) ئېلان قىلىش <b>ئىختىيارىي</b>. <code>Company</code> ھېساباتتا بولسا <b>مەجبۇرىي</b> ھەم دېتال بېتىدىكى «Publisher Information» بۆلىكىدە ئاشكارا كۆرۈنىدۇ. بىز Individual نى تاللىغىنىمىزنىڭ يەنە بىر سەۋەبى مۇشۇ.</p>
+      <p>پەقەت بىر نەرسە ئاشكارا بولىدۇ: سىز يازغان <b>ئالاقە ئېلخېتى</b> (<code>kelemdepter@gmail.com</code>). ئۇ ئاللىبۇرۇن GitHub تىكى مەخپىيەتلىك سىياسىتىڭىزدىمۇ بار.</p>
+    </details>
+
+    <details><summary>❓ كىملىك تەكشۈرۈش ئۆتمىسە ياكى كۈتۈپ قالسام؟</summary>
+      <p>بىر نەچچە كۈن كۈتۈپ قالسىڭىز <code>storesupport@service.microsoft.com</code> غا ئىنگلىزچە يېزىڭ. كۆپىنچە ئەھۋالدا تەكشۈرۈش بىر نەچچە مىنۇتتا تاماملىنىدۇ.</p>
+    </details>
+  </div>
+</div>
+
+<!-- ══════════ 2 ══════════ -->
+<div class="stage">
+  <div class="stage-head"><div class="num">2</div><h2>ئىككى نامنى بەند قىلىش</h2><div class="time">10 min</div></div>
+  <div class="stage-body">
+
+    <p class="lead">دېتالىڭىزغا <b>ئىككى</b> نام بەند قىلىمىز. نام بەند قىلىش ھەقسىز ھەم سانى چەكلەنمىگەن. تەرتىپى مۇھىم — تۆۋەندە چۈشەندۈرىمەن.</p>
+
+    <h3>ا — ئالدى بىلەن لاتىنچە نامنى</h3>
+
+    <div class="step"><input type="checkbox"><label>Partner Center دا <span class="btn">Apps and games</span> غا كىرىڭ</label></div>
+    <div class="step"><input type="checkbox"><label><span class="btn">+ New product</span> → <span class="btn">MSIX or PWA app</span> نى تاللاڭ</label></div>
+    <div class="step"><input type="checkbox"><label>نام رامكىسىغا مۇشۇنى چاپلاپ <span class="btn">Check availability</span> نى بېسىڭ:</label></div>
+
+    <div class="copybox">
+      <div class="cb-head"><span>1-نام (لاتىنچە)</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+      <pre>Bilim Hezinisi</pre>
+    </div>
+
+    <div class="step"><input type="checkbox"><label>بوش بولسا <span class="btn">Reserve product name</span> نى بېسىڭ</label></div>
+
+    <div class="why">
+      <b>نېمىشقا لاتىنچىسى بىرىنچى؟</b>
+      مەھسۇلاتنى قايسى نام بىلەن قۇرسىڭىز، Microsoft شۇنىڭدىن <code>Package/Identity/Name</code> دېگەن ئىچكى بەلگىنى ياسايدۇ. ئۇ بەلگىنى كېيىن <b>مەڭگۈ ئۆزگەرتكىلى بولمايدۇ</b>. لاتىنچە بىلەن باشلىسىڭىز ئۇ پاكىز ھەرپلەردىن تۈزۈلىدۇ ھەم ھېچقانداق قورال بىلەن توقۇنۇشمايدۇ. ئىشلەتكۈچىلەر ئۇنى ھەرگىز كۆرمەيدۇ، شۇڭا لاتىنچە بولغىنى زىيان قىلمايدۇ.
+    </div>
+
+    <h3>ب — ئاندىن ئۇيغۇرچە نامنى</h3>
+
+    <p class="lead">مەھسۇلات قۇرۇلغاندىن كېيىن، شۇ دېتالنىڭ ئىچىدە:</p>
+
+    <div class="step"><input type="checkbox"><label>سول تىزىملىكتىن <span class="btn">Product management</span> → <span class="btn">Manage app names</span> غا كىرىڭ</label></div>
+    <div class="step"><input type="checkbox"><label><b>Reserve more names</b> بۆلىكىدىكى رامكىغا مۇشۇنى <b>كۆچۈرۈپ چاپلاڭ</b>:</label></div>
+
+    <div class="copybox">
+      <div class="cb-head"><span>2-نام (ئۇيغۇرچە) — ئىشلەتكۈچىلەر كۆرىدىغىنى مۇشۇ</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+      <pre class="uy">بىلىم خەزىنىسى</pre>
+    </div>
+
+    <div class="step"><input type="checkbox"><label><span class="btn">Check availability</span> → <span class="btn">Reserve product name</span></label></div>
+
+    <div class="danger">
+      <b>🔴 قولدا يازماڭ — چوقۇم كۆچۈرۈپ چاپلاڭ</b>
+      بۇ نام كېيىن بوغچىڭىز ئىچىدىكى نام بىلەن <b>ھەرپمۇھەرپ</b> ئوخشاش بولۇشى شەرت. قولدا يازغاندا كۆزگە كۆرۈنمەيدىغان بىر ھەرپ پەرقلىق چۈشۈپ قالسا، بوغچىنى يوللىغاندا رەت قىلىنىدۇ. يۇقىرىقى تېكىست دەل دېتالىڭىزدىكى نام (14 ھەرپ) — تەكشۈرۈپ قويدۇم.
+    </div>
+
+    <h3>ج — تەكشۈرۈڭ</h3>
+    <p class="lead"><b>Manage app names</b> بېتىدە ئىككى نام تىزىلىپ تۇرۇشى كېرەك:</p>
+    <table>
+      <tr><th>نام</th><th style="width:110px">ھالىتى</th></tr>
+      <tr><td><code>Bilim Hezinisi</code></td><td class="yes">Reserved</td></tr>
+      <tr><td style="color:var(--gold);font-weight:600">بىلىم خەزىنىسى</td><td class="yes">Reserved</td></tr>
+    </table>
+    <div class="step"><input type="checkbox"><label>ئىككى نامنىڭ ئىككىسىمۇ تىزىملىكتە تۇرۇپتۇ ✅</label></div>
+
+    <details><summary>❓ <bdi>Bilim Hezinisi</bdi> بەند بولۇپ قالسا؟</summary>
+      <p>مۇشۇلارنى سىناڭ: <code>Bilim Hezinisi Library</code> ياكى <code>Bilim Hezinisi - Uyghur Library</code>. ئۇيغۇرچىسىنىڭ بەند بولۇپ قېلىش ئېھتىماللىقى ئىنتايىن تۆۋەن.</p>
+    </details>
+
+    <div class="warn">
+      <b>⏳ 3 ئاي چېكى</b>
+      بەند قىلىنغان نام 3 ئاي ئىچىدە ئىشلىتىلمىسە ئۆزلۈكىدىن بىكار بولىدۇ. سىزنىڭ بوغچىڭىز بىر نەچچە كۈندە تەييار بولىدۇ، شۇڭا ئەندىشە قىلمىسىڭىزمۇ بولىدۇ.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 3 ══════════ -->
+<div class="stage">
+  <div class="stage-head"><div class="num">3</div><h2>ئىككى قۇرنى ئېلىپ بوغچا ياساش</h2><div class="time">10 min</div></div>
+  <div class="stage-body">
+
+    <div class="note">
+      <b>بۇ باسقۇچ پۈتۈن جەرياننىڭ ئۈزەڭگىسى</b>
+      Partner Center دېتالىڭىزغا ئىككى دانە بىردىنبىر بەلگە بېرىدۇ. شۇ ئىككىسى بولمىسا Store قوبۇل قىلىدىغان بوغچا ياسىغىلى بولمايدۇ.
+    </div>
+
+    <div class="step"><input type="checkbox"><label>سول تىزىملىكتىن <span class="btn">Product management</span> → <span class="btn">Product identity</span> غا كىرىڭ</label></div>
+    <div class="step"><input type="checkbox"><label>مۇشۇ <b>ئىككى قۇرنى</b> كۆچۈرۈڭ:<span class="sub"><code>Package/Identity/Name</code> ۋە <code>Package/Identity/Publisher</code> — بىرمۇ ھەرپ ئۆزگەرتمەڭ</span></label></div>
+
+    <div class="warn">
+      <b>ئۈچىنچى قۇرنى كۆچۈرمەڭ</b>
+      شۇ بەتتە <code>PublisherDisplayName</code> دېگەن ئۈچىنچى قۇرمۇ بار. ئۇ ئاللىبۇرۇن توغرا تەڭشەلگەن. پەقەت يۇقىرىقى ئىككى قۇرلا كېرەك.
+    </div>
+
+    <div class="step"><input type="checkbox"><label>دېتال قىسقۇچىدا Claude Code نى ئېچىپ، تۆۋەندىكىنى چاپلاڭ — <b>ئىككى قۇرنى ئۆز قىممىتىڭىز بىلەن ئالماشتۇرۇپ</b>:</label></div>
+
+    <div class="copybox">
+      <div class="cb-head"><span>Claude Code غا چاپلايدىغان بۇيرۇق</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+<pre>Here are my Partner Center identity values:
+
+  Package/Identity/Name       = &lt;PASTE THE NAME LINE HERE&gt;
+  Package/Identity/Publisher  = &lt;PASTE THE PUBLISHER LINE HERE&gt;
+
+Please:
+
+1. Put them into build.appx in package.json, replacing
+   REPLACE_WITH_PARTNER_CENTER_PACKAGE_IDENTITY_NAME and
+   CN=REPLACE_WITH_PARTNER_CENTER_PUBLISHER_ID.
+
+2. Do NOT change any other field in build.appx. In particular:
+   - displayName is "بىلىم خەزىنىسى" — this exact Uyghur string is
+     the reserved Store name and must stay byte-identical.
+   - languages is ["ug-arab", "en-US"] — plain "ug" is not on the
+     Store's supported-language list and can fail certification.
+   - publisherDisplayName stays "Bilim Hezinisi".
+   - applicationId and artifactName stay ASCII.
+
+3. Run `npm run dist-store`.
+
+4. Then unzip the produced .appx and show me the DisplayName lines of
+   AppxManifest.xml, so I can confirm the Uyghur name was written
+   correctly and did not turn into question marks or boxes.
+
+5. Report the full path and size of the .appx, then commit the
+   package.json change to main and push.
+
+If the build fails, show me the complete error and fix it — but never
+re-add the removed fonts and never break a feature.</pre>
+    </div>
+
+    <div class="step"><input type="checkbox"><label>Claude Code <code>dist\BilimHezinisi-Store-3.1.0.appx</code> نى ياساپ بەردى</label></div>
+    <div class="step"><input type="checkbox"><label>AppxManifest.xml دىكى نام <b>بىلىم خەزىنىسى</b> دەپ توغرا كۆرۈنۈۋاتىدۇ ✅<span class="sub">سوئال بەلگىسى (???) ياكى قۇتىچە كۆرۈنسە، ماڭا ئېيتىڭ</span></span></label></div>
+  </div>
+</div>
+
+<!-- ══════════ 4 ══════════ -->
+<div class="stage">
+  <div class="stage-head"><div class="num">4</div><h2>ئېكران رەسىمى تارتىش</h2><div class="time">15 min</div></div>
+  <div class="stage-body">
+
+    <p class="lead">كەم دېگەندە 1 پارچە شەرت، لېكىن <b>4–6 پارچە</b> بولسا دېتال كۆپ چۈشۈرۈلىدۇ. چوڭلۇقى <b>1366 × 768</b> دىن كىچىك بولمىسۇن، PNG بولسۇن.</p>
+
+    <div class="step"><input type="checkbox"><label>دېتالنى ئېچىپ كۆزنەكنى پۈتۈن ئېكرانغا چوڭايتىڭ</label></div>
+    <div class="step"><input type="checkbox"><label>ھەر بىر كۆرۈنۈشتە <kbd>Alt</kbd> + <kbd>PrtScn</kbd> بېسىڭ<span class="sub">بۇ پەقەت پائال كۆزنەكنى كۆچۈرىدۇ. ئاندىن Paint نى ئېچىپ <kbd>Ctrl</kbd>+<kbd>V</kbd> قىلىڭ ۋە PNG قىلىپ ساقلاڭ. ياكى <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> ئىشلىتىڭ.</span></label></div>
+
+    <h3>تارتىدىغان 6 كۆرۈنۈش</h3>
+    <div class="step"><input type="checkbox"><label>1 — كۇتۇپخانا كۆرۈنۈشى، كىتابلار تىزىلغان ھالەتتە</label></div>
+    <div class="step"><input type="checkbox"><label>2 — كىتاب ئوقۇش، ئىزدەش نەتىجىسى بەلگىلەنگەن ھالەتتە</label></div>
+    <div class="step"><input type="checkbox"><label>3 — قۇرئان بۆلىكى</label></div>
+    <div class="step"><input type="checkbox"><label>4 — خاتىرە دەپتىرى، رەڭلەنگەن خاتىرە بىلەن</label></div>
+    <div class="step"><input type="checkbox"><label>5 — OCR سىكانېرلانغان بەتتە ئىشلەۋاتقان ھالەت</label></div>
+    <div class="step"><input type="checkbox"><label>6 — سۈنئىي ئىدراك رامكىسى، جاۋاب بېرىۋاتقان ھالەت</label></div>
+
+    <div class="warn">
+      <b>رەسىمگە چۈشۈپ قالماسلىقى كېرەك</b>
+      شەخسىي ئۇچۇرىڭىز، ئېلخەتىڭىز، API ئاچقۇچىڭىز. كىتاب ئىسىملىرى كۆرۈنسە بولىدۇ.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 5 ══════════ -->
+<div class="stage">
+  <div class="stage-head"><div class="num">5</div><h2>تىزىملىك ئۇچۇرلىرىنى تولدۇرۇش</h2><div class="time">30–45 min</div></div>
+  <div class="stage-body">
+
+    <p class="lead">Partner Center دا دېتالىڭىزنى ئېچىپ <span class="btn">Submissions</span> غا كىرىڭ. ئالتە بۆلەك بار — تەرتىپ بويىچە تولدۇرۇپ، ھەر بىرىدە <span class="btn">Save</span> بېسىڭ. ھەممىسى يېشىل <b>Complete</b> بولغاندا يوللىغىلى بولىدۇ.</p>
+
+    <h3>ا — <bdi>Pricing and availability</bdi></h3>
+    <div class="step"><input type="checkbox"><label><bdi>Markets:</bdi> <b>All markets</b> <span class="sub">سۈكۈتتىكى ھالەت، ئۆزگەرتمىسىڭىزمۇ بولىدۇ</span></label></div>
+    <div class="step"><input type="checkbox"><label><bdi>Audience:</bdi> <b>Public audience</b></label></div>
+    <div class="step"><input type="checkbox"><label><bdi>Base price:</bdi> <b>Free</b></label></div>
+    <div class="step"><input type="checkbox"><label><bdi>Schedule:</bdi> <b>Release as soon as possible</b></label></div>
+
+    <h3>ب — <bdi>Properties</bdi></h3>
+    <div class="step"><input type="checkbox"><label><bdi>Category:</bdi> <b>Books &amp; reference</b><span class="sub">Subcategory قويۇلسا: E-reader</span></label></div>
+    <div class="step"><input type="checkbox"><label><bdi>Privacy policy URL</bdi> غا مۇشۇنى چاپلاڭ:</label></div>
+
+    <div class="copybox">
+      <div class="cb-head"><span>Privacy policy URL — مەجبۇرىي</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+      <pre>https://github.com/kelemdepter-rgb/BilimHezinisi-desktop/blob/main/PRIVACY.md</pre>
+    </div>
+
+    <div class="danger">
+      <b>ئالدىن سىناڭ</b>
+      بۇ ئۇلانمىنى برائۇزېرغا چاپلاپ ئېچىلىدىغانلىقىنى تەكشۈرۈڭ. ئېچىلمىسا Store دەرھال رەت قىلىدۇ — بۇ ئەڭ كۆپ ئۇچرايدىغان رەت قىلىش سەۋەبى.
+    </div>
+
+    <div class="step"><input type="checkbox"><label>ئۇلانما برائۇزېردا ئېچىلدى ✅</label></div>
+    <div class="step"><input type="checkbox"><label><bdi>Website:</bdi> <code>https://github.com/kelemdepter-rgb/BilimHezinisi-desktop</code></label></div>
+    <div class="step"><input type="checkbox"><label><bdi>Support contact:</bdi> <code>kelemdepter@gmail.com</code></label></div>
+    <div class="step"><input type="checkbox"><label><bdi>Product declarations</bdi> بۆلىكىدە <b>«This app can be installed without a network connection»</b> نى بەلگىلەڭ</label></div>
+
+    <h3>ج — <bdi>Age ratings</bdi> (IARC سوئالنامىسى)</h3>
+    <table>
+      <tr><th>سوئال</th><th style="width:70px">جاۋاب</th></tr>
+      <tr><td>زوراۋانلىق، جىنسىي مەزمۇن، زەھەر، قىمار، تىل بۇزۇقلۇقى</td><td class="no">ياق</td></tr>
+      <tr><td>دېتال ئىچىدە پۇل تۆلەش</td><td class="no">ياق</td></tr>
+      <tr><td>ئېلان كۆرسىتىش</td><td class="no">ياق</td></tr>
+      <tr><td>شەخسىي ئۇچۇر توپلاش ياكى ئورتاقلىشىش</td><td class="no">ياق</td></tr>
+      <tr><td>ئىشلەتكۈچىلەر ئارا ئالاقە / مەزمۇن ئورتاقلىشىش</td><td class="no">ياق</td></tr>
+      <tr><td><b>چەكلەنمىگەن تور زىيارىتى</b> <bdi>(unrestricted internet)</bdi></td><td class="yes">ھەئە</td></tr>
+      <tr><td><b>سۈنئىي ئىدراك ھاسىل قىلغان مەزمۇن</b> <bdi>(live generative AI)</bdi></td><td class="yes">ھەئە</td></tr>
+    </table>
+    <div class="step"><input type="checkbox"><label>سوئالنامىنى يۇقىرىقىدەك تولدۇردۇم</label></div>
+
+    <div class="danger">
+      <b>ئاخىرقى ئىككىسىنى چوقۇم «ھەئە» قىلىڭ</b>
+      دېتال تور ئادرېسىدىن بەت ئەكىرەلەيدۇ ھەم Gemini غا ئۇلىنالايدۇ. يوشۇرسىڭىز، كېيىن بايقالغاندا دېتال Store دىن ئېلىۋېتىلىدۇ. راست ئېيتىش زىيان قىلمايدۇ — نەتىجىسى يەنىلا «3+ / Everyone» بولىدۇ.
+    </div>
+
+    <h3>د — <bdi>Packages</bdi></h3>
+    <div class="step"><input type="checkbox"><label><code>dist\BilimHezinisi-Store-3.1.0.appx</code> نى سۆرەپ ئەكىرىڭ<span class="sub">«Validated» بولغۇچە كۈتۈڭ. خاتالىق چىقسا تولۇق تېكىستىنى Claude Code غا ياكى ماڭا كۆرسىتىڭ.</span></label></div>
+
+    <h3>ھ — <bdi>Store listings</bdi> — دېتال نامى</h3>
+
+    <div class="note">
+      <b>⭐ ئەڭ مۇھىم رامكا مۇشۇ</b>
+      ھەر بىر تىلنىڭ تىزىملىكىدە <b>Product name</b> دېگەن تاللاش رامكىسى بار. ئۇنى — <b>ئىنگلىزچىسىنىمۇ قوشۇپ</b> — <b style="color:var(--gold)">بىلىم خەزىنىسى</b> قىلىپ تاللاڭ. شۇنداق قىلسىڭىز Store دا ھەممە ئادەم ئۇيغۇرچە نامنى كۆرىدۇ.
+    </div>
+
+    <div class="step"><input type="checkbox"><label>تىل قوشۇڭ: <b>English (United States)</b></label></div>
+    <div class="step"><input type="checkbox"><label>ئۇنىڭ <bdi>Product name</bdi> رامكىسىنى <b>بىلىم خەزىنىسى</b> قىلىڭ</label></div>
+
+    <div class="copybox">
+      <div class="cb-head"><span>قىسقا چۈشەندۈرۈش (ئىنگلىزچە)</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+<pre>A free offline digital library for Uyghur readers. Import PDF, DOCX and TXT books, search inside them, take notes, run OCR, and read the Qur'an — all on your own computer.</pre>
+    </div>
+
+    <div class="copybox">
+      <div class="cb-head"><span>تولۇق چۈشەندۈرۈش (ئىنگلىزچە)</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+<pre>Bilim Hezinisi turns your books into a searchable personal library that works without an internet connection.
+
+Built for Uyghur, Arabic, Turkish and English text, it handles right-to-left typography and full-text search inside Arabic-script documents properly — something most general-purpose readers get wrong.
+
+FEATURES
+• Import and read PDF, DOCX, DOC, TXT, MD and HTML, or save an article from a web address
+• Full-text search across your whole library and inside a single book
+• Offline OCR for scanned PDFs and images, with Uyghur-specific correction
+• A notebook with highlighting, a format painter and automatic references back to the page
+• The Qur'an, offline: the Uthmani Hafs Arabic text with the Uyghur translation, searchable
+• Uyghur spell-checking
+• Export to PDF and DOCX with correct Uyghur typography
+• An optional AI assistant — add your own free Google Gemini API key to ask questions about the book you are reading
+
+Completely free. No advertising, no accounts, no tracking. Your library stays on your computer.
+
+This app contains AI-generated content. The optional AI assistant is powered by Google Gemini and only works after you enter your own API key. AI answers can be wrong — please check important material, especially religious content, against the original sources.</pre>
+    </div>
+
+    <div class="copybox">
+      <div class="cb-head"><span>ئىزدەش سۆزلىرى — 7 دانە، ئايرىم-ئايرىم كىرگۈزۈڭ</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+<pre>uyghur
+library
+quran
+ebook reader
+ocr
+offline
+kutupxana</pre>
+    </div>
+
+    <div class="step"><input type="checkbox"><label>ئېكران رەسىملىرىنى يۈكلەڭ (4-باسقۇچتا تارتقانلىرى)</label></div>
+
+    <h3>و — <bdi>Store listings</bdi> — ئۇيغۇرچە</h3>
+    <div class="step"><input type="checkbox"><label>يەنە بىر تىل قوشۇڭ: <b>Uyghur</b><span class="sub">تىزىملىكتە <code>ug-arab</code> ياكى <code>ug-CN</code> دەپ كۆرۈنىدۇ — ئەرەب يېزىقىدىكىسىنى تاللاڭ. تېپىلمىسا بۇ بۆلەكنى ئۆتكۈزۈۋەتسىڭىزمۇ بولىدۇ.</span></label></div>
+    <div class="step"><input type="checkbox"><label>ئۇنىڭ <bdi>Product name</bdi> رامكىسىنىمۇ <b>بىلىم خەزىنىسى</b> قىلىڭ</label></div>
+
+    <div class="copybox">
+      <div class="cb-head"><span>قىسقا چۈشەندۈرۈش (ئۇيغۇرچە)</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+<pre class="rtl">ئۇيغۇر ئوقۇرمەنلىرى ئۈچۈن ھەقسىز، تورسىز ئىشلەيدىغان رەقەملىك كۇتۇپخانا. PDF، DOCX، TXT كىتابلىرىنى ئەكىرىڭ، ئىچىدىن ئىزدەڭ، خاتىرە يېزىڭ، OCR ئىشلىتىڭ ۋە قۇرئان ئوقۇڭ.</pre>
+    </div>
+
+    <div class="copybox">
+      <div class="cb-head"><span>تولۇق چۈشەندۈرۈش (ئۇيغۇرچە)</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+<pre class="rtl">بىلىم خەزىنىسى ــ كىتابلىرىڭىزنى تورسىز ئىشلەيدىغان، ئىزدىگىلى بولىدىغان شەخسىي كۇتۇپخانىغا ئايلاندۇرىدۇ.
+
+ئۇيغۇرچە، ئەرەبچە، تۈركچە ۋە ئىنگلىزچە تېكىستلەرگە ماسلاشتۇرۇلغان بولۇپ، ئوڭدىن سولغا يېزىلىش ۋە ئەرەب يېزىقىدىكى ھۆججەتلەر ئىچىدىن ئىزدەشنى توغرا بىر تەرەپ قىلىدۇ.
+
+ئىقتىدارلىرى
+• PDF، DOCX، DOC، TXT، MD، HTML ھۆججەتلىرىنى ئەكىرىش ۋە ئوقۇش، ياكى تور ئادرېسىدىن ماقالە ساقلاش
+• پۈتۈن كۇتۇپخانا ۋە بىر كىتاب ئىچىدىن تولۇق تېكىست ئىزدەش
+• تورسىز OCR ــ سىكانېرلانغان PDF ۋە رەسىملەردىن خەت تونۇش، ئۇيغۇرچىغا خاس تۈزىتىش بىلەن
+• خاتىرە دەپتىرى ــ رەڭلەش، پىچىم كۆچۈرگۈچ ۋە خاتىرە ئالغان بەتكە ئاپتوماتىك پايدىلىنىش
+• قۇرئان كەرىم ــ ئوسمانىي ھەفس ئەرەبچە تېكىستى ۋە ئۇيغۇرچە تەرجىمىسى، تورسىز ۋە ئىزدىگىلى بولىدۇ
+• ئۇيغۇرچە ئىملا تەكشۈرۈش
+• توغرا ئۇيغۇرچە خەت تىزىلىشى بىلەن PDF ۋە DOCX قىلىپ چىقىرىش
+• ئىختىيارىي سۈنئىي ئىدراك ياردەمچىسى ــ ئۆزىڭىزنىڭ ھەقسىز Google Gemini API ئاچقۇچىنى قوشۇپ، ئوقۇۋاتقان كىتابىڭىز ھەققىدە سوئال سوراڭ
+
+پۈتۈنلەي ھەقسىز. ئېلان يوق، ھېسابات يوق، ئىزلاش يوق. كۇتۇپخانىڭىز ئۆز كومپيۇتېرىڭىزدا قالىدۇ.
+
+بۇ دېتالدا سۈنئىي ئىدراك ھاسىل قىلغان مەزمۇن بار. سۈنئىي ئىدراك ياردەمچىسى Google Gemini غا تايىنىدۇ ۋە پەقەت ئۆزىڭىزنىڭ API ئاچقۇچىنى كىرگۈزگەندىلا ئىشلەيدۇ. جاۋابلار خاتا بولۇشى مۇمكىن ــ مۇھىم مەزمۇنلارنى، بولۇپمۇ دىنىي مەزمۇنلارنى، چوقۇم ئەسلى مەنبەدىن تەكشۈرۈڭ.</pre>
+    </div>
+
+    <h3>ز — <bdi>Submission options</bdi></h3>
+    <div class="step"><input type="checkbox"><label><bdi>Notes for certification</bdi> غا مۇشۇنى چاپلاڭ:</label></div>
+
+    <div class="copybox">
+      <div class="cb-head"><span>تەكشۈرگۈچىگە ئىزاھات</span><button onclick="cp(this)">كۆچۈرۈش</button></div>
+<pre>Bilim Hezinisi is a free offline digital library for Uyghur-language books. No login or account is needed — the reviewer can open the app and use every feature immediately.
+
+The app's display name is in the Uyghur (Arabic) script; the Latin transliteration is "Bilim Hezinisi".
+
+To test the optional AI assistant, a free Google Gemini API key from https://aistudio.google.com must be pasted into Settings -> AI. The app is fully functional without it; all other features (import, search, OCR, notebook, Qur'an, export) work offline.
+
+The app stores all data locally in %USERPROFILE%\JamiyKutupxana. It sends no data to any server operated by the publisher.
+
+Third-party content (Qur'an text from the Tanzil Project under CC BY 3.0, the Uyghur translation published by QuranEnc.com, UKIJ fonts under LGPL, and the KFGQPC Uthmanic Hafs font under its free-redistribution licence) is redistributed unmodified with full attribution. See THIRD-PARTY-NOTICES.md in the source repository: https://github.com/kelemdepter-rgb/BilimHezinisi-desktop
+
+The app UI language is Uyghur (ug-arab).</pre>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 6 ══════════ -->
+<div class="stage">
+  <div class="stage-head"><div class="num">6</div><h2>ئاخىرقى تەكشۈرۈش ۋە يوللاش</h2><div class="time">5 min</div></div>
+  <div class="stage-body">
+    <div class="step"><input type="checkbox"><label>ئالتە بۆلەكنىڭ ھەممىسى يېشىل <b>Complete</b> بولدى</label></div>
+    <div class="step"><input type="checkbox"><label>Privacy policy ئۇلانمىسى برائۇزېردا ئېچىلىدۇ</label></div>
+    <div class="step"><input type="checkbox"><label>ھەر بىر تىلنىڭ <bdi>Product name</bdi> ى <b>بىلىم خەزىنىسى</b> قىلىنغان</label></div>
+    <div class="step"><input type="checkbox"><label>«live generative AI» بەلگىلەندى ھەم چۈشەندۈرۈشتىمۇ ئېيتىلدى</label></div>
+    <div class="step"><input type="checkbox"><label>باھاسى <b>Free</b>، بازارلار <b>All markets</b></label></div>
+    <div class="step"><input type="checkbox"><label><span class="btn">Submit for certification</span> نى بېسىڭ 🚀</label></div>
+
+    <div class="note">
+      <b>ئەمدى نېمە بولىدۇ؟</b>
+      تەستىق ئادەتتە <b>24–72 سائەت</b> ئىچىدە تاماملىنىدۇ. ئېلخەتىڭىزگە ئۇقتۇرۇش كېلىدۇ. ئۆتسە دېتالىڭىز Store دا <b>بىلىم خەزىنىسى</b> دەپ كۆرۈنىدۇ، قاچىلانغاندىمۇ شۇ نام بىلەن چىقىدۇ.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ خاتالىقلار ══════════ -->
+<div class="stage">
+  <div class="stage-head"><div class="num" style="background:var(--danger);color:#fff">?</div>
+    <h2>خاتالىق چىقسا — سەۋەبى ۋە چارىسى</h2><div class="time"></div></div>
+  <div class="stage-body">
+    <p class="lead">رەت قىلىنىش ياكى خاتالىق چىقىش نورمال ئىش. Partner Center قايسى ماددىغا خىلاپ كەلگەنلىكىنى ئېنىق يازىدۇ. قايتا يوللاشنىڭ جازاسى ياكى سان چېكى يوق.</p>
+
+    <details><summary>«The name found in the package is not one of your reserved app names»</summary>
+      <p>بوغچىڭىزدىكى نام بىلەن بەند قىلغان نام ئوخشىمىغان. تەكشۈرۈڭ: <b>Manage app names</b> دە <b>بىلىم خەزىنىسى</b> بارمۇ؟ بولمىسا 2-باسقۇچنىڭ «ب» قىسمىنى قايتا قىلىڭ. بار بولسا، Claude Code غا <code>package.json</code> دىكى <code>build.appx.displayName</code> نى تەكشۈرتۈپ، Partner Center دىكى بىلەن ھەرپمۇھەرپ سېلىشتۇرتۇڭ.</p>
+    </details>
+
+    <details><summary>«Package publisher name ... doesn't match»</summary>
+      <p><code>Package/Identity/Publisher</code> قۇرى خاتا كۆچۈرۈلگەن. <code>CN=</code> قىسمىنى قوشۇپ، پۈتۈن قۇرنى قايتا كۆچۈرۈڭ. بوشلۇق چۈشۈپ قالماسلىقىغا دىققەت قىلىڭ.</p>
+    </details>
+
+    <details><summary>دېتال نامى ??? ياكى قۇتىچە بولۇپ كۆرۈنسە</summary>
+      <p>ئۇيغۇرچە نام بوغچىغا خاتا كودلىنىپ يېزىلغان. Claude Code غا <code>package.json</code> نىڭ UTF-8 ھالەتتە ساقلانغانلىقىنى، BOM يوقلۇقىنى تەكشۈرتۈڭ، ئاندىن قايتا ياساتقۇزۇڭ.</p>
+    </details>
+
+    <details><summary>«Privacy policy URL is not accessible»</summary>
+      <p>ئۇلانما ئېچىلمايۋاتىدۇ. repo ئاشكارىمۇ؟ ئۇلانمىدا <code>main</code> دەپ يېزىلغانمۇ (<code>master</code> ئەمەس)؟ برائۇزېردا ئۆزىڭىز سىناپ بېقىڭ.</p>
+    </details>
+
+    <details><summary>«Unsupported language» ياكى بوغچا تارقىتىلمىسا</summary>
+      <p>تىل كودى مەسىلىسى. <code>languages</code> چوقۇم <code>["ug-arab", "en-US"]</code> بولۇشى كېرەك — يالغۇز <code>"ug"</code> Microsoft نىڭ قوللايدىغان تىزىملىكىدە يوق. بۇ ئاللىبۇرۇن تۈزىتىلگەن، لېكىن خاتالىق چىقسا شۇنى تەكشۈرۈڭ.</p>
+    </details>
+
+    <details><summary>باشقا خاتالىق چىقسا</summary>
+      <p>خاتالىق تېكىستىنى تولۇق كۆچۈرۈپ ياكى ئېكراننى رەسىمگە تارتىپ ماڭا كۆرسىتىڭ — بىللە ھەل قىلىمىز.</p>
+    </details>
+  </div>
+</div>
+
+<!-- ══════════ قىممەتلەر ══════════ -->
+<div class="stage">
+  <div class="stage-head"><div class="num" style="background:var(--teal);color:#06181A">≡</div>
+    <h2>بارلىق قىممەتلەر — تېز تېپىش ئۈچۈن</h2><div class="time"></div></div>
+  <div class="stage-body">
+    <table>
+      <tr><th style="width:200px">نەدە ئىشلىتىلىدۇ</th><th>قىممىتى</th></tr>
+      <tr><td>تىزىملىتىش ئادرېسى</td><td><code>storedeveloper.microsoft.com</code></td></tr>
+      <tr><td>ھېسابات تىپى</td><td><bdi>Individual developer (free)</bdi></td></tr>
+      <tr><td>تارقاتقۇچى ئىسمى</td><td><code>Bilim Hezinisi</code></td></tr>
+      <tr><td>1-نام (مەھسۇلات قۇرۇش)</td><td><code>Bilim Hezinisi</code></td></tr>
+      <tr><td>2-نام (كۆرۈنىدىغىنى)</td><td style="color:var(--gold);font-weight:600">بىلىم خەزىنىسى</td></tr>
+      <tr><td>تۈرى</td><td><bdi>Books &amp; reference</bdi></td></tr>
+      <tr><td>باھاسى</td><td><bdi>Free</bdi> / <bdi>All markets</bdi></td></tr>
+      <tr><td>ئالاقە ئېلخېتى</td><td><code>kelemdepter@gmail.com</code></td></tr>
+      <tr><td>بوغچا ھۆججىتى</td><td><code>dist\BilimHezinisi-Store-3.1.0.appx</code></td></tr>
+      <tr><td>تىل كودلىرى</td><td><code>ug-arab</code> ، <code>en-US</code></td></tr>
+    </table>
+  </div>
+</div>
+
+<footer>
+  <p>بۇ قوللانمىدىكى بارلىق تېكىستلەر دېتال قىسقۇچىڭىزدىكى <code>STORE-SUBMISSION.md</code> ھۆججىتىدىمۇ ساقلانغان.</p>
+  <p style="margin-top:7px">قايسى باسقۇچتا توختاپ قالسىڭىز، شۇ باسقۇچنىڭ نومۇرىنى ئېيتىڭ ياكى ئېكراننى رەسىمگە تارتىپ كۆرسىتىڭ.</p>
+</footer>
+
+</div>
+
+<script>
+function cp(btn){
+  var pre = btn.closest('.copybox').querySelector('pre');
+  var ta = document.createElement('textarea');
+  ta.value = pre.innerText;
+  ta.style.position='fixed'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand('copy'); }catch(e){}
+  document.body.removeChild(ta);
+  var old = btn.textContent;
+  btn.textContent = 'كۆچۈرۈلدى ✓'; btn.classList.add('copied');
+  setTimeout(function(){ btn.textContent = old; btn.classList.remove('copied'); }, 1600);
+}
+
+var boxes = Array.prototype.slice.call(document.querySelectorAll('.step input[type=checkbox]'));
+function refresh(){
+  var done = boxes.filter(function(b){ return b.checked; }).length;
+  var pct = boxes.length ? Math.round(done / boxes.length * 100) : 0;
+  document.getElementById('bar').style.width = pct + '%';
+  document.getElementById('pct').textContent = pct;
+  document.getElementById('cnt').textContent = done + ' / ' + boxes.length;
+}
+boxes.forEach(function(b){
+  b.addEventListener('change', function(){
+    b.closest('.step').classList.toggle('done', b.checked);
+    refresh();
+  });
+});
+refresh();
+</script>
+</body>
+</html>
