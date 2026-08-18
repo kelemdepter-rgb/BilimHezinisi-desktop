@@ -106,14 +106,14 @@
     "nodeGypRebuild": false,
     "copyright": "Copyright (c) 2026 Bilim Hezinisi",
     "appx": {
-      "identityName": "REPLACE_WITH_PARTNER_CENTER_PACKAGE_IDENTITY_NAME",
-      "publisher": "CN=REPLACE_WITH_PARTNER_CENTER_PUBLISHER_ID",
+      "identityName": "BilimHezinisi.BilimHezinisi",
+      "publisher": "CN=92DA40C5-9257-4E65-B590-0E8EF5BE2F1C",
       "publisherDisplayName": "Bilim Hezinisi",
       "applicationId": "BilimHezinisi",
-      "displayName": "Bilim Hezinisi",
+      "displayName": "بىلىم خەزىنىسى",
       "backgroundColor": "#07161D",
       "languages": [
-        "ug",
+        "ug-arab",
         "en-US"
       ],
       "showNameOnTiles": false,
