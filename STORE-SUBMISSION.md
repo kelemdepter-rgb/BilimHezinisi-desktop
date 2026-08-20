@@ -5,6 +5,19 @@ Store as a **free** download. Work through it top to bottom.
 
 Repository: <https://github.com/kelemdepter-rgb/BilimHezinisi-desktop>
 
+## Published
+
+**Live in the Microsoft Store:** <https://apps.microsoft.com/detail/9N2T15L4DX86>
+
+| | |
+| --- | --- |
+| Store ID | `9N2T15L4DX86` |
+| Package identity | `BilimHezinisi.BilimHezinisi` |
+| Version | 3.1.0 |
+| Submission 1 | passed certification on **2026-08-20** |
+
+The procedure below is kept for future submissions and updates.
+
 ---
 
 ## 0. Why MSIX and not the .exe installer

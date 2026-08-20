@@ -10,6 +10,7 @@ library for Windows.
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D4)
 ![Electron](https://img.shields.io/badge/Electron-28-47848F)
+[![Microsoft Store](https://img.shields.io/badge/Microsoft%20Store-9N2T15L4DX86-0078D4?logo=windows&logoColor=white)](https://apps.microsoft.com/detail/9N2T15L4DX86)
 
 ---
 
@@ -44,7 +45,12 @@ tracking**.
 
 ## Install
 
-**Microsoft Store** — *(link to be added once the listing is live)*
+**Microsoft Store** — recommended; installs and updates automatically, and
+needs no admin rights:
+
+[<img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get Bilim Hezinisi from the Microsoft Store" width="200">](https://apps.microsoft.com/detail/9N2T15L4DX86)
+
+Store ID: `9N2T15L4DX86`
 
 Or grab an installer from the [Releases](https://github.com/kelemdepter-rgb/BilimHezinisi-desktop/releases)
 page:
