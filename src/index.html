@@ -3038,9 +3038,9 @@ function raiExecute(req) {
 
   RAI.streamHandle = window.AI.askStream(req,
     (delta) => { buffer += delta; schedule(); },
-    (full, model) => {
+    (full, model, usage, meta) => {
       finalize(full);
-      raiStatus(model ? ('مودېل: ' + model) : '');
+      raiStatus(aiModelStatusText(model, meta));
       raiAskBusy(false);
     },
     (res) => {
@@ -3057,6 +3057,15 @@ function raiExecute(req) {
 }
 
 // --- status / answer rendering ----------------------------------------------
+
+// "مودېل: X" plus, when a backup key answered, which slot it was. Silent on
+// the primary key: only a CHANGE is worth mentioning.
+function aiModelStatusText(model, meta) {
+  if (!model) return '';
+  const slot = meta && typeof meta.slot === 'number' ? meta.slot : null;
+  const where = (slot && slot > 0) ? (' · ' + (AI_SLOT_LABEL[slot] || ('ئاچقۇچ ' + (slot + 1)))) : '';
+  return 'مودېل: ' + model + where;
+}
 
 function raiStatus(msg) {
   const s = document.getElementById('rai-status');
@@ -3322,7 +3331,7 @@ function naiStream(req, title, onDone) {
   naiBusy(() => { naiAbort(); naiStatus('توختىتىلدى'); if (buffer) finalize(buffer); });
   NAI.streamHandle = window.AI.askStream(req,
     (delta) => { buffer += delta; schedule(); },
-    (full, model) => { finalize(full); naiStatus(model ? ('مودېل: ' + model) : ''); },
+    (full, model, usage, meta) => { finalize(full); naiStatus(aiModelStatusText(model, meta)); },
     (res) => { NAI.streamHandle = null; finished = true; naiStatus(''); naiRenderError(res); },
     // Mid-stream failover — drop the partial answer and start over.
     (textSoFar) => { buffer = textSoFar || ''; schedule(); }
@@ -3597,7 +3606,7 @@ function naiChatSend() {
   naiBusy(() => { naiAbort(); if (buffer) { hist.push({ role: 'model', text: buffer }); } naiStatus('توختىتىلدى'); naiRenderChat(); });
   NAI.streamHandle = window.AI.chatStream(messages,
     (delta) => { buffer += delta; schedule(); },
-    (full, model) => { NAI.streamHandle = null; hist.push({ role: 'model', text: full || buffer }); naiStatus(model ? ('مودېل: ' + model) : ''); naiRenderChat(); },
+    (full, model, usage, meta) => { NAI.streamHandle = null; hist.push({ role: 'model', text: full || buffer }); naiStatus(aiModelStatusText(model, meta)); naiRenderChat(); },
     (res) => { NAI.streamHandle = null; naiStatus(''); const r = document.getElementById('nai-result'); if (r) { const e = document.createElement('div'); e.className = 'nai-bubble nai-bubble-model'; e.style.color = 'var(--text2)'; e.textContent = (res && res.error) || 'سوراش مەغلۇپ بولدى'; r.appendChild(e); } },
     // Mid-stream failover — clear the half-written bubble and start over.
     (textSoFar) => { buffer = textSoFar || ''; schedule(); }
