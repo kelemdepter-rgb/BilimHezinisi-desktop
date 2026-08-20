@@ -705,38 +705,62 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
         <input type="checkbox" id="aiEnabled" onchange="aiToggleEnabled()" style="cursor:pointer">
         <span style="font-size:13px;color:var(--text)">سۈنئىي ئىدراكنى ئىشلىتىش</span>
       </label>
-      <p style="font-size:11px;color:var(--text3);margin:0 22px 14px 0">قوزغاتسىڭىز ئوقۇغۇچتا AI كۇنۇپكىسى كۆرۈنىدۇ</p>
+      <p style="font-size:11px;color:var(--text3);margin:0 22px 12px 0">قوزغاتسىڭىز ئوقۇغۇچتا AI كۇنۇپكىسى كۆرۈنىدۇ</p>
+
+      <!-- Free-tier data-use disclosure. MUST stay above the key fields and
+           visible without clicking anything: nobody should be able to turn AI
+           on without first reading what Google does with free-tier content.
+           Wording follows Google's Gemini API Additional Terms (checked
+           2026-08-20, effective 2026-03-23). -->
+      <div id="aiPrivacyNote" style="border:1px solid rgba(200,140,0,.45);background:rgba(200,140,0,.08);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:11.5px;line-height:1.95;color:var(--text2);direction:rtl">
+        <div style="font-weight:700;color:var(--text);margin-bottom:4px">⚠ ئىشلىتىشتىن بۇرۇن بىلىۋېلىڭ — ئۇچۇرلىرىڭىز نەگە بارىدۇ؟</div>
+        <div>• سىز يازغان سوئال ۋە ئۇنىڭ بىلەن بىللە ئەۋەتىلگەن كىتاب/خاتىرە تېكىستى <b>Google</b> نىڭ مۇلازىمېتىرىغا بارىدۇ.</div>
+        <div>• <b>ھەقسىز</b> ئاچقۇچتا Google بۇ مەزمۇن ۋە جاۋابلارنى ئۆز مەھسۇلاتلىرىنى تەرەققىي قىلدۇرۇشقا ئىشلىتىدۇ، ھەمدە سۈپەتنى ياخشىلاش ئۈچۈن <b>Google نىڭ خىزمەتچىلىرى (ئادەم) ئوقۇپ، بەلگە قويۇپ بىر تەرەپ قىلىشى مۇمكىن</b>.</div>
+        <div>• billing ئوچۇق (پۇللۇق) ئاچقۇچتا Google بۇنداق قىلمايدۇ — سوئال ۋە جاۋابلىرىڭىزنى مەھسۇلات ياخشىلاشقا ئىشلەتمەيدۇ.</div>
+        <div>• <b>دىنىي ياكى شەخسىي مەزمۇن</b> ئەۋەتىشتىن بۇرۇن بۇنى ئويلىشىڭ.</div>
+        <div>• بۇ دېتالنىڭ ئۆزى ئۇلارنى <b>كۆرمەيدۇ، ساقلىمايدۇ، خاتىرىلىمەيدۇ</b> — ھەممىسى كومپيۇتېرىڭىزدىلا قالىدۇ. ئاچقۇچىڭىزمۇ مۇشۇ كومپيۇتېردا ساقلىنىدۇ.</div>
+        <div>• سۈنئىي ئىدراك <b>ئىختىيارىي</b>: ئىشلەتمىسىڭىزمۇ كىتاب ئوقۇش، ئىزدەش، OCR، خاتىرە ۋە قۇرئان بۆلىكى تولۇق ئىشلەيدۇ.</div>
+        <div style="margin-top:4px"><a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener" style="color:var(--acc)">Google نىڭ شەرتلىرىنى ئوقۇش ↗</a></div>
+      </div>
 
       <div class="fl">
-        <label>Gemini API ئاچقۇچى</label>
+        <label>Gemini API ئاچقۇچى <span style="color:var(--text3);font-weight:400">(ئاساسىي — ئورۇن 1)</span></label>
         <input type="password" id="aiKey" class="inp" dir="ltr" placeholder="AIza... / AQ..." autocomplete="off" spellcheck="false">
       </div>
-      <p style="font-size:11px;color:var(--text3);margin-bottom:10px">ھەقسىز API ئاچقۇچىنى <b>aistudio.google.com</b> تور بېتىنىڭ <b>«Get API key»</b> بۆلىكىدىن ھاسىل قىلىپ كۆچۈرۈپ، بۇ يەرگە چاپلاڭ. (كونا ئاچقۇچلار «AIza» بىلەن، يېڭىلىرى «AQ.» بىلەن باشلىنىدۇ)</p>
-      <div style="display:flex;gap:8px;margin-bottom:10px">
+      <div id="aiKeyB0Res" style="font-size:11px;color:var(--text3);min-height:15px;margin:2px 0 4px"></div>
+      <p style="font-size:11px;color:var(--text3);margin-bottom:10px">ھەقسىز API ئاچقۇچىنى <b>aistudio.google.com</b> تور بېتىنىڭ <b>«Get API key»</b> بۆلىكىدىن ھاسىل قىلىپ كۆچۈرۈپ، بۇ يەرگە چاپلاڭ. (كونا ئاچقۇچلار «AIza» بىلەن، يېڭىلىرى «AQ.» بىلەن باشلىنىدۇ — ئىككىلىسى بولىدۇ)</p>
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <button onclick="aiSaveKey()" class="hbtn p">ساقلاش</button>
         <button onclick="aiTestConnection()" class="hbtn" id="aiTestBtn">باغلىنىشنى سىناش</button>
+        <button onclick="aiTestAllKeys()" class="hbtn" id="aiTestAllBtn">ھەممە ئاچقۇچنى سىناش</button>
       </div>
       <div id="aiTestResult" style="font-size:12px;color:var(--text2);min-height:18px;margin-bottom:10px"></div>
 
       <!-- Backup Gemini API keys — automatic failover when the main key is busy (429). -->
       <div style="border-top:1px solid rgba(128,128,128,.25);margin:6px 0 12px"></div>
       <label style="font-size:13px;font-weight:600;color:var(--text)">زاپاس Gemini API ئاچقۇچلىرى</label>
-      <p style="font-size:11px;color:var(--text3);margin:4px 0 10px">ئەگەر يۇقىرىدىكى Gemini API ئاچقۇچى ئالدىراش، ھەققى توشقان ياكى ئىناۋەتسىز بولۇپ قالسا، زاپاس ئاچقۇچقا ئاپتوماتىك ئالمىشىدۇ. ھەر بىر زاپاس ئاچقۇچنى ھاسىل قىلغاندا چوقۇم «<b>Choose an imported project</b>» دىن ئوخشىمىغان «<b>project</b>» بەلگىلەپ ھاسىل قىلىڭ. شۇنداق بولغاندا، ھەربىر Gemini API مۇستەقىل ھەققى بولىدۇ.</p>
+      <p style="font-size:11px;color:var(--text3);margin:4px 0 10px">ئەگەر يۇقىرىدىكى Gemini API ئاچقۇچى ئالدىراش، ھەققى توشقان ياكى ئىناۋەتسىز بولۇپ قالسا، زاپاس ئاچقۇچقا <b>ئاپتوماتىك</b> ئالمىشىدۇ — سىز ھېچنېمە قىلمايسىز، تاللىغان <b>مودېلىڭىز ئۆزگەرمەيدۇ</b>، پەقەت ئاچقۇچلا ئالمىشىدۇ. ھەر بىر زاپاس ئاچقۇچنى ھاسىل قىلغاندا چوقۇم «<b>Choose an imported project</b>» دىن ئوخشىمىغان «<b>project</b>» بەلگىلەپ ھاسىل قىلىڭ. شۇنداق بولغاندا، ھەربىر Gemini API مۇستەقىل ھەققى بولىدۇ (ھەقسىز ھەق ھەر بىر project غا ئايرىم ھېسابلىنىدۇ).</p>
       <div class="fl"><label>زاپاس ئاچقۇچ 1</label><input type="password" id="aiKeyB1" class="inp" dir="ltr" placeholder="AIza... / AQ..." autocomplete="off" spellcheck="false"></div>
       <div id="aiKeyB1Res" style="font-size:11px;color:var(--text3);min-height:15px;margin:2px 0 6px"></div>
       <div class="fl"><label>زاپاس ئاچقۇچ 2</label><input type="password" id="aiKeyB2" class="inp" dir="ltr" placeholder="AIza... / AQ..." autocomplete="off" spellcheck="false"></div>
       <div id="aiKeyB2Res" style="font-size:11px;color:var(--text3);min-height:15px;margin:2px 0 6px"></div>
       <div class="fl"><label>زاپاس ئاچقۇچ 3</label><input type="password" id="aiKeyB3" class="inp" dir="ltr" placeholder="AIza... / AQ..." autocomplete="off" spellcheck="false"></div>
       <div id="aiKeyB3Res" style="font-size:11px;color:var(--text3);min-height:15px;margin:2px 0 10px"></div>
-      <div style="display:flex;gap:8px;margin-bottom:12px">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
         <button onclick="aiSaveBackupKeys()" class="hbtn p" id="aiSaveBackupBtn">ساقلاش ۋە سىناش</button>
       </div>
+      <!-- Which slot answered last — so a user who notices different speed or
+           quota behaviour can see why, without any noisy notification. -->
+      <div id="aiSlotStatus" style="font-size:11px;color:var(--text3);margin-bottom:12px"></div>
 
       <div class="fl">
         <label>مودېل</label>
         <select id="aiModel" class="inp" style="cursor:pointer;direction:ltr" onchange="aiChangeModel()"></select>
       </div>
-      <div id="aiModelDesc" style="font-size:10.5px;color:var(--text3);line-height:1.9;margin:2px 0 8px;direction:rtl"></div>
+      <!-- Shown ONLY after a retired model ID was migrated on this open. -->
+      <div id="aiModelMigrated" style="display:none;font-size:11.5px;line-height:1.9;border:1px solid rgba(46,125,50,.45);background:rgba(46,125,50,.08);border-radius:8px;padding:8px 10px;margin:6px 0 8px;color:var(--text2);direction:rtl"></div>
+      <div id="aiModelDesc" style="font-size:10.5px;color:var(--text3);line-height:1.9;margin:2px 0 6px;direction:rtl"></div>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 10px">«ھەقسىز» مودېللار Google نىڭ ھەقسىز ھەققى بىلەن ئىشلەيدۇ. «پۇللۇق» مودېل ئۈچۈن Google ھېساباتىڭىزدا billing ئوچۇق بولۇشى شەرت. باھالار ئۆزگىرىپ تۇرىدۇ — <a href="https://ai.google.dev/pricing" target="_blank" rel="noopener" style="color:var(--acc)">Google نىڭ باھا بېتى ↗</a></p>
       <div id="aiUsage" style="font-size:11px;color:var(--text3);margin-bottom:12px">بۈگۈن ئىشلىتىلگەن: 0</div>
 
       <div class="fa">
@@ -2367,13 +2391,24 @@ async function showSettings() {
       });
       ['aiKeyB1Res', 'aiKeyB2Res', 'aiKeyB3Res'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = ''; });
     } catch (_) {}
+    // Model load — this is the ONE place a retired model ID gets migrated to
+    // its successor, and the user is TOLD when it happens (never silent).
     const sel = document.getElementById('aiModel');
-    const cur = await window.AI.getModel();
+    let cur = await window.AI.getModel();
+    let migratedFrom = null;
+    try {
+      const ms = await window.AI.loadModelSettings();
+      if (ms && ms.model) cur = ms.model;
+      migratedFrom = (ms && ms.migratedFrom) || null;
+    } catch (_) {}
     const models = (window.AI.SELECTABLE_MODELS || window.AI.MODEL_FALLBACKS || []).slice();
     if (cur && models.indexOf(cur) === -1) models.unshift(cur);
     const info = window.AI.MODEL_INFO || {};
     // Free/paid tag on each option, derived from the MODEL_INFO line so the
-    // selector and the description below can never disagree.
+    // selector and the description below can never disagree. A native <select>
+    // shows the selected option's own text, so the tag is visible BOTH in the
+    // closed control and in the open list — a user can never discover a model
+    // is paid only by hitting an error.
     const feeTag = m => {
       const d = String(info[m] || '');
       if (d.indexOf('پۇللۇق') !== -1) return ' — پۇللۇق';
@@ -2385,8 +2420,23 @@ async function showSettings() {
     document.getElementById('aiModelDesc').innerHTML = models
       .map(m => `<div><b style="font-family:monospace;font-size:10px;color:var(--text2)">${sanitize(m)}</b> — ${sanitize(info[m] || '')}</div>`)
       .join('');
+    // Visible migration notice: which model was retired, what replaced it, why.
+    const mig = document.getElementById('aiModelMigrated');
+    if (mig) {
+      if (migratedFrom) {
+        mig.style.display = '';
+        mig.innerHTML = '✔ <b>مودېلىڭىز يېڭىلاندى.</b> بۇرۇن تاللىغان «<b>' + sanitize(migratedFrom)
+          + '</b>» مودېلىنى Google توختاتقانلىقى ئۈچۈن، ئۇنىڭ ئورنىغا «<b>' + sanitize(cur)
+          + '</b>» تاللاندى. خالىسىڭىز تۆۋەندىكى تىزىملىكتىن باشقىسىنى تاللىسىڭىز بولىدۇ.';
+        try { await window.AI.ackModelMigration(); } catch (_) {}
+      } else {
+        mig.style.display = 'none';
+        mig.innerHTML = '';
+      }
+    }
     document.getElementById('aiUsage').textContent = 'بۈگۈن ئىشلىتىلگەن: ' + (await window.AI.getTodayUsage());
     document.getElementById('aiTestResult').textContent = '';
+    aiRenderSlotStatus();
   } catch (e) {
     console.warn('[settings] load failed:', e);
   }
@@ -2457,21 +2507,19 @@ async function aiSaveBackupKeys() {
     const masks = (await window.AI.getBackupKeys()) || [];
     ids.forEach((id, i) => { const el = document.getElementById(id); if (el) { el.value = ''; el.placeholder = masks[i] || 'AIza... / AQ...'; } });
     toast('زاپاس ئاچقۇچلار ساقلاندى — سىنىلىۋاتىدۇ…', 's');
-    // Verify each slot that now holds a key (backup slots are 1..3).
+    // Verify each slot that now holds a key (backup slots are 1..3). Each slot
+    // reports its OWN verdict — valid / invalid / quota / paid-only.
     for (let i = 0; i < 3; i++) {
       const res = document.getElementById(resIds[i]);
       if (!masks[i]) { if (res) res.textContent = ''; continue; }
       if (res) { res.style.color = ''; res.textContent = '⏳ سىنىلىۋاتىدۇ…'; }
       try {
-        const r = await window.AI.testKeySlot(i + 1);
-        if (res) {
-          if (r && r.ok) { res.style.color = '#2e7d32'; res.textContent = '✓ ئىشلەۋاتىدۇ'; }
-          else { res.style.color = '#c62828'; res.textContent = '✗ ' + ((r && r.message) || 'ئىشلىمىدى'); }
-        }
+        aiShowSlotResult(i + 1, await window.AI.testKeySlot(i + 1));
       } catch (e) {
         if (res) { res.style.color = '#c62828'; res.textContent = '✗ ' + ((e && e.message) || 'خاتالىق'); }
       }
     }
+    aiRenderSlotStatus();
   } catch (e) {
     console.warn('[settings] backup keys save failed:', e);
     toast('ساقلاشتا خاتالىق', 'e');
@@ -2489,6 +2537,21 @@ async function aiTestConnection() {
   out.textContent = 'سىنىلىۋاتىدۇ...';
   try {
     const r = await window.AI.test();
+    // Mirror the verdict onto the primary slot's own line so all four slots
+    // are readable at a glance.
+    aiShowSlotResult(0, (r && r.ok) ? { status: 'valid' } : r);
+    aiRenderSlotStatus();
+    if (r && r.paidOnlyModel) {
+      // The key is fine; the SELECTED model needs billing. Amber, named, and
+      // with both ways out — never a silent switch to a cheaper model.
+      out.innerHTML = '';
+      const span = document.createElement('span');
+      span.textContent = '⚠ ' + (r.message || '');
+      span.style.color = '#B8860B';
+      out.appendChild(span);
+      toast('بۇ مودېل پۇللۇق — billing كېرەك', 'e');
+      return;
+    }
     if (r && r.ok) {
       // Strict model selection: test() probes ONLY the selected model, so
       // r.model IS the model that answered (no auto-fallback re-read).
@@ -2533,12 +2596,115 @@ async function aiTestConnection() {
 
 async function aiChangeModel() {
   const m = document.getElementById('aiModel').value;
+  const paid = (window.AI.PAID_ONLY_MODELS || []).indexOf(m) !== -1;
   try {
     await window.AI.setModel(m);
-    toast('مودېل: ' + m, 'i');
+    // Say up-front that this one needs billing — better than letting the
+    // first question fail. The choice is still the user's; nothing switches.
+    toast(paid ? ('مودېل: ' + m + ' (پۇللۇق — billing ئوچۇق ئاچقۇچ كېرەك)') : ('مودېل: ' + m), paid ? 'i' : 'i');
+    // The per-slot verdicts were measured against the PREVIOUS model, so they
+    // no longer mean anything — clear them rather than show a stale ✓.
+    ['aiKeyB0Res', 'aiKeyB1Res', 'aiKeyB2Res', 'aiKeyB3Res'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.textContent = ''; el.style.color = ''; }
+    });
+    aiRenderSlotStatus();
   } catch (e) {
     console.warn('[settings] setModel failed:', e);
     toast('ساقلاشتا خاتالىق', 'e');
+  }
+}
+
+// ---- key slots: labels, per-slot verdicts, and the active-slot indicator ----
+
+const AI_SLOT_LABEL = ['ئاساسىي ئاچقۇچ', 'زاپاس ئاچقۇچ 1', 'زاپاس ئاچقۇچ 2', 'زاپاس ئاچقۇچ 3'];
+
+// One place decides how a probe verdict looks, so all four slots are judged
+// and coloured identically. Green = usable now, amber = key fine but this
+// request can't run, red = the key itself is the problem.
+function aiSlotVerdict(r) {
+  const st = (r && r.status) || (r && r.ok ? 'valid' : 'error');
+  const msg = (r && r.message) || '';
+  switch (st) {
+    case 'valid':      return { icon: '✓', color: '#2e7d32', text: 'ئىشلەۋاتىدۇ' };
+    case 'quota':      return { icon: '⚠', color: '#B8860B', text: msg || 'ھەققى توشۇپ تۇرۇپتۇ' };
+    case 'paid_only':  return { icon: '⚠', color: '#B8860B', text: msg || 'بۇ مودېل پۇللۇق' };
+    case 'busy':       return { icon: '⚠', color: '#B8860B', text: msg || 'مودېل ئالدىراش' };
+    case 'empty':      return { icon: '⚠', color: '#B8860B', text: msg || 'جاۋاب بوش' };
+    case 'invalid':    return { icon: '✗', color: '#c62828', text: msg || 'ئاچقۇچ ئىناۋەتسىز' };
+    case 'model_gone': return { icon: '✗', color: '#c62828', text: msg || 'مودېل ئىشلىمىدى' };
+    case 'offline':    return { icon: '✗', color: '#c62828', text: msg || 'ئىنتېرنېت يوق' };
+    case 'none':       return { icon: '',  color: '',        text: '' };
+    default:           return { icon: '✗', color: '#c62828', text: msg || 'ئىشلىمىدى' };
+  }
+}
+
+function aiShowSlotResult(slot, r) {
+  const el = document.getElementById('aiKeyB' + slot + 'Res');
+  if (!el) return;
+  const v = aiSlotVerdict(r);
+  el.style.color = v.color;
+  el.textContent = v.icon ? (v.icon + ' ' + v.text) : '';
+}
+
+// Unobtrusive line: which slot is answering right now / answered last. Users
+// who notice a change in speed or quota behaviour can see why.
+async function aiRenderSlotStatus() {
+  const el = document.getElementById('aiSlotStatus');
+  if (!el) return;
+  try {
+    const s = await window.AI.getKeyStatus();
+    if (!s || !s.count) { el.textContent = ''; return; }
+    const active = (s.activeSlot != null) ? s.activeSlot : s.lastGoodSlot;
+    if (active == null) {
+      el.textContent = 'تەڭشەلگەن ئاچقۇچ سانى: ' + s.count;
+      return;
+    }
+    el.textContent = 'تەڭشەلگەن ئاچقۇچ سانى: ' + s.count
+      + ' · ھازىر ئىشلىتىلىۋاتقىنى: ' + (AI_SLOT_LABEL[active] || ('ئورۇن ' + (active + 1)));
+  } catch (_) { el.textContent = ''; }
+}
+
+// Test every configured slot, one at a time, showing each verdict as it lands.
+async function aiTestAllKeys() {
+  const btn = document.getElementById('aiTestAllBtn');
+  const out = document.getElementById('aiTestResult');
+  if (btn) btn.disabled = true;
+  if (out) { out.style.color = ''; out.textContent = 'ھەممە ئاچقۇچ سىنىلىۋاتىدۇ…'; }
+  [0, 1, 2, 3].forEach(i => {
+    const el = document.getElementById('aiKeyB' + i + 'Res');
+    if (el) { el.style.color = ''; el.textContent = '⏳ سىنىلىۋاتىدۇ…'; }
+  });
+  try {
+    const res = await window.AI.testAllKeys();
+    const list = (res && res.results) || [];
+    list.forEach(r => aiShowSlotResult(r.slot, r));
+    // Blank out slots that hold no key at all.
+    [0, 1, 2, 3].forEach(i => {
+      if (!list.some(r => r.slot === i)) {
+        const el = document.getElementById('aiKeyB' + i + 'Res');
+        if (el) el.textContent = '';
+      }
+    });
+    if (out) {
+      if (res && res.allPaidOnly) {
+        // Every key lacks billing AND a paid-only model is selected: say that
+        // plainly instead of four identical quota complaints.
+        out.style.color = '#B8860B';
+        out.textContent = '⚠ ' + res.summary;
+      } else if (res && res.ok) {
+        out.style.color = '#2e7d32';
+        out.textContent = '✓ ئىشلەۋاتقان ئاچقۇچ بار (مودېل: ' + ((res && res.model) || '') + ')';
+      } else {
+        out.style.color = '#c62828';
+        out.textContent = '✗ ھېچقايسى ئاچقۇچ ئىشلىمىدى';
+      }
+    }
+    aiRenderSlotStatus();
+  } catch (e) {
+    if (out) { out.style.color = '#c62828'; out.textContent = '✗ ' + ((e && e.message) || 'سىناشتا خاتالىق'); }
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -2883,7 +3049,10 @@ function raiExecute(req) {
       raiAskBusy(false);
       raiStatus('');
       raiRenderError(res);
-    }
+    },
+    // A key ran out mid-answer and the main process restarted on the next
+    // one: throw away what was rendered instead of splicing two answers.
+    (textSoFar) => { buffer = textSoFar || ''; schedule(); }
   );
 }
 
@@ -2940,6 +3109,28 @@ function raiRenderError(res) {
     sw.addEventListener('click', () => showSettings());
     ans.appendChild(sw);
   }
+  aiAppendPaidOnlyActions(ans, res);
+}
+
+// The chosen model is paid-only and no key has billing. The message from the
+// main process already names the model; add the two ways out as real controls
+// — pick another model (Settings) or open Google's billing page. The model is
+// NEVER switched for the user.
+function aiAppendPaidOnlyActions(container, res) {
+  if (!container || !res || !res.paidOnlyModel) return;
+  const pick = document.createElement('button');
+  pick.type = 'button'; pick.className = 'hbtn';
+  pick.textContent = 'ھەقسىز مودېل تاللاش';
+  pick.style.marginInlineStart = '8px';
+  pick.addEventListener('click', () => showSettings());
+  container.appendChild(pick);
+  const link = document.createElement('a');
+  link.href = (window.AI && window.AI.URL_BILLING) || 'https://ai.google.dev/gemini-api/docs/billing';
+  link.target = '_blank';
+  link.rel = 'noopener';
+  link.textContent = 'Google billing ↗';
+  link.style.cssText = 'margin-inline-start:10px;font-size:12px;color:var(--acc)';
+  container.appendChild(link);
 }
 
 // Minimal markdown → HTML for AI answers (the prompts ask for Markdown with
@@ -3101,6 +3292,7 @@ function naiRenderError(res) {
     sw.addEventListener('click', () => showSettings());
     r.appendChild(sw);
   }
+  aiAppendPaidOnlyActions(r, res);
 }
 
 // Generic one-shot streaming runner (ports raiExecute), rAF-debounced.
@@ -3131,7 +3323,9 @@ function naiStream(req, title, onDone) {
   NAI.streamHandle = window.AI.askStream(req,
     (delta) => { buffer += delta; schedule(); },
     (full, model) => { finalize(full); naiStatus(model ? ('مودېل: ' + model) : ''); },
-    (res) => { NAI.streamHandle = null; finished = true; naiStatus(''); naiRenderError(res); }
+    (res) => { NAI.streamHandle = null; finished = true; naiStatus(''); naiRenderError(res); },
+    // Mid-stream failover — drop the partial answer and start over.
+    (textSoFar) => { buffer = textSoFar || ''; schedule(); }
   );
 }
 
@@ -3314,7 +3508,9 @@ function naiProofread() {
           naiStatus(model ? ('مودېل: ' + model) : '');
           naiProofreadFinish(mergedMap);
         },
-        (res) => { inner = null; NAI.streamHandle = null; naiStatus(''); naiRenderError(res); }
+        (res) => { inner = null; NAI.streamHandle = null; naiStatus(''); naiRenderError(res); },
+        // Restarted on another key: drop this batch's partial text.
+        (textSoFar) => { if (cancelled) return; buffer = textSoFar || ''; show(buffer); }
       );
     };
     runBatch(0);
@@ -3402,7 +3598,9 @@ function naiChatSend() {
   NAI.streamHandle = window.AI.chatStream(messages,
     (delta) => { buffer += delta; schedule(); },
     (full, model) => { NAI.streamHandle = null; hist.push({ role: 'model', text: full || buffer }); naiStatus(model ? ('مودېل: ' + model) : ''); naiRenderChat(); },
-    (res) => { NAI.streamHandle = null; naiStatus(''); const r = document.getElementById('nai-result'); if (r) { const e = document.createElement('div'); e.className = 'nai-bubble nai-bubble-model'; e.style.color = 'var(--text2)'; e.textContent = (res && res.error) || 'سوراش مەغلۇپ بولدى'; r.appendChild(e); } }
+    (res) => { NAI.streamHandle = null; naiStatus(''); const r = document.getElementById('nai-result'); if (r) { const e = document.createElement('div'); e.className = 'nai-bubble nai-bubble-model'; e.style.color = 'var(--text2)'; e.textContent = (res && res.error) || 'سوراش مەغلۇپ بولدى'; r.appendChild(e); } },
+    // Mid-stream failover — clear the half-written bubble and start over.
+    (textSoFar) => { buffer = textSoFar || ''; schedule(); }
   );
 }
 function naiChatClear() { S.notes.chatHistory = []; naiRenderChat(); }
