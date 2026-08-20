@@ -21,28 +21,36 @@
   // selection: the main process only ever calls the model the user picked —
   // MODEL_FALLBACKS is kept as mirrored data only and is never used to
   // substitute another model.
-  const DEFAULT_MODEL = 'gemini-3.5-flash';
-  const MODEL_FALLBACKS = [
-    'gemini-3.5-flash',
-    'gemini-3.1-flash-lite'
-  ];
-  // Offered in the settings selector. The two flash tiers run on the free
-  // quota; gemini-3.1-pro-preview is the PAID tier (needs billing — a free
-  // key gets a clear error, never a silent model switch). If an ID changes
-  // upstream, adjust here AND in ai.js.
+  const DEFAULT_MODEL = 'gemini-3.7-flash';
+  // Offered in the settings selector, in display order. Verified live on
+  // 2026-08-20: the two flash tiers answer on a key WITHOUT billing;
+  // gemini-3.1-pro-preview is PAID-only (a free key gets a named Uyghur
+  // error, never a silent model switch). If an ID changes upstream, adjust
+  // here AND in ai.js.
   const SELECTABLE_MODELS = [
-    'gemini-3.5-flash',
-    'gemini-3.1-pro-preview',
-    'gemini-3.1-flash-lite'
+    'gemini-3.7-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-pro-preview'
   ];
+  // Data-only mirror for ported code; never used to substitute a model.
+  const MODEL_FALLBACKS = SELECTABLE_MODELS.slice();
+  // Models Google offers only on the paid tier — the picker marks these
+  // (پۇللۇق) in BOTH the closed control and the open list.
+  const PAID_ONLY_MODELS = ['gemini-3.1-pro-preview'];
   // Short Uyghur descriptions shown under the settings model selector.
   // Each line ends with the free/paid label — (ھەقسىز) = free,
   // (پۇللۇق …) = paid; the selector derives its option tags from these.
+  // NO price figures here on purpose: Google changes them, so the dialog
+  // links to the pricing page instead.
   const MODEL_INFO = {
-    'gemini-3.5-flash':       'تەۋسىيە · ئۈنۈمى ياخشى · سۈرئىتى تېز · باھاسى مۇۋاپىق · (ھەقسىز)',
-    'gemini-3.1-pro-preview': 'ئۈنۈمى ناھايىتى سۈپەتلىك · سۈرئىتى ئاستا · (پۇللۇق · سېتىۋېلىشىڭىز كېرەك)',
-    'gemini-3.1-flash-lite':  'ئۈنۈمى ئادەتتىكىدەك · سۈرئىتى تېز · ئىنتايىن ئەرزان · (ھەقسىز)'
+    'gemini-3.7-flash':       'تەۋسىيە · ئۈنۈمى ياخشى · سۈرئىتى تېز · (ھەقسىز)',
+    'gemini-3.5-flash-lite':  'ئۈنۈمى ئادەتتىكىدەك · سۈرئىتى ئەڭ تېز · ئىنتايىن ئەرزان · (ھەقسىز)',
+    'gemini-3.1-pro-preview': 'ئۈنۈمى ناھايىتى سۈپەتلىك · سۈرئىتى ئاستا · (پۇللۇق · سېتىۋېلىشىڭىز كېرەك)'
   };
+  // Google's own pages (prices and terms change — link, don't copy).
+  const URL_PRICING = 'https://ai.google.dev/pricing';
+  const URL_BILLING = 'https://ai.google.dev/gemini-api/docs/billing';
+  const URL_TERMS   = 'https://ai.google.dev/gemini-api/terms';
 
   // ----------------------------------------------------------------
   // Content-type detection (ported verbatim from mobile js/ai.js)
@@ -139,7 +147,11 @@
     DEFAULT_MODEL: DEFAULT_MODEL,
     MODEL_FALLBACKS: MODEL_FALLBACKS,
     SELECTABLE_MODELS: SELECTABLE_MODELS,
+    PAID_ONLY_MODELS: PAID_ONLY_MODELS,
     MODEL_INFO: MODEL_INFO,
+    URL_PRICING: URL_PRICING,
+    URL_BILLING: URL_BILLING,
+    URL_TERMS: URL_TERMS,
     EXAMPLE_QUESTIONS: EXAMPLE_QUESTIONS
   });
 

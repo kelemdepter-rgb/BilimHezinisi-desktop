@@ -1220,8 +1220,33 @@ ipcMain.handle('ai-test-key-slot', async (event, index) => {
   catch (e) { return { ok: false, message: e.message }; }
 });
 
+// Test every configured key slot in one pass (Settings "test all keys").
+ipcMain.handle('ai-test-all-keys', async () => {
+  try { return await ai.testAllKeySlots(); }
+  catch (e) { return { ok: false, results: [], summary: (e && e.message) || 'سىناشتا خاتالىق' }; }
+});
+
+// Which key slot is in use / last worked — drives the unobtrusive indicator.
+ipcMain.handle('ai-key-status', () => {
+  try { return ai.getKeyStatus(); }
+  catch (e) { return { activeSlot: null, lastGoodSlot: null, count: 0, slots: [] }; }
+});
+
 ipcMain.handle('ai-get-model', () => {
   try { return ai.getModel(); } catch (e) { return ai.DEFAULT_MODEL; }
+});
+
+// Settings-dialog model load. This is the ONE place a retired model ID is
+// migrated to its successor — the dialog then TELLS the user it happened.
+ipcMain.handle('ai-load-model-settings', () => {
+  try { return ai.resolveModelForSettings(); }
+  catch (e) { return { model: ai.DEFAULT_MODEL, migratedFrom: null }; }
+});
+
+// The dialog has shown the migration notice — stop repeating it.
+ipcMain.handle('ai-ack-model-migration', () => {
+  try { return ai.ackModelMigration(); }
+  catch (e) { return { ok: false }; }
 });
 
 ipcMain.handle('ai-set-model', (event, name) => {
@@ -1268,14 +1293,20 @@ ipcMain.handle('ai-ask-stream', (event, requestId, opts) => {
   try {
     const handle = ai.askStream(opts || {},
       (delta) => safeSend('ai-chunk-' + id, delta),
-      (fullText, model, usage) => {
+      (fullText, model, usage, meta) => {
         activeAiStreams.delete(id);
-        safeSend('ai-done-' + id, { text: fullText, model: model, usage: usage || null });
+        safeSend('ai-done-' + id, {
+          text: fullText, model: model, usage: usage || null,
+          slot: meta && meta.slot, partial: !!(meta && meta.partial)
+        });
       },
       (err) => {
         activeAiStreams.delete(id);
         safeSend('ai-error-' + id, err || { ok: false, error: 'نامەلۇم خاتالىق' });
-      }
+      },
+      // Failover after text had already been shown: the renderer must drop
+      // what it rendered and re-render `textSoFar` (usually '').
+      (textSoFar) => safeSend('ai-reset-' + id, String(textSoFar || ''))
     );
     activeAiStreams.set(id, handle);
     return { ok: true, started: true };
@@ -1298,14 +1329,18 @@ ipcMain.handle('ai-chat-stream', (event, requestId, messages) => {
   try {
     const handle = ai.chatStream(messages || [],
       (delta) => safeSend('ai-chunk-' + id, delta),
-      (fullText, model, usage) => {
+      (fullText, model, usage, meta) => {
         activeAiStreams.delete(id);
-        safeSend('ai-done-' + id, { text: fullText, model: model, usage: usage || null });
+        safeSend('ai-done-' + id, {
+          text: fullText, model: model, usage: usage || null,
+          slot: meta && meta.slot, partial: !!(meta && meta.partial)
+        });
       },
       (err) => {
         activeAiStreams.delete(id);
         safeSend('ai-error-' + id, err || { ok: false, error: 'نامەلۇم خاتالىق' });
-      }
+      },
+      (textSoFar) => safeSend('ai-reset-' + id, String(textSoFar || ''))
     );
     activeAiStreams.set(id, handle);
     return { ok: true, started: true };

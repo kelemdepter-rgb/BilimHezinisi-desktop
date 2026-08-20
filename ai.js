@@ -17,9 +17,10 @@
 // margin and has a generous free quota from https://aistudio.google.com —
 // keys begin with "AIza...".
 //
-// Default model: gemini-3.5-flash (May 2026 flagship). Older Gemini models
-// are deliberately excluded because their Uyghur output quality is too low
-// to be useful for classical religious-text scholarship.
+// Default model: gemini-3.7-flash (line-up verified against the live models
+// endpoint on 2026-08-20). Older Gemini models are deliberately excluded
+// because their Uyghur output quality is too low to be useful for classical
+// religious-text scholarship.
 //
 // STORAGE: all settings go through database.getSetting / setSetting (the
 // existing key/value settings table — no schema change). The API key is the
@@ -31,9 +32,9 @@ const database = require('./database');
 // Constants
 // ----------------------------------------------------------------
 
-// gemini-3.5-flash (released 2026-05-19) is the current flagship Flash
-// model — frontier reasoning quality with the speed we need for an
-// inline Q&A flow. The user can override the choice in Settings.
+// gemini-3.7-flash is the current flagship Flash model — frontier reasoning
+// quality with the speed we need for an inline Q&A flow. The user can
+// override the choice in Settings.
 //
 // Older Gemini models (1.5, 2.0, 2.5) are intentionally EXCLUDED
 // because their Uyghur quality is too low to be useful for this app's
@@ -44,26 +45,44 @@ const database = require('./database');
 // different model and nothing rewrites the stored preference behind the
 // user's back — if the chosen model fails (retired ID, paid tier on a
 // free key, quota), a clear Uyghur error is surfaced and the USER decides
-// whether to switch models or enable billing. MODEL_FALLBACKS and
+// whether to switch models or enable billing. The ONE exception is the
+// one-time, VISIBLE migration of a retired ID (RETIRED_MODELS below), which
+// happens when Settings is opened — never mid-request. MODEL_FALLBACKS and
 // selfHealModel below are retained for reference/diagnostics only; they
 // must NEVER be used to change the model the user picked.
-const DEFAULT_MODEL  = 'gemini-3.5-flash';
-const MODEL_FALLBACKS = [
-  'gemini-3.5-flash',
-  'gemini-3.1-flash-lite'
-];
-// Models offered in the Settings selector. The two flash tiers run on the
-// free quota; gemini-3.1-pro-preview is the expensive PAID tier (needs
-// billing — on a free key it gets a clear error, never a silent switch).
-// NOTE: model IDs change over time — if 'gemini-3.1-pro-preview' stops
-// matching a live ID, adjust it HERE and in src/ai-client.js
-// (SELECTABLE_MODELS + MODEL_INFO).
+const DEFAULT_MODEL  = 'gemini-3.7-flash';
+// Models offered in the Settings selector, in display order. Verified live
+// on 2026-08-20 (models endpoint + a real generateContent call per model):
+//   gemini-3.7-flash        free tier YES  — answered on a non-billing key
+//   gemini-3.5-flash-lite   free tier YES  — answered on a non-billing key
+//   gemini-3.1-pro-preview  free tier NO   — 429 "limit: 0" without billing
+// NOTE: model IDs change over time — if one stops matching a live ID, adjust
+// it HERE and in src/ai-client.js (SELECTABLE_MODELS + MODEL_INFO).
 const SELECTABLE_MODELS = [
-  'gemini-3.5-flash',
-  'gemini-3.1-pro-preview',
-  'gemini-3.1-flash-lite'
+  'gemini-3.7-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-pro-preview'
 ];
+// Data-only mirror kept for the renderer (window.AI.MODEL_FALLBACKS) and for
+// older ported code. STRICT selection: never used to substitute a model.
+const MODEL_FALLBACKS = SELECTABLE_MODELS.slice();
+// Models Google offers ONLY on the paid tier. A key without billing gets a
+// 429 whose quota metric is *_free_tier_* with "limit: 0" — that is a MODEL
+// problem, not a key problem, so it earns its own named error message.
+const PAID_ONLY_MODELS = ['gemini-3.1-pro-preview'];
+// Retired model ID → its successor. Applied ONCE, VISIBLY, when the Settings
+// dialog loads (see resolveModelForSettings) — the user is told their model
+// was updated because the old one was retired. Never applied mid-request.
+const RETIRED_MODELS = {
+  'gemini-3.5-flash':      'gemini-3.7-flash',
+  'gemini-3.1-flash-lite': 'gemini-3.5-flash-lite'
+};
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+// Google's own pages — linked from the UI instead of hardcoding prices or
+// quota numbers that change without notice.
+const URL_PRICING = 'https://ai.google.dev/pricing';
+const URL_BILLING = 'https://ai.google.dev/gemini-api/docs/billing';
+const URL_TERMS   = 'https://ai.google.dev/gemini-api/terms';
 
 const PREF_API_KEY = 'ai_gemini_api_key';
 // Up to 3 BACKUP keys. Each should come from a SEPARATE Google Cloud project
@@ -71,6 +90,13 @@ const PREF_API_KEY = 'ai_gemini_api_key';
 const PREF_BACKUP_KEYS = ['ai_gemini_api_key_b1', 'ai_gemini_api_key_b2', 'ai_gemini_api_key_b3'];
 const PREF_MODEL   = 'ai_gemini_model';
 const PREF_ENABLED = 'ai_enabled';
+// Which key slot (0 = primary, 1..3 = backups) last answered successfully.
+// Persisted so a user whose first key is permanently exhausted does not pay a
+// failed round-trip on every question after a restart.
+const PREF_LAST_GOOD_SLOT = 'ai_last_good_key_slot';
+// Set when a retired model ID was migrated, so the Settings dialog can TELL
+// the user their model changed. Cleared once the dialog has shown the notice.
+const PREF_MODEL_MIGRATED = 'ai_model_migrated_from';
 
 // Retry/backoff for transient 429/5xx errors.
 const MAX_TRIES = 3;
@@ -168,6 +194,7 @@ function setApiKey(key) {
   cachedKey = trimmed;
   cachedKeyLoaded = true;
   resetKeyHealth();
+  forgetLastGoodSlot();
 }
 
 // ----------------------------------------------------------------
@@ -218,19 +245,29 @@ function setBackupKeys(arr) {
     catch (e) { console.warn('[ai] setBackupKeys persist failed:', e && e.message); }
   }
   resetKeyHealth();
+  forgetLastGoodSlot();
 }
 
-// Ordered, de-duplicated usable keys: primary first, then backups. Every
-// request path iterates this so the failover order is deterministic.
-function getKeyList() {
+// Ordered, de-duplicated usable key SLOTS: [{ slot, key }] with slot 0 = the
+// primary key and 1..3 = the backups, i.e. the order the user sees in
+// Settings. Carrying the slot number (not just the key string) is what lets
+// the UI say "ئاچقۇچ 2" and lets the last-good slot be remembered across
+// restarts. Empty and duplicate keys are dropped.
+function getKeySlots() {
   const all = [loadKey()].concat(getBackupKeys());
   const seen = {};
   const out = [];
   for (let i = 0; i < all.length; i++) {
     const k = String(all[i] || '').trim();
-    if (k && k.length > 8 && !seen[k]) { seen[k] = 1; out.push(k); }
+    if (k && k.length > 8 && !seen[k]) { seen[k] = 1; out.push({ slot: i, key: k }); }
   }
   return out;
+}
+
+// Same list, keys only — kept because several call sites only need "do we
+// have any usable key at all?".
+function getKeyList() {
+  return getKeySlots().map(function (s) { return s.key; });
 }
 
 function firstKey() { return getKeyList()[0] || ''; }
@@ -246,6 +283,13 @@ const keyHealth = Object.create(null);   // key string -> { badUntil, reason }
 
 function resetKeyHealth() {
   for (const k in keyHealth) delete keyHealth[k];
+  activeSlot = null;
+}
+
+// The keys themselves changed, so "the slot that last worked" may now hold a
+// different key — drop the memory rather than starting on a stale hint.
+function forgetLastGoodSlot() {
+  try { database.setSetting(PREF_LAST_GOOD_SLOT, ''); } catch (_) {}
 }
 
 function markKeyBad(key, reason, retryMs) {
@@ -258,19 +302,71 @@ function markKeyBad(key, reason, retryMs) {
 
 function markKeyGood(key) { if (key && keyHealth[key]) delete keyHealth[key]; }
 
-// getKeyList() with recently-failed keys moved to the back (still included —
-// a cooled-down key is a last resort, never excluded).
-function orderedKeyList() {
-  const keys = getKeyList();
+// The slot currently serving requests, for the unobtrusive "which key am I
+// on?" indicator. RAM only — it means "right now", not "saved preference".
+let activeSlot = null;
+
+// Which slot last answered successfully (persisted). Start there so a user
+// whose primary key is permanently exhausted stops paying a failed
+// round-trip on every single question.
+function getLastGoodSlot() {
+  try {
+    const n = parseInt(database.getSetting(PREF_LAST_GOOD_SLOT, ''), 10);
+    return (Number.isFinite(n) && n >= 0 && n <= PREF_BACKUP_KEYS.length) ? n : null;
+  } catch (_) { return null; }
+}
+
+function setLastGoodSlot(slot) {
+  if (slot == null) return;
+  try {
+    if (getLastGoodSlot() !== slot) database.setSetting(PREF_LAST_GOOD_SLOT, String(slot));
+  } catch (e) { console.warn('[ai] setLastGoodSlot failed:', e && e.message); }
+}
+
+// Record a slot that just worked: clear its cooldown, remember it for next
+// time, and expose it as the active slot.
+function markSlotGood(slotInfo) {
+  if (!slotInfo) return;
+  markKeyGood(slotInfo.key);
+  activeSlot = slotInfo.slot;
+  setLastGoodSlot(slotInfo.slot);
+}
+
+// The failover order: the last slot that WORKED first, then the remaining
+// slots in their natural (primary → backups) order, and finally any slot
+// still inside a failure cooldown. Cooled-down slots are never dropped — a
+// last resort beats no answer.
+function orderedKeySlots() {
+  const slots = getKeySlots();
+  const last = getLastGoodSlot();
+  const head = [];
+  const rest = [];
+  for (let i = 0; i < slots.length; i++) {
+    if (last != null && slots[i].slot === last) head.push(slots[i]);
+    else rest.push(slots[i]);
+  }
+  const ordered = head.concat(rest);
   const now = Date.now();
   const ok = [];
   const bad = [];
-  for (let i = 0; i < keys.length; i++) {
-    const h = keyHealth[keys[i]];
-    if (h && h.badUntil > now) bad.push(keys[i]);
-    else { if (h) delete keyHealth[keys[i]]; ok.push(keys[i]); }
+  for (let i = 0; i < ordered.length; i++) {
+    const h = keyHealth[ordered[i].key];
+    if (h && h.badUntil > now) bad.push(ordered[i]);
+    else { if (h) delete keyHealth[ordered[i].key]; ok.push(ordered[i]); }
   }
   return ok.concat(bad);
+}
+
+// What the UI shows next to an answer / in Settings: which slot is in use,
+// how many are configured, and which one is remembered as last-good.
+function getKeyStatus() {
+  const slots = getKeySlots();
+  return {
+    activeSlot: activeSlot,
+    lastGoodSlot: getLastGoodSlot(),
+    count: slots.length,
+    slots: slots.map(function (s) { return s.slot; })
+  };
 }
 
 function getModel() {
@@ -289,6 +385,39 @@ function setModel(name) {
   // Free-tier quota is per model+project — a key exhausted on one model may
   // be fine on another, so clear the cooldown slate on a model switch.
   resetKeyHealth();
+}
+
+function isPaidOnlyModel(name) {
+  return PAID_ONLY_MODELS.indexOf(String(name || '').trim()) !== -1;
+}
+
+// ONE-TIME, VISIBLE model migration — called ONLY when the Settings dialog
+// loads, never from a request path. A user upgrading from v3.1.0 has a
+// retired ID saved (gemini-3.5-flash / gemini-3.1-flash-lite); we move them
+// to its successor, persist that, and hand the dialog `migratedFrom` so it
+// can TELL them their model changed and why. Requests keep using exactly
+// what is stored — a retired ID that Google still serves keeps working
+// until the user opens Settings.
+function resolveModelForSettings() {
+  const current = getModel();
+  const successor = RETIRED_MODELS[current];
+  if (successor) {
+    setModel(successor);
+    try { database.setSetting(PREF_MODEL_MIGRATED, current); } catch (_) {}
+    console.log('[ai] retired model migrated:', current, '→', successor);
+    return { model: successor, migratedFrom: current };
+  }
+  // A notice from an earlier Settings visit that the dialog has not shown
+  // yet (e.g. the app was closed before it rendered) still needs surfacing.
+  let pending = '';
+  try { pending = String(database.getSetting(PREF_MODEL_MIGRATED, '') || ''); } catch (_) {}
+  return { model: current, migratedFrom: pending || null };
+}
+
+// The dialog has shown the migration notice — don't nag on the next open.
+function ackModelMigration() {
+  try { database.setSetting(PREF_MODEL_MIGRATED, ''); } catch (_) {}
+  return { ok: true };
 }
 
 function isEnabled() {
@@ -702,6 +831,39 @@ function buildPrompt(opts) {
 // Low-level fetch with timeout
 // ----------------------------------------------------------------
 
+// ----------------------------------------------------------------
+// HTTP transport
+// ----------------------------------------------------------------
+// Every request goes through Electron's net.fetch (Chromium's network stack),
+// NOT Node's global fetch.
+//
+// WHY: Chromium uses the WINDOWS certificate store and the system proxy
+// settings; Node ships its own fixed CA list and ignores both. Antivirus
+// products that inspect HTTPS (Avast, AVG, Kaspersky, ESET…) work by
+// re-signing every certificate with their own root CA, which lives in the
+// Windows store. Under Node's fetch those requests fail with
+// UNABLE_TO_VERIFY_LEAF_SIGNATURE — verified on a real Avast machine with
+// Electron 28: node fetch and https.get both failed while net.fetch returned
+// HTTP 200. The user would see "no internet" while their browser works fine.
+//
+// net.fetch is a drop-in here: it streams incrementally (measured: 61
+// progressive reads on a 25 KB SSE answer), honours AbortSignal, and returns
+// error bodies unchanged. Falls back to global fetch when Electron is absent
+// (unit tests / tooling).
+let netFetchImpl;
+function httpFetch(url, opts) {
+  if (netFetchImpl === undefined) {
+    try {
+      const electron = require('electron');
+      netFetchImpl = (electron && electron.net && typeof electron.net.fetch === 'function')
+        ? function (u, o) { return electron.net.fetch(u, o); }
+        : null;
+    } catch (_) { netFetchImpl = null; }
+    console.log('[ai] transport =', netFetchImpl ? 'electron.net.fetch (system CA store + system proxy)' : 'node fetch');
+  }
+  return netFetchImpl ? netFetchImpl(url, opts) : fetch(url, opts);
+}
+
 function fetchWithTimeout(url, opts, timeoutMs) {
   return new Promise(function (resolve, reject) {
     const controller = new AbortController();
@@ -711,7 +873,7 @@ function fetchWithTimeout(url, opts, timeoutMs) {
       try { controller.abort(); } catch (_) {}
       reject(new Error('بەلگىلەنگەن ۋاقىتتا جاۋاب چىقمىدى (' + timeoutMs + 'ms)'));
     }, timeoutMs);
-    fetch(url, fetchOpts).then(function (r) {
+    httpFetch(url, fetchOpts).then(function (r) {
       clearTimeout(t);
       resolve(r);
     }).catch(function (e) {
@@ -765,7 +927,12 @@ async function callGemini(model, key, body, opts) {
         // "quota exhausted" message instead of the raw Gemini string.
         lastErr.status = resp.status;
         if (retryMs) lastErr.retryDelayMs = retryMs;
-        console.warn('[ai] attempt', attempt + 1, 'retryable error:', lastErr.message);
+        console.warn('[ai] attempt', attempt + 1, 'retryable error:', scrubKeyFromMsg(lastErr.message));
+        // A paid-only model on a key without billing can NEVER succeed —
+        // Google reports it as a 429, but no amount of backoff will help.
+        // Break out at once so the failover loop can try a key that might
+        // have billing, instead of burning the retry budget first.
+        if (isPaidOnlyModelError(lastErr)) break;
         // Quota (429) OR server-busy (503/5xx) on a key that still has backups:
         // don't burn the whole backoff budget — fail over fast so we reach a
         // working key quickly. (callGeminiFailover sets quotaFastFail for every
@@ -857,11 +1024,29 @@ const SAFETY_SETTINGS = [
   { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' }
 ];
 
+// Gemini 3.x thinking control — the ONLY shape every model we offer accepts.
+//
+// VERIFIED against the live API on 2026-08-20: `thinkingBudget: 0` (what
+// v3.1.0 sent on every non-deep request) is REJECTED with HTTP 400 by
+// gemini-3.5-flash-lite ("Request contains an invalid argument") and by
+// gemini-3.1-pro-preview ("Budget 0 is invalid. This model only works in
+// thinking mode"). That is exactly why gemini-3.1-pro-preview failed in
+// v3.1.0 even on a billing-enabled key — the request never reached the
+// model. `thinkingLevel` is accepted by all three current models and by the
+// two retired ones, so it is what every path sends now.
+//   low  → minimum thinking, fastest, cheapest (the default for Q&A)
+//   high → deep reasoning (the deepThink toggle)
+// NOTE: thinking tokens are billed as output AND count against
+// maxOutputTokens, which is why the long-output budget below carries
+// headroom.
+function thinkingConfigFor(deep) {
+  return { thinkingLevel: deep ? 'high' : 'low' };
+}
+
 function buildBody(opts) {
-  // Deep-reasoning toggle. Default OFF (thinkingBudget=0) so the model spends
-  // its whole budget on visible output — critical to avoid empty responses on
-  // Gemini 3.x. deepThink grants a 1024-token budget.
-  const thinkingBudget = opts.deepThink ? 1024 : 0;
+  // Deep-reasoning toggle. Default OFF (thinkingLevel 'low') so the model
+  // spends its budget on visible output instead of thinking.
+  const deep = !!opts.deepThink;
   // Translation favours fidelity (lower temperature) and needs a much larger
   // output budget — a full translation is long, and the default 4096 would
   // truncate it.
@@ -876,8 +1061,13 @@ function buildBody(opts) {
     generationConfig: {
       temperature: isTranslate ? 0.3 : 0.4,
       topP: 0.9,
-      thinkingConfig: { thinkingBudget: thinkingBudget },
-      maxOutputTokens: isLongOutput ? 8192 : 4096
+      thinkingConfig: thinkingConfigFor(deep),
+      // Thinking tokens are drawn from THIS budget (measured: ~600-1300 at
+      // level 'low'), so the reconstruction tasks — which must be able to
+      // return the whole input text — get 12288 to keep the same ~8k of
+      // usable answer space they had before thinking was mandatory.
+      // The models cap at 65536, so both values are well inside the limit.
+      maxOutputTokens: isLongOutput ? 12288 : 4096
     },
     safetySettings: SAFETY_SETTINGS
   };
@@ -900,29 +1090,44 @@ function modelListFor(requestedModel) {
 // key. quotaFastFail skips the per-key retry budget for every key except the
 // last so failover stays snappy; the last key keeps the full retry budget.
 async function callGeminiFailover(model, body) {
-  const keys = orderedKeyList();
-  if (!keys.length) { const e = new Error('NO_KEY'); e.noKey = true; throw e; }
+  const slots = orderedKeySlots();
+  if (!slots.length) { const e = new Error('NO_KEY'); e.noKey = true; throw e; }
   let bestErr = null;
   let bestRank = -1;
-  for (let i = 0; i < keys.length; i++) {
-    const isLast = (i === keys.length - 1);
+  let attempts = 0;
+  let paidOnlyCount = 0;
+  for (let i = 0; i < slots.length; i++) {
+    const isLast = (i === slots.length - 1);
+    const s = slots[i];
     try {
-      const json = await callGemini(model, keys[i], body, { quotaFastFail: !isLast });
-      markKeyGood(keys[i]);
+      const json = await callGemini(model, s.key, body, { quotaFastFail: !isLast });
+      markSlotGood(s);
       return json;
     } catch (e) {
-      if (isQuotaError(e)) markKeyBad(keys[i], 'quota', e.retryDelayMs);
-      else if (isKeyInvalidError(e)) markKeyBad(keys[i], 'invalid');
+      attempts++;
+      // A paid-only model is NOT a sick key — the same key serves the free
+      // models fine, so it keeps its place in the order.
+      if (isPaidOnlyModelError(e)) paidOnlyCount++;
+      else if (isQuotaError(e)) markKeyBad(s.key, 'quota', e.retryDelayMs);
+      else if (isKeyInvalidError(e)) markKeyBad(s.key, 'invalid');
       // Keep the most ACTIONABLE error for the final message: busy ("retry
       // shortly") over quota ("wait / switch key") over a dead key.
       const rank = isServerBusyError(e) ? 3 : (isQuotaError(e) ? 2 : (isKeyInvalidError(e) ? 1 : 0));
       if (rank > bestRank) { bestRank = rank; bestErr = e; }
       if (!isFailoverError(e)) throw e;
       if (!isLast) {
-        console.warn('[ai] key #' + (i + 1) + ' failed (' + scrubKeyFromMsg((e && e.message) || e) + ') — failing over to next key');
+        console.warn('[ai] key slot ' + s.slot + ' failed (' + scrubKeyFromMsg((e && e.message) || e) + ') — failing over to next key');
         continue;
       }
     }
+  }
+  // EVERY configured key answered "this model has no free tier for you" →
+  // the problem is the MODEL, not the keys. Flag it so the caller shows the
+  // named paid-key message instead of a generic quota failure.
+  if (attempts > 0 && paidOnlyCount === attempts) {
+    const e = bestErr || new Error('PAID_ONLY');
+    e.paidOnlyAllKeys = true;
+    throw e;
   }
   throw bestErr || new Error('سوراش مەغلۇپ بولدى');
 }
@@ -930,6 +1135,43 @@ async function callGeminiFailover(model, body) {
 function isQuotaError(err) {
   return !!(err && (err.status === 429 ||
     /\b429\b|quota|resource has been exhausted|rate.?limit/i.test(String(err.message || ''))));
+}
+
+// Did the request fail because the chosen MODEL has no free tier and THIS key
+// has no billing? Google reports it as a 429 whose quota metric is
+// *_free_tier_* with "limit: 0" — verified 2026-08-20 against
+// gemini-3.1-pro-preview on a non-billing key:
+//   "Quota exceeded for metric: …/generate_content_free_tier_requests,
+//    limit: 0, model: gemini-3.1-pro"
+// It looks like a quota error but it is NOT: waiting will never help and the
+// same key works fine on a free model. A DIFFERENT key can fix it (a backup
+// with billing enabled), so failover still walks the slots — but if every
+// slot answers this way the user gets the named "needs a paid key" message
+// instead of a generic quota complaint.
+function isPaidOnlyModelError(err) {
+  if (!err) return false;
+  const msg = String(err.message || '');
+  if (!isQuotaError(err)) return false;
+  return /limit:\s*0\b/.test(msg) || /free[_ ]quota[_ ]tier/i.test(msg);
+}
+
+// Convenience for the "stream failed → non-stream retry failed too" paths:
+// did EITHER attempt end with the paid-only verdict?
+function isPaidOnly2(a, b) {
+  return !!((a && (a.paidOnlyAllKeys || isPaidOnlyModelError(a))) ||
+            (b && (b.paidOnlyAllKeys || isPaidOnlyModelError(b))));
+}
+
+// Did the request never reach Google at all — no HTTP status, because DNS,
+// the connection or the 60s watchdog failed? Distinguishing this from an API
+// rejection is what lets the UI say "check your internet" instead of
+// blaming the key.
+function isNetworkError(err) {
+  if (!err) return false;
+  if (err.noKey || err.aborted || err.notFound) return false;
+  if (err.status != null) return false;
+  return /fetch failed|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|network|socket|بەلگىلەنگەن ۋاقىتتا/i
+    .test(String(err.message || '')) || err.status == null;
 }
 
 // Did the request fail because THIS key itself is dead — invalid, expired,
@@ -954,6 +1196,10 @@ function isFailoverError(err) {
   if (!err) return false;
   if (err.notFound || err.aborted || err.noKey) return false;
   if (isSizeError(err)) return false;
+  // A paid-only model on a key without billing: a DIFFERENT key may well have
+  // billing enabled, so keep walking the slots. (isQuotaError already covers
+  // it, but say so explicitly — the intent is not obvious.)
+  if (isPaidOnlyModelError(err)) return true;
   if (isQuotaError(err) || isServerBusyError(err) || isKeyInvalidError(err)) return true;
   if (err.status == null) return true;   // network / timeout / no-stream
   return false;
@@ -979,10 +1225,51 @@ function isModelUnavailableError(err) {
 }
 
 // Uyghur error for an unavailable selected model — names the exact model so
-// the user knows which choice failed and what to do (switch model in
-// Settings, or enable Google billing for the paid tier).
+// the user knows which choice failed and what to do. A retired / mistyped ID
+// and a permission gate land here; the paid-tier case has its own message.
 function modelUnavailableMessage(model) {
-  return '«' + model + '» مودېلى ئىشلىمىدى. ئۇ ھەقسىز ئاچقۇچتا يوق بولۇشى مۇمكىن (مەسىلەن Pro مودېلى billing تەلەپ قىلىدۇ). باشقا مودېل تاللاڭ ياكى Google billing نى ئېچىڭ.';
+  return '«' + model + '» مودېلى ئىشلىمىدى. بۇ مودېلنىڭ ID سى ئۆزگەرگەن ياكى Google ئۇنى توختاتقان بولۇشى مۇمكىن. تەڭشەكلەرگە كىرىپ باشقا مودېل تاللاڭ. (مودېلىڭىز ئۆزلۈكىدىن ئالماشتۇرۇلمىدى.)';
+}
+
+// The chosen model is PAID-ONLY and no configured key has billing. Names the
+// model, says plainly why it failed, gives both ways out, and states that the
+// app did NOT switch the model behind the user's back.
+function paidOnlyMessage(model) {
+  const free = SELECTABLE_MODELS.filter(function (m) { return !isPaidOnlyModel(m); }).join(' / ');
+  return '«' + model + '» — پۇللۇق مودېل. ھەقسىز Gemini ئاچقۇچى بۇ مودېلنى ئىشلىتەلمەيدۇ '
+       + '(Google بۇ مودېلنىڭ ھەقسىز ھەققىنى 0 قىلىپ بەلگىلىگەن). ئىككى يولى بار: '
+       + '① تەڭشەكلەردىن ھەقسىز مودېل تاللاڭ (' + free + ')؛ '
+       + '② ياكى Google ھېساباتىڭىزدا billing نى ئېچىڭ: ' + URL_BILLING + ' . '
+       + 'تاللىغان مودېلىڭىز ئۆزلۈكىدىن ئۆزگەرتىلمىدى.';
+}
+
+// No HTTP response at all — offline, DNS failure, or the 60s watchdog fired.
+// Every non-AI feature keeps working, so say that too.
+const NETWORK_MSG = 'ئىنتېرنېتقا باغلىنالمىدى. سۈنئىي ئىدراك ئىنتېرنېت تەلەپ قىلىدۇ؛ ئوقۇش، ئىزدەش، OCR، خاتىرە ۋە قۇرئان بۆلىكى ئىنتېرنېتسىزمۇ نورمال ئىشلەيدۇ.';
+
+// Gemini's safety filter blocked the prompt or the answer.
+const SAFETY_MSG = 'Google نىڭ بىخەتەرلىك سۈزگۈچى بۇ مەزمۇنغا جاۋاب بېرىشنى رەت قىلدى. سوئالنى باشقىچە يېزىپ ياكى تېكىستنىڭ باشقا بۆلىكىنى تاللاپ سىناڭ.';
+
+// The call succeeded but came back with no text. The finishReason /
+// blockReason Google returns is the only real clue — turn each known one
+// into something the user can act on instead of printing the raw token.
+function emptyAnswerMessage(reason) {
+  const r = String(reason || '').toUpperCase();
+  if (/SAFETY|BLOCKLIST|PROHIBITED|BLOCKED_REASON|IMAGE_SAFETY/.test(r)) return SAFETY_MSG;
+  if (/RECITATION/.test(r)) return 'جاۋاب Google نىڭ نەقىل چەكلىمىسىگە ئۇچرىدى (مەزمۇن باشقا مەنبەگە بەك ئوخشاپ قالغان). سوئالنى ئازراق ئۆزگەرتىپ قايتا سىناڭ.';
+  if (/MAX_TOKENS/.test(r)) return 'جاۋاب بەك ئۇزۇن بولۇپ كېتىپ توختاپ قالدى. تېكىستنى قىسقىراق بۆلەكلەرگە بۆلۈپ سىناڭ.';
+  return 'جاۋاب چىقمىدى (سەۋەب: ' + (reason || 'نامەلۇم') + '). قايتا سىناڭ.';
+}
+
+// 429 on every key. Google reports how long to wait (RetryInfo) — show THAT
+// instead of a made-up free-tier number, and only mention it when we have it.
+function quotaAllMessage(retryMs) {
+  const secs = (retryMs && retryMs > 0) ? Math.ceil(retryMs / 1000) : 0;
+  const wait = secs
+    ? ' Google ' + (secs >= 90 ? Math.ceil(secs / 60) + ' مىنۇت' : secs + ' سېكۇنت') + ' كۈتۈڭ دەۋاتىدۇ.'
+    : '';
+  return 'ھەقسىز ئىشلىتىش ھەققىڭىز توشۇپ قالدى.' + wait
+       + ' بىردەمدىن كېيىن قايتا سىناڭ ياكى تەڭشەكلەرگە زاپاس Gemini API ئاچقۇچى قوشۇڭ.';
 }
 
 // Was the request rejected because Google's model is momentarily BUSY (HTTP
@@ -1001,11 +1288,10 @@ function isServerBusyError(err) {
 // translateStream/chatStream — test() has its own key-reassuring variant).
 const SERVER_BUSY_MESSAGE = 'مودېل ھازىر ئالدىراش (بەك كۆپ تەلەپ بار). بىردەمدىن كېيىن قايتا سىناڭ ياكى زاپاس Gemini API ئاچقۇچىغا ئالماشتۇرۇپ بېقىڭ.';
 
-// Shown when EVERY key (primary + backups) is quota-limited. canSwitchKey on
-// the result drives the renderer's "API ئالماشتۇرىمەن" button (jump to Settings
-// to add / fix a backup key). On a single-key setup it still hints the user
-// toward adding a backup.
-const QUOTA_ALL_MSG = 'ھەقسىز ئىشلىتىش ھەققىڭىز توشۇپ قالدى. بىردەمدىن كېيىن قايتا سىناڭ ياكى زاپاس Gemini API ئاچقۇچىغا ئالماشتۇرۇپ بېقىڭ.';
+// NOTE: the "every key is quota-limited" text is built by quotaAllMessage()
+// above, which folds in the wait Google actually reports. canSwitchKey on the
+// result drives the renderer's "API ئالماشتۇرىمەن" button (jump to Settings to
+// add / fix a backup key).
 
 // Shown when the request died on invalid / expired / suspended key(s) and no
 // healthier key could serve it. canSwitchKey → same Settings jump action.
@@ -1082,7 +1368,7 @@ async function ask(opts) {
 
   const requestedModel = getModel();
   // Kept for the usage-log line below; buildBody() computes its own copy.
-  const thinkingBudget = opts.deepThink ? 1024 : 0;
+  const deepThink = !!opts.deepThink;
   const body = buildBody(opts);
 
   // Same model on every attempt; callGeminiFailover walks primary → backups,
@@ -1099,10 +1385,10 @@ async function ask(opts) {
       // token-budget exhaustion vs. odd response shapes.
       console.warn('[ai] empty response from', requestedModel, '— reason:', reason, 'json:',
                    JSON.stringify(json).slice(0, 400));
-      return { ok: false, error: 'جاۋاب چىقمىدى — سەۋەب: ' + reason };
+      return { ok: false, error: emptyAnswerMessage(reason) };
     }
     bumpUsage();
-    logTokenUsage(requestedModel, json.usageMetadata, !!thinkingBudget);
+    logTokenUsage(requestedModel, json.usageMetadata, deepThink);
     return { ok: true, text: text, model: requestedModel };
   } catch (e) {
     // STRICT: the selected model failed on every key — no model substitution.
@@ -1117,6 +1403,13 @@ async function ask(opts) {
     return { ok: false, tooLargeFallback: true, error: 'بۇ كىتاب بەك چوڭ بولۇپ، API نى بىراقلا قوبۇل قىلمىدى.' };
   }
 
+  // Not one configured key has billing and the chosen model is paid-only.
+  // Say exactly that, naming the model — never a generic "quota" complaint,
+  // and never a silent hop to a cheaper model.
+  if (lastErr && (lastErr.paidOnlyAllKeys || isPaidOnlyModelError(lastErr))) {
+    return { ok: false, paidOnlyModel: true, model: requestedModel, error: paidOnlyMessage(requestedModel) };
+  }
+
   // Every usable key was itself dead (invalid / expired / suspended) — point
   // the user at Settings; canSwitchKey drives the renderer's switch-key action.
   if (isKeyInvalidError(lastErr)) {
@@ -1124,8 +1417,8 @@ async function ask(opts) {
   }
 
   // The SELECTED model itself is unavailable to this key (retired ID, or a
-  // paid tier without billing). Checked BEFORE the quota mapping because a
-  // paid-only model on a free key surfaces as a zero-quota 429.
+  // permission gate). Checked BEFORE the quota mapping because such errors
+  // can arrive with odd statuses.
   if (isModelUnavailableError(lastErr)) {
     return { ok: false, error: modelUnavailableMessage(requestedModel) };
   }
@@ -1146,13 +1439,18 @@ async function ask(opts) {
       quotaExhausted: true,
       allKeysExhausted: true,
       canSwitchKey: true,
-      error: QUOTA_ALL_MSG
+      error: quotaAllMessage(lastErr && lastErr.retryDelayMs)
     };
+  }
+
+  // Nothing ever reached Google — offline, DNS, or the watchdog.
+  if (isNetworkError(lastErr)) {
+    return { ok: false, offline: true, error: NETWORK_MSG };
   }
 
   return {
     ok: false,
-    error: 'سوراش مەغلۇپ بولدى: ' + ((lastErr && lastErr.message) || 'نامەلۇم خاتالىق')
+    error: 'سوراش مەغلۇپ بولدى: ' + scrubKeyFromMsg((lastErr && lastErr.message) || 'نامەلۇم خاتالىق')
   };
 }
 
@@ -1161,81 +1459,146 @@ async function ask(opts) {
 // the user knows their key actually works before opening a book.
 // STRICT: probes ONLY the currently-selected model — a ✓ here means THIS
 // model works, not that some other model answered in its place.
-async function test() {
-  const key = loadKey();
-  if (!key) return { ok: false, message: 'ئاچقۇچ يوق' };
-
-  const model = getModel();
+// One probe, one verdict. Every "does this key work?" button in Settings goes
+// through here so the four slots can never be judged by different rules.
+// `status` is the machine-readable verdict the UI colours on:
+//   valid      — the model answered
+//   invalid    — the key itself is rejected / expired / suspended
+//   quota      — the key is fine, its free quota is spent for now
+//   paid_only  — the key is fine, but the SELECTED model needs billing
+//   busy       — the key is fine, the model is overloaded (5xx)
+//   model_gone — the selected model ID is unavailable to this key
+//   offline    — nothing reached Google
+//   empty      — answered with no text (safety / token budget)
+//   error      — anything else
+// `keyOk` answers the narrower question the per-slot buttons ask: is THIS KEY
+// usable at all? (true for quota / paid_only / busy — auth succeeded).
+async function probeKey(key, model) {
   try {
     const json = await callGemini(model, key, {
       contents: [{ role: 'user', parts: [{ text: 'سالام دەپ بىر سۆزلا جاۋاب بەر.' }] }],
       generationConfig: {
         temperature: 0.2,
-        thinkingConfig: { thinkingBudget: 0 },
-        maxOutputTokens: 128
+        thinkingConfig: thinkingConfigFor(false),
+        // Thinking tokens come out of this budget, so a probe sized for the
+        // one-word answer alone would come back EMPTY on a thinking model.
+        maxOutputTokens: 1024
       }
-    });
+    }, { quotaFastFail: true });
     const text = extractText(json);
-    if (text) return { ok: true, message: text, model: model };
-    // Empty: report why so the Settings UI can show something useful.
+    if (text) return { status: 'valid', keyOk: true, message: text, model: model };
     const reason = (json && json.candidates && json.candidates[0] && json.candidates[0].finishReason)
                 || (json && json.promptFeedback && json.promptFeedback.blockReason)
                 || 'unknown';
-    return { ok: false, message: 'جاۋاب بوش (سەۋەب: ' + reason + ')' };
+    return { status: 'empty', keyOk: true, message: emptyAnswerMessage(reason), model: model };
   } catch (e) {
-    // STRICT: no fallback probes — the user asked whether THIS model works.
-    // Unavailable model (404/403/paid-only) gets the explicit Uyghur
-    // explanation; a genuine 429 keeps the friendly quota message.
-    if (isModelUnavailableError(e)) {
-      return { ok: false, message: modelUnavailableMessage(model) };
+    // Order matters: a paid-only model reports as a 429, and a dead key can
+    // report as a 400 that also mentions the model.
+    if (isPaidOnlyModelError(e)) {
+      return { status: 'paid_only', keyOk: true, model: model,
+               message: 'ئاچقۇچ توغرا — ئەمما «' + model + '» پۇللۇق مودېل، بۇ ئاچقۇچتا billing يوق.' };
     }
-    // HTTP 503/500 means the key is VALID — auth succeeded, the model is just
-    // busy. Reassure the user the key is saved; don't render a hard ✗.
+    if (isKeyInvalidError(e)) {
+      return { status: 'invalid', keyOk: false, model: model,
+               message: 'ئاچقۇچ ئىناۋەتسىز، ۋاقتى ئۆتكەن ياكى تىزىملىكى توختىتىلغان.' };
+    }
+    if (isModelUnavailableError(e)) {
+      return { status: 'model_gone', keyOk: true, model: model, message: modelUnavailableMessage(model) };
+    }
     if (isServerBusyError(e)) {
-      return { ok: false, busy: true,
-        message: '✓ ئاچقۇچىڭىز توغرا قوبۇل قىلىندى. بىراق «' + model + '» مودېلى ھازىر بەك ئالدىراش (HTTP 503). ئاچقۇچىڭىز ساقلاندى — بىردەمدىن كېيىن قايتا سىناڭ.' };
+      return { status: 'busy', keyOk: true, model: model,
+               message: 'ئاچقۇچ توغرا — «' + model + '» مودېلى ھازىر ئالدىراش (HTTP 503).' };
     }
     if (isQuotaError(e)) {
-      return { ok: false, message: 'ھەقسىز ئىشلىتىش ھەققىڭىز توشۇپ قالدى. بىردەمدىن كېيىن قايتا سىناڭ.' };
+      const secs = e.retryDelayMs ? Math.ceil(e.retryDelayMs / 1000) : 0;
+      return { status: 'quota', keyOk: true, model: model,
+               message: 'ئاچقۇچ توغرا — ئەمما ھەققى ھازىرچە توشۇپ تۇرۇپتۇ.' + (secs ? ' (' + secs + ' سېكۇنتتىن كېيىن سىناڭ)' : '') };
     }
-    return { ok: false, message: (e && e.message) || 'سىناشتا خاتالىق' };
+    if (isNetworkError(e)) {
+      return { status: 'offline', keyOk: false, model: model, message: NETWORK_MSG };
+    }
+    return { status: 'error', keyOk: false, model: model,
+             message: scrubKeyFromMsg((e && e.message) || 'سىناشتا خاتالىق') };
   }
+}
+
+// "باغلىنىشنى سىناش" for the PRIMARY key. This button answers "will AI work
+// right now?", so a paid-only model counts as a FAILURE here (with the named
+// message) even though the key itself is fine.
+// STRICT: probes ONLY the currently-selected model — a ✓ here means THIS
+// model works, not that some other model answered in its place.
+async function test() {
+  const key = loadKey();
+  if (!key) return { ok: false, status: 'none', message: 'ئاچقۇچ يوق' };
+
+  const model = getModel();
+  const r = await probeKey(key, model);
+  if (r.status === 'valid') return { ok: true, status: r.status, message: r.message, model: model };
+  if (r.status === 'paid_only') {
+    return { ok: false, status: r.status, paidOnlyModel: true, model: model, message: paidOnlyMessage(model) };
+  }
+  // HTTP 503/500 means the key is VALID — auth succeeded, the model is just
+  // busy. Reassure the user the key is saved; don't render a hard ✗.
+  if (r.status === 'busy') {
+    return { ok: false, status: r.status, busy: true, model: model,
+             message: '✓ ئاچقۇچىڭىز توغرا قوبۇل قىلىندى. بىراق «' + model + '» مودېلى ھازىر بەك ئالدىراش (HTTP 503). ئاچقۇچىڭىز ساقلاندى — بىردەمدىن كېيىن قايتا سىناڭ.' };
+  }
+  return { ok: false, status: r.status, model: model, message: r.message };
 }
 
 // Validate a SPECIFIC key string against the currently-selected model. Used by
-// the Settings "test backup key" buttons. A 503/429 still means the KEY is
-// valid (auth succeeded) — reported as a soft ✓ so a momentarily-busy model
-// doesn't look like a bad key. STRICT: probes only the selected model.
+// the Settings per-slot test buttons: the question is "is this KEY good?", so
+// quota / paid-only / busy all still count as a working key.
 async function testGivenKey(rawKey) {
   const key = String(rawKey || '').trim();
-  if (!key) return { ok: false, message: 'ئاچقۇچ بوش' };
+  if (!key) return { ok: false, status: 'none', message: 'ئاچقۇچ بوش' };
   const model = getModel();
-  try {
-    const json = await callGemini(model, key, {
-      contents: [{ role: 'user', parts: [{ text: 'سالام دەپ بىر سۆزلا جاۋاب بەر.' }] }],
-      generationConfig: { temperature: 0.2, thinkingConfig: { thinkingBudget: 0 }, maxOutputTokens: 64 }
-    }, { quotaFastFail: true });
-    const text = extractText(json);
-    if (text) return { ok: true, message: text, model: model };
-    return { ok: false, message: 'جاۋاب بوش' };
-  } catch (e) {
-    if (isModelUnavailableError(e)) return { ok: false, message: modelUnavailableMessage(model) };
-    // 503/429 → auth succeeded, so the key itself is fine.
-    if (isServerBusyError(e)) return { ok: true, busy: true, message: '✓ ئاچقۇچ توغرا (مودېل ھازىر ئالدىراش).' };
-    if (isQuotaError(e)) return { ok: true, quota: true, message: '✓ ئاچقۇچ توغرا، ئەمما ھەققى ھازىرچە توشۇپ تۇرۇپتۇ.' };
-    return { ok: false, message: (e && e.message) || 'سىناشتا خاتالىق' };
-  }
+  const r = await probeKey(key, model);
+  return {
+    ok: r.keyOk,
+    status: r.status,
+    quota: r.status === 'quota',
+    busy: r.status === 'busy',
+    paidOnlyModel: r.status === 'paid_only',
+    model: model,
+    message: r.status === 'valid' ? 'ئىشلەۋاتىدۇ' : r.message
+  };
 }
 
 // Test the key STORED in a slot: 0 = primary, 1..3 = backups. Lets the Settings
-// UI verify each saved backup key by index — the renderer never sees the real
-// key, only the ok/message result.
+// UI verify each saved key by index — the renderer never sees the real key,
+// only the status/message verdict.
 async function testKeySlot(index) {
   const i = parseInt(index, 10) || 0;
   const all = [loadKey()].concat(getBackupKeys());
   const key = all[i] || '';
-  if (!key) return { ok: false, message: 'بۇ ئورۇندا ئاچقۇچ يوق' };
-  return testGivenKey(key);
+  if (!key) return { ok: false, status: 'none', slot: i, message: 'بۇ ئورۇندا ئاچقۇچ يوق' };
+  const r = await testGivenKey(key);
+  r.slot = i;
+  return r;
+}
+
+// Test EVERY configured slot in one go and summarise. Used by the Settings
+// "test all keys" action: the user sees at a glance which slots work, and if
+// every key lacks billing while a paid-only model is selected we say THAT
+// instead of showing four identical quota complaints.
+async function testAllKeySlots() {
+  const model = getModel();
+  const all = [loadKey()].concat(getBackupKeys());
+  const results = [];
+  for (let i = 0; i < all.length; i++) {
+    if (!all[i]) { results.push({ slot: i, ok: false, status: 'none', message: '' }); continue; }
+    results.push(await testKeySlot(i));
+  }
+  const configured = results.filter(function (r) { return r.status !== 'none'; });
+  const allPaidOnly = configured.length > 0 && configured.every(function (r) { return r.status === 'paid_only'; });
+  return {
+    ok: configured.some(function (r) { return r.status === 'valid'; }),
+    model: model,
+    results: results,
+    allPaidOnly: allPaidOnly,
+    summary: allPaidOnly ? paidOnlyMessage(model) : ''
+  };
 }
 
 // ----------------------------------------------------------------
@@ -1247,17 +1610,26 @@ async function testKeySlot(index) {
 // history) but hits the SSE endpoint and feeds the answer to the caller
 // as it arrives:
 //   onChunk(textDelta)            — called as each delta arrives
-//   onDone(fullText, model, usage)— called once the stream completes
+//   onDone(fullText, model, usage, meta) — once the stream completes
 //   onError({ok:false, error, …}) — called on failure (same shape as ask())
+//   onReset(textSoFar)            — REPLACE everything rendered so far with
+//                                   `textSoFar` (usually ''): the answer is
+//                                   being restarted on the next key. Splicing
+//                                   two half-answers together would produce
+//                                   nonsense, so a mid-stream failover always
+//                                   resets first. translateStream passes the
+//                                   segments already finished, so only the
+//                                   segment being retried is discarded.
 // Returns { abort } so the caller can cancel mid-stream. If the stream fails
 // BEFORE any text arrives, it transparently falls back to the non-stream
 // ask() so nothing breaks.
 // ----------------------------------------------------------------
-function askStream(opts, onChunk, onDone, onError) {
+function askStream(opts, onChunk, onDone, onError, onReset) {
   opts = opts || {};
   onChunk = onChunk || function () {};
   onDone  = onDone  || function () {};
   onError = onError || function () {};
+  onReset = onReset || function () {};
   // Parity with ask(): RAG context forces the topic_search template.
   if (opts.mode === 'rag' && !opts.type) opts.type = 'topic_search';
 
@@ -1280,27 +1652,32 @@ function askStream(opts, onChunk, onDone, onError) {
     if (aborted) return;
 
     const requestedModel = getModel();
-    const keys = orderedKeyList();          // primary → backups; recently-failed keys last
+    const slots = orderedKeySlots();        // last-good slot first, then the rest
     const body = buildBody(opts);
     let lastErr = null;
     let emittedAny = false;   // did we hand any text to onChunk?
     let streamed = '';        // accumulated text for the current attempt
+    let attempts = 0;         // how many slots actually failed
+    let paidOnlyCount = 0;    // …of which, "model needs billing" failures
 
-    // Stream with each key in turn. A 429 (quota / rate-limit) on one key fails
-    // over to the NEXT key with the SAME model — so the answer streams straight
-    // from a backup with no user-visible "busy". STRICT model selection holds:
-    // only the key changes, never the model. Once any text has streamed we do
-    // NOT switch keys (that would duplicate the answer).
-    for (let ki = 0; ki < keys.length; ki++) {
-      const k = keys[ki];
-      const isLastKey = (ki === keys.length - 1);
+    // Stream with each key in turn. A 429 (quota / rate-limit), a 5xx or a
+    // dead key fails over to the NEXT key with the SAME model — so the answer
+    // streams straight from a backup with no action from the user. STRICT
+    // model selection holds: only the key changes, never the model. If text
+    // had already reached the UI when the failure hit, we call onReset() and
+    // start the answer over on the next key rather than splicing two partial
+    // answers together.
+    for (let ki = 0; ki < slots.length; ki++) {
+      const s = slots[ki];
+      const k = s.key;
+      const isLastKey = (ki === slots.length - 1);
       if (aborted) return;
       streamed = '';
       try {
         controller = new AbortController();
         const url = API_BASE + '/models/' + encodeURIComponent(requestedModel)
                   + ':streamGenerateContent?alt=sse';
-        console.log('[ai] STREAM', url, '(key #' + (ki + 1) + ')');
+        console.log('[ai] STREAM', url, '(key slot ' + s.slot + ')');
         // Connect watchdog: fetch() has no timeout, and a wedged connect used
         // to hang the request forever with no failover. Abort → the catch
         // below advances to the next key (nothing emitted yet).
@@ -1310,7 +1687,7 @@ function askStream(opts, onChunk, onDone, onError) {
         }, REQUEST_TIMEOUT_MS);
         let resp;
         try {
-          resp = await fetch(url, {
+          resp = await httpFetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': k },
             body: JSON.stringify(body),
@@ -1327,11 +1704,13 @@ function askStream(opts, onChunk, onDone, onError) {
           try { const j = await resp.json(); detail = (j.error && j.error.message) || ''; } catch (_) {}
           lastErr = new Error('HTTP ' + resp.status + (detail ? ' — ' + detail : ''));
           lastErr.status = resp.status;
+          attempts++;
           // Quota (429), server-busy (5xx) AND dead-key (invalid / expired /
           // suspended) errors → try the next key; a backup from a different
           // Cloud project very often gets through. Errors no key can fix
           // (missing model, size, other 4xx) stop the loop instead.
-          if (isQuotaError(lastErr)) markKeyBad(k, 'quota', lastErr.retryDelayMs);
+          if (isPaidOnlyModelError(lastErr)) paidOnlyCount++;   // model, not key — keep its place
+          else if (isQuotaError(lastErr)) markKeyBad(k, 'quota', lastErr.retryDelayMs);
           else if (isKeyInvalidError(lastErr)) markKeyBad(k, 'invalid');
           if (isFailoverError(lastErr) && !isLastKey) continue;
           break;
@@ -1371,30 +1750,48 @@ function askStream(opts, onChunk, onDone, onError) {
         if (aborted) return;
         if (!streamed) { lastErr = new Error('EMPTY_STREAM'); break; }
 
-        markKeyGood(k);
+        markSlotGood(s);
         bumpUsage();
         logTokenUsage(requestedModel, usage, !!opts.deepThink);
-        onDone(streamed, requestedModel, usage);
+        onDone(streamed, requestedModel, usage, { slot: s.slot });
         return;
       } catch (e) {
         if (aborted) return;
         lastErr = e;
-        // Network error / NO_STREAM with NOTHING emitted yet → try the next
-        // key directly (the network path to Google can be what's wedged, and
-        // the connect watchdog lands here too). Once text has been emitted we
-        // stop instead — switching keys would duplicate output.
-        if (!emittedAny && !isLastKey && isFailoverError(e)) continue;
+        attempts++;
+        // Network error / NO_STREAM / a mid-stream death → try the next key
+        // (the network path to Google can be what's wedged, and the connect
+        // watchdog lands here too).
+        if (isFailoverError(e) && !isLastKey) {
+          // Text was already on screen when it died: tell the caller to throw
+          // it away, then start the answer over on the next key. Continuing
+          // in place would splice two different half-answers together.
+          if (emittedAny) {
+            console.warn('[ai] stream died mid-output (slot ' + s.slot + ') — restarting cleanly on the next key');
+            emittedAny = false;
+            streamed = '';
+            try { onReset(''); } catch (_) {}
+          }
+          continue;
+        }
         break;
       }
     }
 
     if (aborted) return;
 
-    // If we already streamed partial text, finalize with it rather than
-    // re-running ask() (which would duplicate the whole answer).
+    // The LAST key died mid-answer and there is nothing left to fail over to.
+    // Keeping the partial text beats throwing the user's answer away — it is
+    // one answer cut short, not two spliced together.
     if (emittedAny && streamed) {
       bumpUsage();
-      onDone(streamed, requestedModel, null);
+      onDone(streamed, requestedModel, null, { slot: activeSlot, partial: true });
+      return;
+    }
+
+    // Not one configured key has billing and the chosen model is paid-only.
+    if ((attempts > 0 && paidOnlyCount === attempts) || isPaidOnlyModelError(lastErr)) {
+      onError({ ok: false, paidOnlyModel: true, model: requestedModel, error: paidOnlyMessage(requestedModel) });
       return;
     }
 
@@ -1429,7 +1826,15 @@ function askStream(opts, onChunk, onDone, onError) {
     // 429 on every key — all keys are quota-limited. Surface it directly with
     // the switch-key action instead of re-running the non-stream ask().
     if (isQuotaError(lastErr)) {
-      onError({ ok: false, quotaExhausted: true, allKeysExhausted: true, canSwitchKey: true, error: QUOTA_ALL_MSG });
+      onError({ ok: false, quotaExhausted: true, allKeysExhausted: true, canSwitchKey: true,
+                error: quotaAllMessage(lastErr && lastErr.retryDelayMs) });
+      return;
+    }
+
+    // Nothing reached Google at all — offline / DNS / watchdog. Re-running
+    // ask() over the same dead network would only add another 60s wait.
+    if (isNetworkError(lastErr)) {
+      onError({ ok: false, offline: true, error: NETWORK_MSG });
       return;
     }
 
@@ -1438,14 +1843,17 @@ function askStream(opts, onChunk, onDone, onError) {
     try {
       const res = await ask(opts);
       if (aborted) return;
-      if (res.ok) { onChunk(res.text); onDone(res.text, res.model, null); }
+      if (res.ok) { onChunk(res.text); onDone(res.text, res.model, null, { slot: activeSlot }); }
       else onError(res);
     } catch (e2) {
       if (aborted) return;
       if (isQuotaError(lastErr) || isQuotaError(e2)) {
-        onError({ ok: false, quotaExhausted: true, allKeysExhausted: true, canSwitchKey: true, error: QUOTA_ALL_MSG });
+        onError({ ok: false, quotaExhausted: true, allKeysExhausted: true, canSwitchKey: true,
+                  error: quotaAllMessage((lastErr && lastErr.retryDelayMs) || (e2 && e2.retryDelayMs)) });
+      } else if (isNetworkError(lastErr) || isNetworkError(e2)) {
+        onError({ ok: false, offline: true, error: NETWORK_MSG });
       } else {
-        onError({ ok: false, error: 'سوراش مەغلۇپ بولدى: ' + ((lastErr && lastErr.message) || (e2 && e2.message) || 'نامەلۇم خاتالىق') });
+        onError({ ok: false, error: 'سوراش مەغلۇپ بولدى: ' + scrubKeyFromMsg((lastErr && lastErr.message) || (e2 && e2.message) || 'نامەلۇم خاتالىق') });
       }
     }
   })();
@@ -1514,7 +1922,7 @@ async function streamOnce(model, key, body, onDelta, isAborted, setController) {
   }, REQUEST_TIMEOUT_MS);
   let resp;
   try {
-    resp = await fetch(url, {
+    resp = await httpFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify(body),
@@ -1562,39 +1970,56 @@ async function streamOnce(model, key, body, onDelta, isAborted, setController) {
 // the next key; once deltas have reached the caller, a mid-stream death
 // returns the partial text ({ partial: true }) instead — switching keys after
 // output would duplicate text. Shared by chatStream/translateStream.
-async function streamOnceFailover(model, body, onDelta, isAborted, setController) {
-  const keys = orderedKeyList();
-  if (!keys.length) { const e = new Error('NO_KEY'); e.noKey = true; throw e; }
+async function streamOnceFailover(model, body, onDelta, isAborted, setController, onReset) {
+  const slots = orderedKeySlots();
+  if (!slots.length) { const e = new Error('NO_KEY'); e.noKey = true; throw e; }
   let bestErr = null;
   let bestRank = -1;
-  for (let i = 0; i < keys.length; i++) {
-    const isLast = (i === keys.length - 1);
+  let attempts = 0;
+  let paidOnlyCount = 0;
+  for (let i = 0; i < slots.length; i++) {
+    const isLast = (i === slots.length - 1);
+    const s = slots[i];
     let attemptText = '';
     try {
-      const r = await streamOnce(model, keys[i], body, function (d) {
+      const r = await streamOnce(model, s.key, body, function (d) {
         attemptText += d;
         if (onDelta) onDelta(d);
       }, isAborted, setController);
-      markKeyGood(keys[i]);
+      markSlotGood(s);
       return r;
     } catch (e) {
       if (e && e.aborted) throw e;
       if (isAborted && isAborted()) { const e2 = new Error('ABORTED'); e2.aborted = true; throw e2; }
-      if (attemptText) {
-        // Mid-stream death after real output — keep the partial answer.
-        console.warn('[ai] stream died mid-output (key #' + (i + 1) + ') — keeping partial text');
+      attempts++;
+      if (attemptText && (isLast || !isFailoverError(e))) {
+        // Nothing left to fail over to — keep the partial answer rather than
+        // throwing the user's text away.
+        console.warn('[ai] stream died mid-output (slot ' + s.slot + ') — keeping partial text');
         return { text: attemptText, usage: null, partial: true };
       }
-      if (isQuotaError(e)) markKeyBad(keys[i], 'quota', e.retryDelayMs);
-      else if (isKeyInvalidError(e)) markKeyBad(keys[i], 'invalid');
+      if (attemptText) {
+        // Text was already on screen: discard it and restart cleanly on the
+        // next key instead of splicing two half-answers together.
+        console.warn('[ai] stream died mid-output (slot ' + s.slot + ') — restarting cleanly on the next key');
+        if (onReset) { try { onReset(); } catch (_) {} }
+      }
+      if (isPaidOnlyModelError(e)) paidOnlyCount++;
+      else if (isQuotaError(e)) markKeyBad(s.key, 'quota', e.retryDelayMs);
+      else if (isKeyInvalidError(e)) markKeyBad(s.key, 'invalid');
       const rank = isServerBusyError(e) ? 3 : (isQuotaError(e) ? 2 : (isKeyInvalidError(e) ? 1 : 0));
       if (rank > bestRank) { bestRank = rank; bestErr = e; }
       if (!isFailoverError(e)) throw e;
       if (!isLast) {
-        console.warn('[ai] stream key #' + (i + 1) + ' failed (' + scrubKeyFromMsg((e && e.message) || e) + ') — failing over');
+        console.warn('[ai] stream key slot ' + s.slot + ' failed (' + scrubKeyFromMsg((e && e.message) || e) + ') — failing over');
         continue;
       }
     }
+  }
+  if (attempts > 0 && paidOnlyCount === attempts) {
+    const e = bestErr || new Error('PAID_ONLY');
+    e.paidOnlyAllKeys = true;
+    throw e;
   }
   throw bestErr || new Error('سوراش مەغلۇپ بولدى');
 }
@@ -1603,11 +2028,12 @@ async function streamOnceFailover(model, body, onDelta, isAborted, setController
 // Same callback contract as askStream so the reader UI (Stop/copy/share/
 // regenerate) works unchanged. Chunks long input and streams each finished
 // segment in order; falls back to the non-stream callGemini per segment.
-function translateStream(opts, onChunk, onDone, onError) {
+function translateStream(opts, onChunk, onDone, onError, onReset) {
   opts = opts || {};
   onChunk = onChunk || function () {};
   onDone  = onDone  || function () {};
   onError = onError || function () {};
+  onReset = onReset || function () {};
   const from = opts.translateFrom, to = opts.translateTo;
   const text = String(opts.context || '');
 
@@ -1634,7 +2060,7 @@ function translateStream(opts, onChunk, onDone, onError) {
       const prompt = buildTranslationPrompt(from, to, segments[i]) + partNote;
       const body = {
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, topP: 0.9, thinkingConfig: { thinkingBudget: 0 }, maxOutputTokens: 8192 },
+        generationConfig: { temperature: 0.3, topP: 0.9, thinkingConfig: thinkingConfigFor(false), maxOutputTokens: 12288 },
         safetySettings: SAFETY_SETTINGS
       };
       if (i > 0) { full += '\n\n'; onChunk('\n\n'); }   // paragraph break between segments
@@ -1643,7 +2069,10 @@ function translateStream(opts, onChunk, onDone, onError) {
         const r = await streamOnceFailover(model, body,
           function (d) { if (!aborted) { full += d; emittedAny = true; onChunk(d); } },
           function () { return aborted; },
-          function (c) { controller = c; });
+          function (c) { controller = c; },
+          // Restarting THIS segment on another key: rewind to the segments
+          // already translated so the retry can't duplicate half a sentence.
+          function () { full = full.slice(0, fullLenBeforeSegment); onReset(full); });
         lastUsage = r.usage || lastUsage;
         if (r.partial) break;   // mid-stream death — finalize with what we have
       } catch (e) {
@@ -1660,10 +2089,12 @@ function translateStream(opts, onChunk, onDone, onError) {
         } catch (e2) {
           if (aborted) return;
           if (isSizeError(e) || isSizeError(e2)) { onError({ ok: false, tooLargeFallback: true, error: 'بۇ تېكىست بەك چوڭ بولۇپ، API نى بىراقلا قوبۇل قىلمىدى.' }); return; }
+          if (isPaidOnly2(e, e2)) { onError({ ok: false, paidOnlyModel: true, model: model, error: paidOnlyMessage(model) }); return; }
           if (isKeyInvalidError(e) || isKeyInvalidError(e2)) { onError({ ok: false, keyInvalid: true, canSwitchKey: true, error: KEY_INVALID_MSG }); return; }
           if (isServerBusyError(e) || isServerBusyError(e2)) { onError({ ok: false, busy: true, canSwitchKey: true, error: SERVER_BUSY_MESSAGE }); return; }
-          if (isQuotaError(e) || isQuotaError(e2)) { onError({ ok: false, quotaExhausted: true, allKeysExhausted: true, canSwitchKey: true, error: QUOTA_ALL_MSG }); return; }
-          onError({ ok: false, error: 'تەرجىمە مەغلۇپ بولدى: ' + ((e2 && e2.message) || (e && e.message) || 'نامەلۇم خاتالىق') }); return;
+          if (isQuotaError(e) || isQuotaError(e2)) { onError({ ok: false, quotaExhausted: true, allKeysExhausted: true, canSwitchKey: true, error: quotaAllMessage((e2 && e2.retryDelayMs) || (e && e.retryDelayMs)) }); return; }
+          if (isNetworkError(e) || isNetworkError(e2)) { onError({ ok: false, offline: true, error: NETWORK_MSG }); return; }
+          onError({ ok: false, error: 'تەرجىمە مەغلۇپ بولدى: ' + scrubKeyFromMsg((e2 && e2.message) || (e && e.message) || 'نامەلۇم خاتالىق') }); return;
         }
       }
     }
@@ -1672,7 +2103,7 @@ function translateStream(opts, onChunk, onDone, onError) {
     if (!emittedAny || !full.trim()) { onError({ ok: false, error: 'تەرجىمە چىقمىدى. قايتا سىناڭ.' }); return; }
     bumpUsage();
     logTokenUsage(model, lastUsage, false);
-    onDone(full, model, lastUsage);
+    onDone(full, model, lastUsage, { slot: activeSlot });
   })();
 
   return { abort: abort };
@@ -1685,10 +2116,11 @@ function translateStream(opts, onChunk, onDone, onError) {
 // timeout, STRICT model selection, and quota/unavailable error mapping as the
 // rest of the file. Callback contract matches askStream.
 // ----------------------------------------------------------------
-function chatStream(messages, onChunk, onDone, onError) {
+function chatStream(messages, onChunk, onDone, onError, onReset) {
   onChunk = onChunk || function () {};
   onDone  = onDone  || function () {};
   onError = onError || function () {};
+  onReset = onReset || function () {};
 
   let aborted = false;
   let controller = null;
@@ -1710,7 +2142,7 @@ function chatStream(messages, onChunk, onDone, onError) {
     const body = {
       systemInstruction: { parts: [{ text: CHAT_SYSTEM }] },
       contents: contents,
-      generationConfig: { temperature: 0.7, topP: 0.9, thinkingConfig: { thinkingBudget: 0 }, maxOutputTokens: 4096 },
+      generationConfig: { temperature: 0.7, topP: 0.9, thinkingConfig: thinkingConfigFor(false), maxOutputTokens: 4096 },
       safetySettings: SAFETY_SETTINGS
     };
 
@@ -1718,12 +2150,13 @@ function chatStream(messages, onChunk, onDone, onError) {
       const r = await streamOnceFailover(model, body,
         function (d) { if (!aborted) onChunk(d); },
         function () { return aborted; },
-        function (c) { controller = c; });
+        function (c) { controller = c; },
+        function () { onReset(''); });   // restarting on another key — clear the bubble
       if (aborted) return;
       if (!r.text || !r.text.trim()) { onError({ ok: false, error: 'جاۋاب چىقمىدى. قايتا سىناڭ.' }); return; }
       bumpUsage();
       logTokenUsage(model, r.usage, false);
-      onDone(r.text, model, r.usage);
+      onDone(r.text, model, r.usage, { slot: activeSlot });
     } catch (e) {
       if (aborted || (e && e.aborted)) return;
       // Streaming failed → one non-stream retry on the SAME model (STRICT).
@@ -1731,15 +2164,17 @@ function chatStream(messages, onChunk, onDone, onError) {
         const json = await callGeminiFailover(model, body);
         if (aborted) return;
         const t = extractText(json);
-        if (t) { bumpUsage(); onChunk(t); onDone(t, model, json.usageMetadata || null); return; }
+        if (t) { bumpUsage(); onChunk(t); onDone(t, model, json.usageMetadata || null, { slot: activeSlot }); return; }
         onError({ ok: false, error: 'جاۋاب چىقمىدى. قايتا سىناڭ.' });
       } catch (e2) {
         if (aborted) return;
+        if (isPaidOnly2(e, e2)) { onError({ ok: false, paidOnlyModel: true, model: model, error: paidOnlyMessage(model) }); return; }
         if (isKeyInvalidError(e) || isKeyInvalidError(e2)) { onError({ ok: false, keyInvalid: true, canSwitchKey: true, error: KEY_INVALID_MSG }); return; }
         if (isModelUnavailableError(e) || isModelUnavailableError(e2)) { onError({ ok: false, error: modelUnavailableMessage(model) }); return; }
         if (isServerBusyError(e) || isServerBusyError(e2)) { onError({ ok: false, busy: true, canSwitchKey: true, error: SERVER_BUSY_MESSAGE }); return; }
-        if (isQuotaError(e) || isQuotaError(e2)) { onError({ ok: false, quotaExhausted: true, allKeysExhausted: true, canSwitchKey: true, error: QUOTA_ALL_MSG }); return; }
-        onError({ ok: false, error: 'سوراش مەغلۇپ بولدى: ' + ((e2 && e2.message) || (e && e.message) || 'نامەلۇم خاتالىق') });
+        if (isQuotaError(e) || isQuotaError(e2)) { onError({ ok: false, quotaExhausted: true, allKeysExhausted: true, canSwitchKey: true, error: quotaAllMessage((e2 && e2.retryDelayMs) || (e && e.retryDelayMs)) }); return; }
+        if (isNetworkError(e) || isNetworkError(e2)) { onError({ ok: false, offline: true, error: NETWORK_MSG }); return; }
+        onError({ ok: false, error: 'سوراش مەغلۇپ بولدى: ' + scrubKeyFromMsg((e2 && e2.message) || (e && e.message) || 'نامەلۇم خاتالىق') });
       }
     }
   })();
@@ -1793,7 +2228,7 @@ async function ocrImages(imagesBase64, opts) {
     }
     const body = {
       contents: [{ role: 'user', parts: parts }],
-      generationConfig: { temperature: 0.1, topP: 0.9, thinkingConfig: { thinkingBudget: 0 }, maxOutputTokens: 8192 },
+      generationConfig: { temperature: 0.1, topP: 0.9, thinkingConfig: thinkingConfigFor(false), maxOutputTokens: 12288 },
       safetySettings: SAFETY_SETTINGS
     };
     try {
@@ -1806,11 +2241,17 @@ async function ocrImages(imagesBase64, opts) {
         try { opts.onProgress(Math.min(i + batch, images.length), images.length); } catch (_) {}
       }
     } catch (e) {
+      // Paid-only model first — it arrives as a 429 and would otherwise be
+      // mistaken for an ordinary free-tier limit.
+      if (e && (e.paidOnlyAllKeys || isPaidOnlyModelError(e))) {
+        return { ok: false, paidOnlyModel: true, model: model, error: paidOnlyMessage(model), pages: out };
+      }
       // Unavailable model → strict message. Size/quota → free-tier fallback.
       if (isModelUnavailableError(e)) return { ok: false, error: modelUnavailableMessage(model), pages: out };
       if (isSizeError(e) || isQuotaError(e)) return { ok: false, freeTierLimit: true, error: FREE_TIER_MSG, pages: out };
       if (isServerBusyError(e)) return { ok: false, busy: true, canSwitchKey: true, error: SERVER_BUSY_MESSAGE, pages: out };
-      return { ok: false, error: (e && e.message) || 'Gemini OCR مەغلۇپ بولدى', pages: out };
+      if (isNetworkError(e)) return { ok: false, offline: true, error: NETWORK_MSG, pages: out };
+      return { ok: false, error: scrubKeyFromMsg((e && e.message) || 'Gemini OCR مەغلۇپ بولدى'), pages: out };
     }
   }
   return { ok: true, text: out.join('\n\n') };
@@ -1829,8 +2270,12 @@ module.exports = {
   getBackupKeysMasked: getBackupKeysMasked,
   setBackupKeys: setBackupKeys,
   testKeySlot: testKeySlot,
+  testAllKeySlots: testAllKeySlots,
+  getKeyStatus: getKeyStatus,
   getModel: getModel,
   setModel: setModel,
+  resolveModelForSettings: resolveModelForSettings,
+  ackModelMigration: ackModelMigration,
   isEnabled: isEnabled,
   setEnabled: setEnabled,
   getTodayUsage: getTodayUsage,
@@ -1843,5 +2288,9 @@ module.exports = {
   DEFAULT_MODEL: DEFAULT_MODEL,
   MODEL_FALLBACKS: MODEL_FALLBACKS,
   SELECTABLE_MODELS: SELECTABLE_MODELS,
-  MAX_CONTEXT_CHARS: MAX_CONTEXT_CHARS
+  PAID_ONLY_MODELS: PAID_ONLY_MODELS,
+  MAX_CONTEXT_CHARS: MAX_CONTEXT_CHARS,
+  URL_PRICING: URL_PRICING,
+  URL_BILLING: URL_BILLING,
+  URL_TERMS: URL_TERMS
 };

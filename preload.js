@@ -123,8 +123,15 @@ contextBridge.exposeInMainWorld('AIBridge', {
   getBackupKeys: () => ipcRenderer.invoke('ai-get-backup-keys'),
   setBackupKeys: (arr) => ipcRenderer.invoke('ai-set-backup-keys', arr),
   testKeySlot: (index) => ipcRenderer.invoke('ai-test-key-slot', index),
+  testAllKeys: () => ipcRenderer.invoke('ai-test-all-keys'),
+  // Which slot is serving requests / last worked (for the small indicator).
+  getKeyStatus: () => ipcRenderer.invoke('ai-key-status'),
   getModel: () => ipcRenderer.invoke('ai-get-model'),
   setModel: (name) => ipcRenderer.invoke('ai-set-model', name),
+  // Settings-dialog model load: performs the one-time retired-ID migration
+  // and reports it back as { model, migratedFrom } so the dialog can say so.
+  loadModelSettings: () => ipcRenderer.invoke('ai-load-model-settings'),
+  ackModelMigration: () => ipcRenderer.invoke('ai-ack-model-migration'),
   isEnabled: () => ipcRenderer.invoke('ai-is-enabled'),
   setEnabled: (on) => ipcRenderer.invoke('ai-set-enabled', on),
   getTodayUsage: () => ipcRenderer.invoke('ai-get-usage'),
@@ -136,24 +143,33 @@ contextBridge.exposeInMainWorld('AIBridge', {
   // Returns { abort } just like mobile. The requestId + per-request channels
   // ('ai-chunk-<id>' / 'ai-done-<id>' / 'ai-error-<id>') are wired here so
   // the renderer never needs raw ipcRenderer access.
-  askStream: (opts, onChunk, onDone, onError) => {
+  askStream: (opts, onChunk, onDone, onError, onReset) => {
     const requestId = 'ai' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
     const chunkCh = 'ai-chunk-' + requestId;
     const doneCh = 'ai-done-' + requestId;
     const errCh = 'ai-error-' + requestId;
+    const resetCh = 'ai-reset-' + requestId;
 
     const onChunkWrap = (event, delta) => {
       try { if (onChunk) onChunk(delta); } catch (_) {}
     };
+    // The main process failed over to another key AFTER text had already
+    // been rendered: drop it and continue from textSoFar (usually '').
+    // Splicing two half-answers together would produce nonsense.
+    const onResetWrap = (event, textSoFar) => {
+      try { if (onReset) onReset(String(textSoFar || '')); } catch (_) {}
+    };
     const cleanup = () => {
       ipcRenderer.removeListener(chunkCh, onChunkWrap);
+      ipcRenderer.removeListener(resetCh, onResetWrap);
       ipcRenderer.removeAllListeners(doneCh);
       ipcRenderer.removeAllListeners(errCh);
     };
     ipcRenderer.on(chunkCh, onChunkWrap);
+    ipcRenderer.on(resetCh, onResetWrap);
     ipcRenderer.once(doneCh, (event, result) => {
       cleanup();
-      try { if (onDone) onDone(result && result.text, result && result.model, result && result.usage); } catch (_) {}
+      try { if (onDone) onDone(result && result.text, result && result.model, result && result.usage, result || {}); } catch (_) {}
     });
     ipcRenderer.once(errCh, (event, err) => {
       cleanup();
@@ -184,24 +200,33 @@ contextBridge.exposeInMainWorld('AIBridge', {
   // Free-form notebook chat (Phase 4). Same callback contract + per-request
   // channels as askStream, but sends a `messages` array and hits
   // 'ai-chat-stream'. Cancellation reuses 'ai-cancel'.
-  chatStream: (messages, onChunk, onDone, onError) => {
+  chatStream: (messages, onChunk, onDone, onError, onReset) => {
     const requestId = 'ch' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
     const chunkCh = 'ai-chunk-' + requestId;
     const doneCh = 'ai-done-' + requestId;
     const errCh = 'ai-error-' + requestId;
+    const resetCh = 'ai-reset-' + requestId;
 
     const onChunkWrap = (event, delta) => {
       try { if (onChunk) onChunk(delta); } catch (_) {}
     };
+    // The main process failed over to another key AFTER text had already
+    // been rendered: drop it and continue from textSoFar (usually '').
+    // Splicing two half-answers together would produce nonsense.
+    const onResetWrap = (event, textSoFar) => {
+      try { if (onReset) onReset(String(textSoFar || '')); } catch (_) {}
+    };
     const cleanup = () => {
       ipcRenderer.removeListener(chunkCh, onChunkWrap);
+      ipcRenderer.removeListener(resetCh, onResetWrap);
       ipcRenderer.removeAllListeners(doneCh);
       ipcRenderer.removeAllListeners(errCh);
     };
     ipcRenderer.on(chunkCh, onChunkWrap);
+    ipcRenderer.on(resetCh, onResetWrap);
     ipcRenderer.once(doneCh, (event, result) => {
       cleanup();
-      try { if (onDone) onDone(result && result.text, result && result.model, result && result.usage); } catch (_) {}
+      try { if (onDone) onDone(result && result.text, result && result.model, result && result.usage, result || {}); } catch (_) {}
     });
     ipcRenderer.once(errCh, (event, err) => {
       cleanup();
