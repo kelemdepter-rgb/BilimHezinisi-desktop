@@ -5,6 +5,7 @@ const os = require('os');
 const crypto = require('crypto');
 const database = require('./database');
 const ai = require('./ai');
+const spellEngine = require('./src/spellcheck/engine');
 const { cleanOcrPage } = require('./ocr-postprocess');
 const { seedQuran } = require('./scripts/seed-quran');
 const windowStateKeeper = require('electron-window-state');
@@ -1171,21 +1172,34 @@ ipcMain.handle('quran-content-snippet', (e, needle, maxResults, ctx) => {
   } catch(err) { return { success: false, snippets: [], error: err.message }; }
 });
 
-// ========== SPELL-CHECK DICTIONARY ==========
-ipcMain.handle('load-spell-dict', () => {
-  try {
-    const p = path.join(__dirname, 'assets', 'spellcheck', 'uyghur_words.txt');
-    if (fs.existsSync(p)) return fs.readFileSync(p, 'utf-8');
-    return null;
-  } catch(e) { return null; }
+// ========== SPELL CHECK ==========
+// The engine runs HERE, not in the renderer: it loads a 2.2 MB binary
+// dictionary and answers checks and suggestions, and the main process is
+// already a separate OS process, so typing is never blocked. The renderer
+// sends flattened text and gets back offsets into that same string — it never
+// tokenizes, so there is exactly one copy of the word rules (see
+// src/spellcheck/engine.js).
+//
+// Every handler returns a neutral value rather than throwing: a spellchecker
+// that cannot load must never be able to break the notebook.
+ipcMain.handle('spell-init', (event, personalWords) => {
+  try { return spellEngine.init(personalWords); }
+  catch (e) { return { ready: false, reason: (e && e.message) || 'init failed' }; }
 });
 
-ipcMain.handle('load-spell-corrections', () => {
-  try {
-    const p = path.join(__dirname, 'assets', 'spellcheck', 'uyghur_corrections.json');
-    if (fs.existsSync(p)) return fs.readFileSync(p, 'utf-8');
-    return null;
-  } catch(e) { return null; }
+ipcMain.handle('spell-check', (event, text) => {
+  try { return spellEngine.checkText(text); }
+  catch (e) { return []; }
+});
+
+ipcMain.handle('spell-suggest', (event, word) => {
+  try { return spellEngine.suggest(word); }
+  catch (e) { return []; }
+});
+
+ipcMain.handle('spell-personal', (event, words) => {
+  try { return spellEngine.setPersonal(words); }
+  catch (e) { return { ok: false }; }
 });
 
 // ========== AI (GEMINI) — see ai.js ==========

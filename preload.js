@@ -87,9 +87,14 @@ contextBridge.exposeInMainWorld('electron', {
   bookContentSnippet: (bookId, needle, max, ctx) => ipcRenderer.invoke('book-content-snippet', bookId, needle, max, ctx),
   bookContentSnippetBatch: (requests, max, ctx) => ipcRenderer.invoke('book-content-snippet-batch', requests, max, ctx),
   quranContentSnippet: (needle, max, ctx) => ipcRenderer.invoke('quran-content-snippet', needle, max, ctx),
-  // Spell-check dictionary
-  loadSpellDict: () => ipcRenderer.invoke('load-spell-dict'),
-  loadSpellCorrections: () => ipcRenderer.invoke('load-spell-corrections'),
+  // Spell check — the engine lives in the main process (src/spellcheck/).
+  // spellCheck takes the whole flattened text and returns the misspelled words
+  // as offsets INTO THAT STRING, so the renderer never needs its own copy of
+  // the tokenizer or the word rules.
+  spellInit: (words) => ipcRenderer.invoke('spell-init', words),
+  spellCheck: (text) => ipcRenderer.invoke('spell-check', text),
+  spellSuggest: (word) => ipcRenderer.invoke('spell-suggest', word),
+  spellPersonal: (words) => ipcRenderer.invoke('spell-personal', words),
 
   // AI (Gemini) — all network happens in the main process (see ai.js).
   // The real API key never crosses into the renderer; only a masked form.

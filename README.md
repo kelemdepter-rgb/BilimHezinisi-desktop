@@ -37,7 +37,10 @@ tracking**.
   automatic references back to the page you took the note from.
 - **Qur'an module** — the Uthmani Hafs Arabic text with the Uyghur
   translation, offline, with search.
-- **Uyghur spell-check** built on a SymSpell index.
+- **Uyghur spell-check** that understands the language is agglutinative:
+  a correctly formed word the 443,039-entry dictionary happens not to list
+  is accepted rather than underlined, and a misspelling is corrected by
+  repairing its stem or its suffix.
 - **Export** to PDF and DOCX with correct Uyghur typography.
 - **Optional AI assistant** — bring your own free Google Gemini API key to ask
   questions about the book you have open. Entirely opt-in; the app is fully
@@ -80,6 +83,27 @@ Packaging:
 npm run dist       # NSIS installer + portable .exe
 npm run dist-store # MSIX/AppX package for the Microsoft Store
 ```
+
+### The spellchecker
+
+The engine lives in `src/spellcheck/` and runs in the **main process** — not in
+the renderer, and not in a Web Worker (the renderer is loaded from `file://`,
+where Chromium refuses to start one). The renderer sends the editor's flattened
+text over IPC and gets back the misspelled words as offsets into that same
+string, so there is exactly one copy of the word rules.
+
+It reads `assets/spellcheck/uyghur-dict.bin`, a 2.2 MB binary dictionary of
+443,039 words. To rebuild it after changing the word list or the reviewed
+vocabulary in `spellcheck-data/`:
+
+```bash
+npm run build-spelldict   # writes assets/spellcheck/uyghur-dict.bin
+npm run test-spelldict    # drives the shipped engine over known cases
+```
+
+The build decodes the finished artifact back and compares every word and flag
+against its input before writing, so a silently corrupted dictionary fails the
+build instead of shipping.
 
 See [BUILD-GUIDE.md](BUILD-GUIDE.md) for the full walkthrough (in Uyghur).
 

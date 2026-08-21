@@ -43,7 +43,7 @@
   // Attributes we keep. data-* and class for our app's markers.
   const ALLOWED_ATTR = [
     'style', 'class', 'dir', 'lang',
-    'data-ref-insert', 'data-ref-word', 'data-spell-word',
+    'data-ref-insert', 'data-ref-word',
     'href', 'title',
     'face', 'size', 'color' // legacy <font> attrs
   ];
