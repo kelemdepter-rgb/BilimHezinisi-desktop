@@ -1,6 +1,6 @@
 {
   "name": "bilim-hezinisi",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "بىلىم خەزىنىسى - Uyghur Digital Library",
   "main": "main.js",
   "scripts": {
@@ -8,14 +8,15 @@
     "postinstall": "electron-rebuild -f -w better-sqlite3 && node scripts/copy-dompurify.js && node scripts/copy-vendor.js",
     "fetch-quran": "node scripts/fetch-quran-data.js",
     "fetch-ocr-models": "node scripts/fetch-ocr-models.js",
-    "build-spelldict": "node scripts/build-spelldict.js",
+    "build-spelldict": "node scripts/build-spelldict.mjs",
     "start": "electron .",
     "dev": "electron . --dev",
     "dist-win": "electron-builder --win --x64",
     "dist-mac": "electron-builder --mac",
     "dist-linux": "electron-builder --linux",
     "dist": "electron-builder --win --x64",
-    "dist-store": "electron-builder --win appx --x64"
+    "dist-store": "electron-builder --win appx --x64",
+    "test-spelldict": "node scripts/test-spelldict.mjs"
   },
   "build": {
     "appId": "com.bilim.hezinisi",
@@ -87,12 +88,14 @@
       "src/notes.css",
       "src/ngram.js",
       "src/spellcheck.js",
-      "assets/spellcheck/uyghur_words.txt",
+      "assets/spellcheck/uyghur-dict.bin",
       "assets/spellcheck/uyghur_corrections.json",
       "assets/vendor/**/*",
       "assets/ocr/**/*",
       "scripts/**/*",
-      "!scripts/build-spelldict.js",
+      "!scripts/build-spelldict.mjs",
+      "!scripts/test-spelldict.mjs",
+      "!scripts/lib/**/*",
       "!assets/spellcheck/raw/**/*",
       "!build/**/*",
       "!_to_delete/**/*"
