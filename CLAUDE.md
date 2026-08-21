@@ -15,11 +15,24 @@ offline; AI is an OPTIONAL, opt-in online layer (see Architecture).
 ## Architecture (actual — supersedes any "React/TypeScript" assumption)
 - **Electron 28 + plain JavaScript** (NOT React, NOT TypeScript; app code is not built/transpiled).
   - Main process: `main.js`, `database.js`, `ai.js`, `ocr-postprocess.js`; secure IPC bridge in `preload.js` (contextBridge).
-  - Renderer: single `src/index.html` + vanilla JS modules (`notes.js`, `quran.js`, `spellcheck.js`, `symspell.js`, `ngram.js`, `sanitize.js`, `ai-client.js`).
+  - Renderer: single `src/index.html` + vanilla JS modules (`notes.js`, `quran.js`, `spellcheck.js`, `ngram.js`, `sanitize.js`, `ai-client.js`).
 - **Data:** better-sqlite3 + SQLite FTS5 (unicode61). The library lives OUTSIDE the source tree at `%USERPROFILE%\JamiyKutupxana\library.db` (WAL mode); `npm run dev` uses a separate `JamiyKutupxana-DEV`. Tables include `book_content`/`book_fts`, `quran_ayas`/`quran_fts`, and a key/value `settings` table.
 - **Parsing:** PDF (pdfjs-dist, local), DOCX (mammoth), DOC (word-extractor), TXT, HTML/Markdown + web-page import (@mozilla/readability + turndown + node-html-parser).
 - **OCR (offline):** tesseract.js + tesseract.js-core with bundled UyghurOCR 2.0 LSTM models (ukij + uig) under `assets/ocr`; `ocr-postprocess.js` reflows paragraphs and normalizes characters. Models are downloaded via `npm run fetch-ocr-models` and shipped asar-unpacked.
-- **AI (optional, online):** Google Gemini, called ONLY from the main process (`ai.js`) via Node fetch; the renderer reaches it through IPC. Default model `gemini-3.5-flash`; also `gemini-3.1-flash-lite` (free) and `gemini-3.1-pro-preview` (paid). The user supplies their OWN key (`AIza…`), stored obfuscated in the `settings` table and never logged. STRICT model selection — never silently switch the user's chosen model. SSE streaming for chat/translate/ask; 60s timeout, retry/backoff, ~1M-char cap.
+- **AI (optional, online):** Google Gemini, called ONLY from the main process (`ai.js`) via `electron.net.fetch` — Chromium's stack, so the Windows certificate store and system proxy apply (Node's own fetch fails wherever an antivirus inspects HTTPS); the renderer reaches it through IPC. Default model `gemini-3.7-flash`; also `gemini-3.5-flash-lite` (free) and `gemini-3.1-pro-preview` (PAID — no free tier). Every request sends `thinkingLevel` (low/high), NEVER `thinkingBudget: 0`, which two of the three models reject outright. The user supplies their OWN key (`AIza…`), stored obfuscated in the `settings` table and never logged. STRICT model selection — never silently switch the user's chosen model. SSE streaming for chat/translate/ask; 60s timeout, retry/backoff, ~1M-char cap.
+- **Spellcheck (offline):** the engine lives in `src/spellcheck/*.js` (CommonJS)
+  and runs in the MAIN process — not the renderer, and not a Web Worker (the
+  renderer is loaded from `file://`, where Chromium refuses to start one). It
+  reads `assets/spellcheck/uyghur-dict.bin`, a 2.2 MB binary dictionary of
+  443,039 words (one byte per Uyghur letter, front-coded, with a flags byte
+  per word for corpus frequency and productive stems). Beyond the word list it
+  knows Uyghur morphology, so a correctly formed inflection the list lacks is
+  accepted rather than underlined. The renderer (`src/spellcheck.js`) is a thin
+  IPC client that sends the editor's flattened text and paints the returned
+  offsets with the CSS Custom Highlight API — never with elements, which used
+  to be saved into the note. Rebuild the dictionary with
+  `npm run build-spelldict` (inputs in `spellcheck-data/`, never shipped);
+  check it with `npm run test-spelldict`.
 - **Packaging:** electron-builder → NSIS installer + portable .exe (x64). `asarUnpack` covers better-sqlite3, tesseract.js(+core), and `assets/ocr`.
 - A companion **mobile app** (BilimHezinisi-Mobile) shares this AI/parser logic; `_mobile-ai-reference/` is the read-only port source.
 
@@ -31,7 +44,7 @@ offline; AI is an OPTIONAL, opt-in online layer (see Architecture).
 5. Book Reader — RTL, themes, bookmarks, notes, print; plus AI panel (summarize, explain, translate, term-explain, ask).
 6. Quran Module — mushaf view, FTS over ayas, copy.
 7. Notebook — rich-text editor, format painter, find/replace, word count, DOCX export, collapsible panels; plus AI menu (translate, Uyghur proofread, chat, page Q&A).
-8. Spellcheck — SymSpell + n-gram over a Uyghur dictionary.
+8. Spellcheck — morphology-aware Uyghur checker (see below).
 9. Optional Gemini AI — bring-your-own-key, content-type-aware prompts, OCR cleanup, metadata autofill; fully gated/hidden when disabled or no key.
 10. .EXE Installer — NSIS + portable.
 

@@ -88,16 +88,50 @@ Files: `assets/seed/uyghur_saleh_v1.0.2-xml.1.xml`,
 ## 3. Language data
 
 ### Uyghur spell-check word list
-Files: `assets/spellcheck/uyghur_words.txt`,
-`assets/spellcheck/uyghur_corrections.json`
+Files: `assets/spellcheck/uyghur_words.txt` (source, not shipped since 3.2.0),
+`assets/spellcheck/uyghur-dict.bin`, `assets/spellcheck/uyghur_corrections.json`
 
 - Derived from **UyghurSpell** — <https://github.com/gheyret/UyghurSpell>
 - MIT License, Copyright (c) 2022 Uyghur. Full text in
   `assets/spellcheck/raw/LICENSE_imlalughet`.
+- Since 3.2.0 the app ships `uyghur-dict.bin`, a binary re-encoding of that same
+  word list (one byte per Uyghur letter, front-coded) built by
+  `npm run build-spelldict`. The words are unchanged; the licence is unchanged.
+
+### Uyghur corpus-derived spell-check data
+Files: `assets/spellcheck/uyghur-dict.bin` (the flags byte of each word),
+`assets/spellcheck/uyghur_corrections.json` (the reviewed additions),
+`spellcheck-data/*` (build inputs, not shipped),
+`src/spellcheck/suffixes.generated.js`, `src/spellcheck/edit-weights.generated.js`
+
+Three tables that are not a third party's work — they were measured from this
+project's own material and are published with it:
+
+- **Word frequencies and the productive-stem list** — how often each word occurs
+  across the 15 books published in this project's own library, as log2 buckets,
+  and which stems the dictionary inflects widely. Counted from that library.
+- **Suffix tables** (525 accept, 2,576 suggest) — mined from the word list
+  itself: wherever one dictionary word is another dictionary word plus a tail,
+  that tail is a candidate suffix.
+- **Edit weights** (158 segment rewrites, 75 character confusions) — counted
+  from the hand-collected `uyghur_corrections.json` pairs above, four fifths of
+  them, with the remaining fifth held out of the counting.
+- **1,717 words and 326 correction pairs** admitted after reviewing candidates
+  drawn from that same library, one line at a time (`spellcheck-data/vocabulary.txt`).
+
+Licence: **CC BY-SA 4.0** — <https://creativecommons.org/licenses/by-sa/4.0/> —
+Copyright (c) 2026 Bilim Hezinisi. Reuse is welcome with attribution; the
+underlying word list stays under its own MIT licence above.
+
+The engine that reads them (`src/spellcheck/*.js`) is part of this app and
+carries the app's own MIT licence. It was ported from the web edition of Bilim
+Hezinisi, which is the same project.
 
 ### SymSpell algorithm
-`src/symspell.js` implements the SymSpell algorithm by Wolf Garbe
-(<https://github.com/wolfgarbe/SymSpell>), MIT License.
+No longer used. `src/symspell.js` implemented the SymSpell algorithm by Wolf
+Garbe (<https://github.com/wolfgarbe/SymSpell>), MIT License; it was removed in
+3.2.0 when the checker stopped precomputing a symmetric-delete index. The
+notice is kept for the record of what earlier versions shipped.
 
 ---
 
