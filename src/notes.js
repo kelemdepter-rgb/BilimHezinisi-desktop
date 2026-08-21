@@ -612,6 +612,12 @@
       ? window.SafeHTML.sanitize(_s().curDoc.content_html || '')
       : (_s().curDoc.content_html || '');
     editorEl.innerHTML = safeHtml || '<p><br></p>';
+    // Notes saved by v3.1.0 and earlier carry the old spell-check spans in
+    // their stored HTML — the checker used to wrap misspellings in elements,
+    // which sanitize.js allowed through and saveNow() then persisted. Unwrap
+    // them on open; the next save writes the note back clean.
+    editorEl.querySelectorAll('span.spell-error').forEach(s => s.replaceWith(...s.childNodes));
+    editorEl.normalize();
 
     editorEl.addEventListener('input', () => {
       markDirty();
@@ -1201,8 +1207,9 @@
     _s().spellCheckEnabled = !!checked;
     try { await window.electron.dbSetSetting('notes_spell_check', checked ? 'on' : 'off'); } catch(e) {}
     if (checked && typeof window.notesRunSpellCheck === 'function') {
-      // First-time load is heavy (~10–20 s to build the SymSpell index over
-      // 441K words). Surface a toast so the user knows something is happening.
+      // The engine loads its binary dictionary in about 30 ms, so this toast
+      // is normally gone before it is read. It stays for the one case that is
+      // still slow: a cold disk cache on a spinning drive.
       const sc = window.SpellCheck;
       const ready = sc && typeof sc.isReady === 'function' && sc.isReady();
       if (!ready && typeof showToast === 'function') {
@@ -1576,9 +1583,10 @@
   // never persist into the stored document.
   function snapshotHtml() {
     if (!editorEl) return '';
-    if (!editorEl.querySelector('mark.notes-find-hit')) return editorEl.innerHTML;
+    if (!editorEl.querySelector('mark.notes-find-hit, span.spell-error')) return editorEl.innerHTML;
     const clone = editorEl.cloneNode(true);
     clone.querySelectorAll('mark.notes-find-hit').forEach(mk => mk.replaceWith(document.createTextNode(mk.textContent)));
+    clone.querySelectorAll('span.spell-error').forEach(sp => sp.replaceWith(...sp.childNodes));
     return clone.innerHTML;
   }
 

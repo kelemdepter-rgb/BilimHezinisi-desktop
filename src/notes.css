@@ -533,6 +533,19 @@ button.notes-ai-item:hover, .notes-ai-has-sub:hover > .notes-ai-item-label {
 .notes-wc-action:hover { background: var(--ab); color: var(--am); }
 
 /* Spell check — wavy red underline + suggestion popup */
+/* How a misspelling is painted. The CSS Custom Highlight API draws Ranges
+   without putting anything in the document, so nothing can be saved into the
+   note — see src/spellcheck.js. ::highlight() accepts only colour,
+   background-color, text-decoration and its longhands, text-shadow and the
+   -webkit-text-stroke/fill properties; cursor and the rest are ignored. */
+::highlight(bh-spell-error) {
+  text-decoration: underline wavy #D32F2F;
+  text-decoration-skip-ink: none;
+}
+
+/* The span fallback, for a renderer without CSS.highlights. Electron 28 is
+   Chromium 120, which has the API, so this is a safety net rather than a path
+   anyone takes; snapshotHtml() strips these so they can never be saved. */
 .spell-error {
   text-decoration: wavy underline #D32F2F;
   text-decoration-skip-ink: none;
