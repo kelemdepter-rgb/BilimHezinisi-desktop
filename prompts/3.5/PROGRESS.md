@@ -15,7 +15,7 @@ Read prompts/3.5/PROMPT-3.5.md in full, then prompts/3.5/PROGRESS.md, and contin
 | Phase | What | Status | Commits | Tests |
 |---|---|---|---|---|
 | 0 | Groundwork: branch, `npm test`, CLAUDE.md rules | **done** | `1809615` docs: add the 3.5 audit and work order · `c51ac2f` test: an Electron test runner for the notebook and the database · `1589d4f` docs(claude): record the 3.5 notebook and data rules · docs(progress): this file | 12 added, 10 failing on purpose (see below) |
-| 1 | Notebook: nothing written may be damaged or lost (owner's bugs 1–2, K1, K2, K3, K7) | in progress | — | — |
+| 1 | Notebook: nothing written may be damaged or lost (owner's bugs 1–2, K1, K2, K3, K7) | **1.1–1.3, 1.5, 1.6 done; 1.4 (reference scan) left** | `56f4548` fix(notes): show the messages that were thrown away (K7) · `f79fc17` fix(spellcheck): one text map, where a line end is a word boundary · `6a900fe` fix(notes): nothing typed may be lost (K3) · `7be9db0` fix(notes): replace each hit where it stands (K1) · `38fa3ba` fix(notes): the format painter paints, it does not rebuild | 17 green, 2 red (`refscan-caret` → 1.4, `sanitize-keeps-markers` → Phase 2.3) |
 | 2 | Library safety: K4, K6, K18 + backup/restore | not started | — | — |
 | 3 | Versions and document structure: W1, W4, W5, W14, K11 | not started | — | — |
 | 4 | Export: W6, K8 | not started | — | — |
@@ -100,6 +100,22 @@ Notes on two of them:
   `PROMPT-SPELLCHECK-MORPHOLOGY.md`, `TARQITISH-TEKISTLIRI.md`) were left
   alone, as instructed.
 
+## Phase 1 — where it stands
+
+Done: **1.1** one text map with line ends (`src/textmap.js`, ported from the
+web edition's `lib/spellcheck/marks.ts`) · **1.2** the format painter ·
+**1.3** find & replace · **1.5** saving · **1.6** the messages.
+
+Left: **1.4** the reference scan — it still wraps matches in
+`<span class="ref-match">`, which moves the caret and is saved with the note.
+`refscan-caret` is red and waiting for it. The pieces it needs are all in
+place: `textmap.js` (`hitTest`, `offsetAtPoint`, `QUOTED_SELECTOR`),
+`setHighlight`, `putDocument`'s legacy unwrap, and `snapshotHtml`, which
+already strips `span.ref-match`.
+
+`sanitize-keeps-markers` is red too, and belongs to Phase 2.3 (K6): the
+sanitizer passes `USE_PROFILES` to DOMPurify, so its allow lists are ignored.
+
 ## Measurements
 
 Anything the audit or the web edition measured in another engine has to be
@@ -111,7 +127,9 @@ confirmed here goes into `CLAUDE.md`.
 | `CSS.highlights` / `Highlight` | present and paints Ranges; `CSS.highlights.clear()` works | `npm test`, Phase 0 |
 | `document.caretRangeFromPoint` | present (`caretPositionFromPoint` is not) — the spellchecker's hit test works | `npm test`, Phase 0 |
 | `document.execCommand('insertText' / 'insertParagraph' / 'insertLineBreak')` | all work in a hidden `BrowserWindow`, with layout and `getClientRects` | `npm test`, Phase 0 |
-| `removeFormat` keeps `<a>`, `<br>`, blocks, data attributes? | **not yet measured** — Phase 1.2 must, before relying on it | — |
+| `removeFormat` keeps `<a>`, `<br>`, blocks, classes? | **yes** | `engine-removeformat`, Phase 1.2 |
+| `removeFormat` keeps `data-*` attributes? | **no — it strips them.** So a painted range must never contain quoted material; `.notes-inserted-ref` identifies a passage whose attribute is already gone | `engine-removeformat`, Phase 1.2 |
+| The toolbar's font-size levels 1–7, in pixels | 10, 13, 16, 18, 24, 32, 48 — a source size is painted as the nearest level | `engine-font-sizes`, Phase 1.2 |
 | `formatBlock div` / `outdent` to leave a quote | **not yet measured** — Phase 3.2 | — |
 
 ## Deferred
