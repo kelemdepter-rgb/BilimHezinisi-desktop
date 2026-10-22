@@ -662,6 +662,15 @@ button.notes-ai-item:hover, .notes-ai-has-sub:hover > .notes-ai-item-label {
   color: var(--text2);
 }
 
+/* «▲ ئالدىنقى», «▼ كېيىنكى خاتالىق», «لۇغەت» beside the spellcheck switch (W7, W8). */
+.notes-spell-tools { display: inline-flex; gap: 4px; align-items: center; }
+.notes-spell-tools button {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; cursor: pointer;
+  font-family: var(--jf); font-size: 11.5px; color: var(--text2);
+  background: none; border: 0.5px solid var(--border2); border-radius: var(--radius2);
+}
+.notes-spell-tools button:hover { color: var(--am); border-color: var(--am); }
+
 /* ===== The list and the trash (W2, W3) ===== */
 .notes-list-tools { padding: 0 12px 8px; }
 .notes-list-tools select {

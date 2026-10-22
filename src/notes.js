@@ -537,6 +537,11 @@
           <input type="checkbox" id="notes-toggle-spellcheck" onchange="window.notesToggleSpellCheck(this.checked)">
           <span>ئىملانى تەكشۈرۈش (تورسىز)</span>
         </label>
+        <span class="notes-spell-tools">
+          <button type="button" data-spell-step="-1" onmousedown="event.preventDefault()" onclick="window.notesSpellStep(-1)" title="ئالدىنقى ئىملا خاتالىقى (Shift+F7)">▲ ئالدىنقى</button>
+          <button type="button" data-spell-step="1" onmousedown="event.preventDefault()" onclick="window.notesSpellStep(1)" title="كېيىنكى ئىملا خاتالىقى (F7)">▼ كېيىنكى خاتالىق</button>
+          <button type="button" onclick="window.notesShowDictionary()" title="شەخسىي لۇغەت — لۇغەتكە قوشقان سۆزلىرىڭىز">${icon('book-marked', 'ic-sm')} لۇغەت</button>
+        </span>
         <div class="notes-ai-menu-wrap" id="notes-ai-menu-wrap">
           <button type="button" class="notes-ai-trigger" id="notes-ai-trigger" onclick="window.naiToggleMenu(event)">${icon('sparkles')} سۈنئىي ئىدراك ئىقتىدارلىرى (Gemini API — تور ھالىتىدە) ▾</button>
           <div class="notes-ai-flyout" id="notes-ai-flyout">
@@ -967,6 +972,12 @@
       if (e.key === 'Escape' && fpArmed) {
         e.preventDefault();
         fpDisarm();
+        return;
+      }
+      // F7 / Shift+F7: the next / previous spelling error (W7).
+      if (e.key === 'F7' && typeof window.notesSpellStep === 'function') {
+        e.preventDefault();
+        window.notesSpellStep(e.shiftKey ? -1 : 1);
         return;
       }
       // Find / replace (Phase 5.3).

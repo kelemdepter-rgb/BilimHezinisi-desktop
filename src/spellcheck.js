@@ -52,6 +52,12 @@
   let loadingPromise = null;
   let userWords = new Set();      // the personal dictionary, persisted
   const ignored = new Set();      // "skip this word", for this session only
+  // «بۇ خاتىرىدە سەل قارا» (W9): words accepted in ONE note, kept in the
+  // settings table under spell_ignore_note_<id>. A name, a quoted spelling or a
+  // dialect form is often right in one note and a real mistake anywhere else.
+  const MAX_IGNORED_PER_NOTE = 500;
+  let noteIgnored = new Set();
+  let noteIgnoredId = null;       // the note noteIgnored belongs to
 
   let marks = [];                 // [{ word, start, end }] currently underlined
   let currentMap = null;          // the TextMap those offsets belong to
@@ -213,6 +219,7 @@
     // answers with still addresses the same text (maskSpans in textmap.js).
     // Dropping those nodes from the map instead — what this file used to do —
     // is what glued the words on either side of a quotation.
+    await loadNoteIgnored();
     const map = readTextMap(editor);
     const quoted = TM.quotedSpans(map, editor);
     let found;
@@ -233,13 +240,91 @@
     currentMap = now;
     marks = found.filter(mark =>
       !ignored.has(normalizeForLookup(mark.word)) &&
+      !noteIgnored.has(normalizeForLookup(mark.word)) &&
       !TM.overlapsAny(quoted, mark.start, mark.end));
     paint();
   };
 
+  /** The words ignored in the open note — read once per note. */
+  async function loadNoteIgnored() {
+    const doc = window.S && window.S.notes && window.S.notes.curDoc;
+    const id = doc ? doc.id : null;
+    if (id === noteIgnoredId) return;
+    noteIgnoredId = id;
+    noteIgnored = new Set();
+    if (id == null) return;
+    try {
+      const raw = unwrapSetting(await window.electron.dbGetSetting('spell_ignore_note_' + id, ''), '');
+      const list = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(list)) {
+        list.filter(w => typeof w === 'string' && w).slice(0, MAX_IGNORED_PER_NOTE)
+          .forEach(w => noteIgnored.add(normalizeForLookup(w)));
+      }
+    } catch (e) { /* an unreadable list is an empty one */ }
+    // Another note may have been opened while this was read.
+    const now = window.S && window.S.notes && window.S.notes.curDoc;
+    if ((now ? now.id : null) !== id) { noteIgnoredId = null; noteIgnored = new Set(); }
+  }
+
+  // ==========================================================================
+  // One error at a time (W7)
+  // ==========================================================================
+
+  /**
+   * «كېيىنكى خاتالىق» / «ئالدىنقى», and F7: the first error after the caret
+   * (before it, going back), wrapping round at the ends. The word is scrolled
+   * into view, the caret put just after it — so the next step goes on from
+   * there — and its suggestions opened.
+   */
+  window.notesSpellStep = async function (direction) {
+    const editor = document.getElementById('notes-editor');
+    if (!editor) return;
+    if (!window.S || !window.S.notes || !window.S.notes.spellCheckEnabled) {
+      if (typeof window.toast === 'function') window.toast('ئاۋۋال «ئىملانى تەكشۈرۈش» نى ئېچىڭ', 'i');
+      return;
+    }
+    if (!currentMap || !marks.length) await window.notesRunSpellCheck();
+    if (!marks.length || !currentMap) {
+      closePopup();
+      if (typeof window.toast === 'function') window.toast('ئىملا خاتالىقى قالمىدى', 's');
+      return;
+    }
+
+    const sel = window.getSelection();
+    let caret = 0;
+    if (sel && sel.rangeCount && editor.contains(sel.focusNode)) {
+      caret = TM.offsetAtPoint(currentMap, sel.focusNode, sel.focusOffset);
+    }
+    const ordered = marks.slice().sort((a, b) => a.start - b.start);
+    const target = direction < 0
+      ? (ordered.slice().reverse().find(m => m.end < caret) || ordered[ordered.length - 1])
+      : (ordered.find(m => m.start >= caret) || ordered[0]);
+
+    const range = rangeFor(currentMap, target.start, target.end);
+    if (!range) return;
+    editor.focus();
+    const after = range.cloneRange();
+    after.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(after);
+    scrollIntoEditor(editor, range);
+    await openPopup(target);
+  };
+
+  function scrollIntoEditor(editor, range) {
+    try {
+      const r = range.getBoundingClientRect();
+      const box = editor.getBoundingClientRect();
+      if (r.top >= box.top && r.bottom <= box.bottom) return;
+      editor.scrollTop += (r.top - box.top) - (box.height / 2) + (r.height / 2);
+    } catch (e) { /* a detached range */ }
+  }
+
   window.notesClearSpellCheck = function () {
     marks = [];
     currentMap = null;
+    noteIgnoredId = null;          // read again on the next check
+    noteIgnored = new Set();
     clearHighlight();
     closePopup();
   };
@@ -329,6 +414,7 @@
       html += `<div class="spell-popup-empty">تەۋسىيە تېپىلمىدى</div>`;
     }
     html += `<div class="spell-popup-item spell-popup-ignore" data-action="ignore">بۇ سۆزنى ئاتلاش</div>`;
+    html += `<div class="spell-popup-item spell-popup-ignore" data-action="ignore-note">بۇ خاتىرىدە سەل قارا</div>`;
     html += `<div class="spell-popup-item spell-popup-addword" data-action="addword">لۇغەتكە قوشۇش</div>`;
     popup.innerHTML = html;
 
@@ -354,6 +440,7 @@
 
         if (correction) applyCorrection(mark, correction);
         else if (action === 'ignore') ignoreWord(word);
+        else if (action === 'ignore-note') await ignoreInNote(word);
         else if (action === 'addword') await addToDictionary(word);
 
         closePopup();
@@ -405,6 +492,25 @@
   /** Skip this word for the rest of the session. Deliberately not persisted. */
   function ignoreWord(word) {
     ignored.add(normalizeForLookup(word));
+    dropWord(word);
+  }
+
+  /** Accept this word in the open note only — stored with the note (W9). */
+  async function ignoreInNote(word) {
+    const doc = window.S && window.S.notes && window.S.notes.curDoc;
+    const normalized = normalizeForLookup(word);
+    if (!doc || !normalized) return;
+    await loadNoteIgnored();
+    if (!noteIgnored.has(normalized)) {
+      if (noteIgnored.size >= MAX_IGNORED_PER_NOTE) {
+        if (typeof window.toast === 'function') window.toast('بۇ خاتىرىدە سەل قارىلىدىغان سۆز بەك كۆپ (500)', 'e');
+        return;
+      }
+      noteIgnored.add(normalized);
+      try {
+        await window.electron.dbSetSetting('spell_ignore_note_' + doc.id, JSON.stringify(Array.from(noteIgnored)));
+      } catch (e) { /* it still holds for this session */ }
+    }
     dropWord(word);
   }
 

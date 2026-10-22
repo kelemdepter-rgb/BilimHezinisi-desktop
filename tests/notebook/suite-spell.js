@@ -140,4 +140,110 @@
     t.assert.equal(ed.children[1].textContent, 'كېيىنكى ئابزاس',
       'the second paragraph lost text to a cross-paragraph correction');
   });
+
+  // ------------------------------------------------------------ W7: one by one
+  function popupWord() {
+    const header = document.querySelector('.spell-popup-header');
+    const m = header ? /«([^»]+)»/.exec(header.textContent) : null;
+    return m ? m[1] : null;
+  }
+
+  const STEP_NOTE = '<p>بىرىنچى خاتاسۆز ئابزاس</p><p>ئىككىنچى ئابزاس يەنەخاتا</p><p>ئۈچىنچى ئۈچىنچىخاتا ئابزاس</p>';
+  const STEP_GOOD = ['بىرىنچى', 'ئابزاس', 'ئىككىنچى', 'ئۈچىنچى'];
+
+  test('spell-step-through', async function (t) {
+    const ed = await t.fresh({ html: STEP_NOTE, spell: true, good: STEP_GOOD });
+    await window.notesRunSpellCheck();
+    t.caretIn(t.firstText(ed.children[0]), 0);
+
+    t.assert.ok(typeof window.notesSpellStep === 'function', 'there is no way to step through the errors');
+    const seen = [];
+    for (let i = 0; i < 4; i++) {
+      await window.notesSpellStep(1);
+      await t.sleep(40);
+      seen.push(popupWord());
+    }
+    t.assert.deepEqual(seen, ['خاتاسۆز', 'يەنەخاتا', 'ئۈچىنچىخاتا', 'خاتاسۆز'],
+      '«كېيىنكى» does not go from the caret to each error in turn and wrap');
+
+    await window.notesSpellStep(-1);
+    await t.sleep(40);
+    t.assert.equal(popupWord(), 'ئۈچىنچىخاتا', '«ئالدىنقى» does not wrap back to the last error');
+
+    // F7 is «كېيىنكى» from the keyboard.
+    t.caretIn(t.firstText(ed.children[1]), 0);
+    ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'F7', bubbles: true, cancelable: true }));
+    await t.sleep(60);
+    t.assert.equal(popupWord(), 'يەنەخاتا', 'F7 does not open the next error after the caret');
+
+    const buttons = document.querySelectorAll('[data-spell-step]');
+    t.assert.equal(buttons.length, 2, 'there are no «ئالدىنقى» / «كېيىنكى خاتالىق» buttons');
+  });
+
+  test('spell-step-none-left', async function (t) {
+    await t.fresh({ html: '<p>بىرىنچى ئابزاس</p>', spell: true, good: STEP_GOOD });
+    await window.notesRunSpellCheck();
+    await window.notesSpellStep(1);
+    await t.sleep(30);
+    t.assert.ok(window.TOASTS.some(function (x) { return x[0] === 'ئىملا خاتالىقى قالمىدى'; }),
+      'stepping with nothing left does not say so');
+  });
+
+  // ------------------------------------------------- W9: ignore in this note
+  test('spell-ignore-in-note', async function (t) {
+    const html = '<p>بىرىنچى خاتاسۆز ئابزاس</p>';
+    const notes = {
+      1: { id: 1, title: 'بىرى', content_html: html, content_text: '' },
+      2: { id: 2, title: 'يەنە بىرى', content_html: html, content_text: '' }
+    };
+    let ed = await t.fresh({ notes: notes, spell: true, good: STEP_GOOD });
+    await window.notesRunSpellCheck();
+    await t.sleep(20);
+    let ranges = t.highlightRanges('bh-spell-error');
+    t.assert.equal(ranges.length, 1, 'the fixture has no misspelling');
+    t.clickRect(ed, ranges[0].getClientRects()[0], 'mousedown');
+    await t.sleep(60);
+    const item = document.querySelector('.spell-popup-item[data-action="ignore-note"]');
+    t.assert.ok(item, 'the popup has no «بۇ خاتىرىدە سەل قارا»');
+    t.assert.includes(item.textContent, 'بۇ خاتىرىدە سەل قارا');
+    item.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    await t.sleep(60);
+    t.assert.equal(t.highlightRanges('bh-spell-error').length, 0, 'the word is still underlined');
+    t.assert.deepEqual(JSON.parse(window.FAKE.settings.spell_ignore_note_1 || '[]'), ['خاتاسۆز'],
+      'the word was not stored for this note');
+
+    // Still ignored when the note is opened again...
+    await window.notesOpen(2);
+    await window.notesOpen(1);
+    await window.notesRunSpellCheck();
+    await t.sleep(20);
+    t.assert.equal(t.highlightRanges('bh-spell-error').length, 0, 'the word came back after reopening the note');
+
+    // ...and only in this note.
+    await window.notesOpen(2);
+    await window.notesRunSpellCheck();
+    await t.sleep(20);
+    t.assert.equal(t.highlightRanges('bh-spell-error').length, 1, 'the word is ignored in another note too');
+  });
+
+  // ----------------------------------------- W10: quoted material is not marked
+  test('spell-skips-quoted', async function (t) {
+    const ed = await t.fresh({
+      html: '<p>بىرىنچى <span style="font-family:\'UthmanicHafs\',serif">ﷺ مۇقەددەس ئايەت</span> ئابزاس خاتاسۆز</p>' +
+            '<blockquote class="notes-inserted-ref" data-ref-insert="1"><span>كىتابتىكى نەقىل</span></blockquote>' +
+            '<p><a href="https://example.com">ئۇلىنىشتىكى سۆز</a> ئابزاس</p>',
+      spell: true,
+      good: STEP_GOOD
+    });
+    await window.notesRunSpellCheck();
+    await t.sleep(20);
+    t.assert.deepEqual(t.highlighted('bh-spell-error'), ['خاتاسۆز'],
+      'quoted material was marked, or the writer\'s own misspelling was not');
+    const sent = window.FAKE.lastChecked;
+    ['مۇقەددەس', 'كىتابتىكى', 'ئۇلىنىشتىكى'].forEach(function (word) {
+      t.assert.excludes(sent, word, 'quoted material was sent to the engine: ' + word);
+    });
+    t.assert.includes(sent, 'بىرىنچى', 'the writer\'s own words were not sent');
+    void ed;
+  });
 })();
