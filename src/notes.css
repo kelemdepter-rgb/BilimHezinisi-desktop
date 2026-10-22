@@ -516,6 +516,13 @@ button.notes-ai-item:hover, .notes-ai-has-sub:hover > .notes-ai-item-label {
 }
 .notes-find-bar button:hover { background: var(--bg3); color: var(--text); }
 .notes-find-count { font-size: 11px; color: var(--text3); font-family: sans-serif; white-space: nowrap; }
+/* Find hits are PAINTED, never written into the note (K1). ::highlight() takes
+   only colour, background-color, text-decoration, text-shadow and
+   -webkit-text-stroke — the rounded corners of the old <mark> are gone with it. */
+::highlight(bh-find-hit) { background-color: #FFE08A; color: #000; }
+::highlight(bh-find-current) { background-color: #F6A609; color: #000; }
+/* Left for the <mark> elements that notes saved before v3.5 still carry, until
+   putDocument() unwraps them on open. */
 .notes-editor mark.notes-find-hit { background: #FFE08A; color: #000; border-radius: 2px; }
 .notes-editor mark.notes-find-hit.current { background: #F6A609; color: #000; }
 

@@ -337,6 +337,7 @@
         <input type="text" id="notes-replace-input" placeholder="ئالماشتۇرۇش..." style="display:none">
         <button type="button" id="notes-replace-btn" onclick="window.notesReplaceOne()" style="display:none">ئالماشتۇرۇش</button>
         <button type="button" id="notes-replace-all-btn" onclick="window.notesReplaceAll()" style="display:none">ھەممىنى ئالماشتۇرۇش</button>
+        <button type="button" id="notes-undo-all-btn" onclick="window.notesUndoReplaceAll()" style="display:none">ھەممىنى يېنىۋېلىش</button>
         <button type="button" onclick="window.notesFindClose()" title="تاقاش (Esc)">${icon('x','ic-sm')}</button>
       </div>
       <div class="notes-editor-wrap">
@@ -1701,15 +1702,41 @@
     return clone.innerHTML;
   }
 
-  // --- 5.3 find & replace ------------------------------------------------------
-  let findState = { hits: [], idx: -1 };
+  // --- find & replace (K1) ----------------------------------------------------
+  // Three things carry this section.
+  //
+  // NOTHING IS WRITTEN INTO THE NOTE TO SHOW A MATCH. Every hit used to be
+  // wrapped in a <mark>, which snapshotHtml() then had to remember to strip
+  // again before saving. The hits are painted with the CSS Custom Highlight
+  // API instead — the spellchecker already proved it here — so there is nothing
+  // in the note to save, nothing to move the caret, and no text node split
+  // through the middle of an Arabic word.
+  //
+  // A MATCH NEVER CROSSES A TEXT NODE. Occurrences are found inside one text
+  // node at a time, so a phrase can never straddle two paragraphs.
+  //
+  // A REPLACEMENT TOUCHES ONLY ITS OWN HIT, written over that hit's Range with
+  // one insertText, last hit first. Writing the whole document back instead
+  // (`selectAll` + `insertHTML`) put everything after the note's first block
+  // INSIDE it: a note that began with a quote ended up entirely inside that
+  // quote, and three seconds later the wreckage was saved (K1).
+
+  /** Painted by the ::highlight() rules in notes.css. */
+  const FIND_HIGHLIGHT = 'bh-find-hit';
+  const FIND_CURRENT = 'bh-find-current';
+
+  let findState = { hits: [], idx: -1, map: null, query: '' };
+  let findUndo = null;        // { html, steps } — the note before a replace-all
+
   function isFindOpen() { const b = document.getElementById('notes-find-bar'); return !!(b && b.style.display !== 'none'); }
+
   function openFindBar(withReplace) {
     const bar = document.getElementById('notes-find-bar'); if (!bar) return;
     bar.style.display = 'flex';
     ['notes-replace-input', 'notes-replace-btn', 'notes-replace-all-btn'].forEach(id => {
       const el = document.getElementById(id); if (el) el.style.display = withReplace ? '' : 'none';
     });
+    showUndoAll(!!findUndo);
     const inp = document.getElementById('notes-find-input');
     if (inp) {
       const sel = window.getSelection();
@@ -1720,89 +1747,178 @@
     }
     window.notesFindRun();
   }
-  function clearFindHighlights() {
-    if (!editorEl) return;
-    editorEl.querySelectorAll('mark.notes-find-hit').forEach(m => {
-      const p = m.parentNode; if (!p) return;
-      while (m.firstChild) p.insertBefore(m.firstChild, m);
-      p.removeChild(m);
-    });
-    editorEl.normalize();
-    findState.hits = []; findState.idx = -1;
+
+  function showUndoAll(on) {
+    const btn = document.getElementById('notes-undo-all-btn');
+    if (btn) btn.style.display = on ? '' : 'none';
   }
+
+  function clearFindHighlights() {
+    const TM = window.TextMap;
+    if (TM) { TM.clearHighlight(FIND_HIGHLIGHT); TM.clearHighlight(FIND_CURRENT); }
+    findState.hits = []; findState.idx = -1; findState.map = null;
+    // Notes saved before v3.5 can still carry the old <mark> hits.
+    if (editorEl) {
+      const legacy = editorEl.querySelectorAll('mark.notes-find-hit');
+      if (legacy.length) {
+        legacy.forEach(m => m.replaceWith(...m.childNodes));
+        editorEl.normalize();
+      }
+    }
+  }
+
   function updateFindCount() {
     const c = document.getElementById('notes-find-count');
     if (c) c.textContent = (findState.hits.length ? (findState.idx + 1) : 0) + ' / ' + findState.hits.length;
   }
-  function highlightCurrent() {
-    findState.hits.forEach((m, i) => m.classList.toggle('current', i === findState.idx));
-    const cur = findState.hits[findState.idx];
-    if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'center' });
+
+  /** Paint the hits, the current one in its own colour, and scroll to it. */
+  function paintFind() {
+    const TM = window.TextMap;
+    if (!TM) return;
+    if (!findState.map) { TM.clearHighlight(FIND_HIGHLIGHT); TM.clearHighlight(FIND_CURRENT); return; }
+    const others = [];
+    const current = [];
+    findState.hits.forEach((hit, i) => {
+      const range = TM.rangeFor(findState.map, hit.start, hit.end);
+      if (!range) return;
+      if (i === findState.idx) current.push(range); else others.push(range);
+    });
+    TM.setHighlight(FIND_HIGHLIGHT, others);
+    TM.setHighlight(FIND_CURRENT, current);
+    if (current.length && editorEl) scrollRangeIntoView(current[0]);
   }
+
+  // There is no element to call scrollIntoView() on any more, so the editor is
+  // scrolled by the difference itself.
+  function scrollRangeIntoView(range) {
+    try {
+      const r = range.getBoundingClientRect();
+      if (!r || (!r.height && !r.width)) return;
+      const box = editorEl.getBoundingClientRect();
+      if (r.top >= box.top && r.bottom <= box.bottom) return;
+      editorEl.scrollTop += (r.top - box.top) - (box.height / 2) + (r.height / 2);
+    } catch (e) { /* a detached range */ }
+  }
+
   window.notesFindRun = function () {
     if (!editorEl) return;
+    const TM = window.TextMap;
     clearFindHighlights();
     const inp = document.getElementById('notes-find-input');
-    const q = (inp && inp.value) || '';
-    if (!q) { updateFindCount(); return; }
-    const ql = q.toLowerCase();
-    const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT, null);
-    const nodes = []; let n;
-    while ((n = walker.nextNode())) {
-      if (n.nodeValue && n.nodeValue.toLowerCase().indexOf(ql) !== -1) nodes.push(n);
-    }
-    for (const tn of nodes) {
-      const txt = tn.nodeValue, lower = txt.toLowerCase();
-      const parts = []; let idx = 0;
-      while ((idx = lower.indexOf(ql, idx)) !== -1) { parts.push({ s: idx, e: idx + q.length }); idx += q.length; }
-      if (!parts.length) continue;
-      const frag = document.createDocumentFragment(); let cur = 0;
-      for (const p of parts) {
-        if (p.s > cur) frag.appendChild(document.createTextNode(txt.slice(cur, p.s)));
-        const mk = document.createElement('mark'); mk.className = 'notes-find-hit'; mk.textContent = txt.slice(p.s, p.e);
-        frag.appendChild(mk); cur = p.e;
+    const q = (((inp && inp.value) || '')).trim();
+    findState.query = q;
+    if (!q || !TM) { updateFindCount(); return; }
+
+    const map = TM.readTextMap(editorEl);
+    const needle = q.toLowerCase();
+    const hits = [];
+    for (let i = 0; i < map.nodes.length; i++) {
+      const lower = map.nodes[i].data.toLowerCase();
+      let at = 0;
+      while ((at = lower.indexOf(needle, at)) !== -1) {
+        hits.push({ start: map.starts[i] + at, end: map.starts[i] + at + q.length });
+        at += q.length;
       }
-      if (cur < txt.length) frag.appendChild(document.createTextNode(txt.slice(cur)));
-      if (tn.parentNode) tn.parentNode.replaceChild(frag, tn);
     }
-    findState.hits = Array.from(editorEl.querySelectorAll('mark.notes-find-hit'));
-    findState.idx = findState.hits.length ? 0 : -1;
-    highlightCurrent(); updateFindCount();
+    findState.map = map;
+    findState.hits = hits;
+    findState.idx = hits.length ? 0 : -1;
+    paintFind();
+    updateFindCount();
   };
-  window.notesFindNext = function () { if (!findState.hits.length) return; findState.idx = (findState.idx + 1) % findState.hits.length; highlightCurrent(); updateFindCount(); };
-  window.notesFindPrev = function () { if (!findState.hits.length) return; findState.idx = (findState.idx - 1 + findState.hits.length) % findState.hits.length; highlightCurrent(); updateFindCount(); };
+
+  window.notesFindNext = function () {
+    if (!findState.hits.length) return;
+    findState.idx = (findState.idx + 1) % findState.hits.length;
+    paintFind(); updateFindCount();
+  };
+  window.notesFindPrev = function () {
+    if (!findState.hits.length) return;
+    findState.idx = (findState.idx - 1 + findState.hits.length) % findState.hits.length;
+    paintFind(); updateFindCount();
+  };
   window.notesFindKey = function (e) {
     if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) window.notesFindPrev(); else window.notesFindNext(); }
     else if (e.key === 'Escape') { e.preventDefault(); window.notesFindClose(); }
   };
   window.notesFindClose = function () {
     clearFindHighlights();
+    updateFindCount();
     const bar = document.getElementById('notes-find-bar'); if (bar) bar.style.display = 'none';
     if (editorEl) editorEl.focus();
   };
-  // Replace via one selectAll+insertHTML so it is a SINGLE undo step.
+
+  /**
+   * Replace the current hit, or all of them.
+   *
+   * Every hit gets a live Range before anything is written, and the writes run
+   * from the last hit to the first — so a replacement can never move a hit
+   * still waiting its turn, and the Ranges follow the document as it changes.
+   * Each one is a single insertText, which the browser can undo and which
+   * leaves the markup around the hit alone.
+   */
   function applyReplacement(all) {
-    if (!editorEl || !findState.hits.length) return 0;
+    const TM = window.TextMap;
+    if (!editorEl || !TM || !findState.hits.length || !findState.map) return 0;
     const repl = (document.getElementById('notes-replace-input') || {}).value || '';
-    let count = 0;
-    if (all) { findState.hits.forEach(m => { m.setAttribute('data-fr', '1'); count++; }); }
-    else if (findState.idx >= 0) { findState.hits[findState.idx].setAttribute('data-fr', '1'); count = 1; }
-    if (!count) return 0;
-    const clone = editorEl.cloneNode(true);
-    clone.querySelectorAll('mark.notes-find-hit').forEach(mk => {
-      const txt = mk.getAttribute('data-fr') === '1' ? repl : mk.textContent;
-      mk.replaceWith(document.createTextNode(txt));
-    });
+    const chosen = all
+      ? findState.hits.slice()
+      : (findState.idx >= 0 ? [findState.hits[findState.idx]] : []);
+    if (!chosen.length) return 0;
+
+    const needle = findState.query.toLowerCase();
+    const before = snapshotHtml();
+    const ranges = chosen.map(hit => TM.rangeFor(findState.map, hit.start, hit.end));
+
     editorEl.focus();
-    document.execCommand('selectAll', false);
-    document.execCommand('insertHTML', false, clone.innerHTML);
+    const selection = window.getSelection();
+    let written = 0;
+    for (let i = ranges.length - 1; i >= 0; i--) {
+      const range = ranges[i];
+      // The hit has to still be there, and still be the hit.
+      if (!range || !editorEl.contains(range.startContainer)) continue;
+      if (range.toString().toLowerCase() !== needle) continue;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.execCommand('insertText', false, repl);
+      written++;
+    }
+    if (!written) return 0;
+
     markDirty();
-    findState.hits = []; findState.idx = -1;
+    // One offer to take the whole batch back. The browser's own undo would do
+    // it in `written` steps; if the note still differs after those, the
+    // snapshot is written back instead.
+    if (all && written > 1) {
+      findUndo = { html: before, steps: written };
+      showUndoAll(true);
+    }
     window.notesFindRun();
-    return count;
+    return written;
   }
-  window.notesReplaceOne = function () { const n = applyReplacement(false); if (n && window.toast) window.toast(n + ' ئورۇن ئالماشتۇرۇلدى', 'i'); };
-  window.notesReplaceAll = function () { const n = applyReplacement(true); if (window.toast) window.toast((n || 0) + ' ئورۇن ئالماشتۇرۇلدى', n ? 's' : 'i'); };
+
+  window.notesReplaceOne = function () {
+    const n = applyReplacement(false);
+    if (n) toast(n + ' ئورۇن ئالماشتۇرۇلدى', 'i');
+  };
+  window.notesReplaceAll = function () {
+    const n = applyReplacement(true);
+    toast((n || 0) + ' ئورۇن ئالماشتۇرۇلدى', n ? 's' : 'i');
+  };
+
+  /** Take a whole «ھەممىنى ئالماشتۇرۇش» back in one go. */
+  window.notesUndoReplaceAll = function () {
+    if (!findUndo || !editorEl) return;
+    editorEl.focus();
+    for (let i = 0; i < findUndo.steps; i++) document.execCommand('undo');
+    if (snapshotHtml() !== findUndo.html) putDocument(findUndo.html);
+    findUndo = null;
+    showUndoAll(false);
+    markDirty();
+    window.notesFindRun();
+    toast('ئالماشتۇرۇش يېنىۋالىندى', 's');
+  };
 
   // --- 5.3 DOCX export ---------------------------------------------------------
   window.notesExportDocx = async function () {
@@ -1868,7 +1984,13 @@
 
   // Reset transient editor tools when (re-)mounting a document.
   function resetEditorTools() {
-    findState = { hits: [], idx: -1 };
+    findState = { hits: [], idx: -1, map: null, query: '' };
+    findUndo = null;
+    showUndoAll(false);
+    if (window.TextMap) {
+      window.TextMap.clearHighlight(FIND_HIGHLIGHT);
+      window.TextMap.clearHighlight(FIND_CURRENT);
+    }
     const bar = document.getElementById('notes-find-bar'); if (bar) bar.style.display = 'none';
     const btn = document.getElementById('notes-ocr-cleanup-btn'); if (btn) btn.style.display = 'none';
   }

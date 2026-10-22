@@ -70,5 +70,19 @@ module.exports = function (suite, assert, ctx) {
     assert.ok(at > opens && at - opens < 12,
       'the one innerHTML assignment is not inside putDocument() (putDocument at line ' +
       (opens + 1) + ', assignment at line ' + (at + 1) + ')');
+
+    // Rebuilding the note, or a selection, as HTML is banned with it: the
+    // note's first block swallowed everything after it (K1), and a painted
+    // selection written back as one <span> swallowed three paragraphs (bug 1).
+    // Scoped to the notebook module - the library's own «ھەممىنى تاللاش» menu
+    // item in index.html really does just select, and insertHTML is how a verse
+    // or a library passage is INSERTED, which is new content, not a rewrite.
+    const noteFile = [path.join(ctx.root, 'src', 'notes.js')];
+    // (Reading the selection as a string is fine — pre-filling the find box
+    // does it. Writing it back as markup is the defect.)
+    const rebuilds = grep(noteFile, /execCommand\(\s*['"]selectAll['"]/, ctx.root)
+      .concat(grep(noteFile, /insertHTML['"]\s*,\s*false\s*,\s*['"]<span/, ctx.root));
+    assert.deepEqual(rebuilds, [],
+      'the note, or a selection, is being rewritten as HTML in src/notes.js: ' + rebuilds.join(', '));
   });
 };
