@@ -10,9 +10,9 @@ const navigation = require('./navigation');
 const noteExport = require('./note-export');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
-// The word rules themselves (WORD_PATTERN, isCheckable, tokenize) — used by
-// spell-validate-word so the renderer never holds a second copy of them.
-const spellWords = require('./src/spellcheck/dictionary');
+// What counts as one word for the personal dictionary, and what an imported
+// dictionary file may bring — the checker's own rules, never a renderer copy.
+const spellPersonal = require('./src/spellcheck/personal');
 const { cleanOcrPage } = require('./ocr-postprocess');
 const { seedQuran } = require('./scripts/seed-quran');
 const windowStateKeeper = require('electron-window-state');
@@ -1490,15 +1490,49 @@ ipcMain.handle('spell-personal', (event, words) => {
 // here rather than testing the word itself, because a second copy of
 // WORD_PATTERN that drifted by one character would disagree with the checker.
 ipcMain.handle('spell-validate-word', (event, word) => {
+  try { return spellPersonal.validatePersonalWord(String(word == null ? '' : word)); }
+  catch (e) { return { ok: false, reason: 'error' }; }
+});
+
+// The personal-dictionary panel (W8, K12).
+// Which entries look like two words glued together — a hint, never a removal.
+ipcMain.handle('spell-glued', (event, words) => {
+  try { return { success: true, glued: spellEngine.glued(Array.isArray(words) ? words.slice(0, 6000) : []) }; }
+  catch (e) { return { success: false, glued: [] }; }
+});
+
+// Export: a JSON array, the same file the web edition makes.
+ipcMain.handle('spell-dictionary-export', async (event, words) => {
   try {
-    const text = String(word == null ? '' : word).trim();
-    if (text.length < 2 || text.length > 64) return { ok: false, reason: 'length' };
-    const tokens = spellWords.tokenize(text);
-    if (tokens.length !== 1 || tokens[0].word !== text) return { ok: false, reason: 'not-one-word' };
-    if (!spellWords.isCheckable(text)) return { ok: false, reason: 'not-checkable' };
-    return { ok: true, word: text };
+    const pick = await dialog.showSaveDialog(mainWindow, {
+      title: 'شەخسىي لۇغەتنى چىقىرىش',
+      defaultPath: path.join(app.getPath('documents'), spellPersonal.EXPORT_FILE_NAME),
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    fs.writeFileSync(pick.filePath, spellPersonal.exportPersonal(words), 'utf8');
+    return { success: true, name: path.basename(pick.filePath) };
   } catch (e) {
-    return { ok: false, reason: 'error' };
+    return { success: false, error: e.message };
+  }
+});
+
+// Import: an untrusted file. Read here, checked entry by entry with the
+// checker's own rules, merged; only the merged list goes back.
+ipcMain.handle('spell-dictionary-import', async (event, existing) => {
+  try {
+    const pick = await dialog.showOpenDialog(mainWindow, {
+      title: 'شەخسىي لۇغەتنى كىرگۈزۈش',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile']
+    });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths.length) return { success: false, canceled: true };
+    const file = pick.filePaths[0];
+    if (fs.statSync(file).size > spellPersonal.MAX_IMPORT_BYTES) return { success: false, reason: 'too_big' };
+    const merged = spellPersonal.mergeImport(Array.isArray(existing) ? existing.map(String) : [], fs.readFileSync(file, 'utf8'));
+    return merged.ok ? Object.assign({ success: true }, merged) : { success: false, reason: merged.reason };
+  } catch (e) {
+    return { success: false, error: e.message };
   }
 });
 

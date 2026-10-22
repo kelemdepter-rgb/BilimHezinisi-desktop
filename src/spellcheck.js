@@ -598,5 +598,46 @@
     return Array.isArray(list) ? list : [];
   }
 
-  window.SpellCheck = { loadDictionary, isCorrect, getSuggestions, isReady };
+  // ==========================================================================
+  // The personal dictionary, for the panel in the notebook (W8, K12)
+  // ==========================================================================
+
+  function parsePersonal(raw) {
+    return String(raw || '').split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  /** Store the list and tell the engine — the two must always agree. */
+  async function savePersonal() {
+    try { await window.electron.dbSetSetting('spell_user_words', Array.from(userWords).join(',')); }
+    catch (e) { /* the engine still has it for this session */ }
+    try { await window.electron.spellPersonal(Array.from(userWords)); }
+    catch (e) { /* the next spellInit carries it over */ }
+  }
+
+  /** The words as stored — read afresh, the settings table being the truth. */
+  async function personalWords() {
+    try {
+      userWords = new Set(parsePersonal(unwrapSetting(await window.electron.dbGetSetting('spell_user_words', ''), '')));
+    } catch (e) { /* keep what is in memory */ }
+    return Array.from(userWords);
+  }
+
+  async function removePersonal(word) {
+    await personalWords();
+    userWords.delete(word);
+    await savePersonal();
+    rescan();
+  }
+
+  /** After an import: the merged list the main process checked and sent back. */
+  async function replacePersonal(words) {
+    userWords = new Set((Array.isArray(words) ? words : []).filter(w => typeof w === 'string' && w));
+    await savePersonal();
+    rescan();
+  }
+
+  window.SpellCheck = {
+    loadDictionary, isCorrect, getSuggestions, isReady,
+    personalWords, removePersonal, replacePersonal
+  };
 })();

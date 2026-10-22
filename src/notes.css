@@ -671,6 +671,26 @@ button.notes-ai-item:hover, .notes-ai-has-sub:hover > .notes-ai-item-label {
 }
 .notes-spell-tools button:hover { color: var(--am); border-color: var(--am); }
 
+/* The personal dictionary (W8). */
+.notes-dict-filter {
+  width: 100%; box-sizing: border-box; padding: 6px 8px; font-family: var(--jf); font-size: 12.5px;
+  background: var(--bg); color: var(--text); border: 0.5px solid var(--border2); border-radius: var(--radius2);
+}
+.nd-row {
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px; margin-bottom: 3px;
+  border-radius: var(--radius2); background: var(--bg);
+}
+.nd-word { font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.nd-glued {
+  font-size: 10.5px; color: #A35F00; background: rgba(186,117,23,.12);
+  padding: 1px 6px; border-radius: 8px; white-space: nowrap;
+}
+.nd-del {
+  margin-inline-start: auto; width: 22px; height: 22px; cursor: pointer; font-size: 15px; line-height: 1;
+  background: none; border: none; color: var(--text3); border-radius: 4px;
+}
+.nd-del:hover { color: #A32D2D; background: rgba(163,45,45,.08); }
+
 /* ===== The list and the trash (W2, W3) ===== */
 .notes-list-tools { padding: 0 12px 8px; }
 .notes-list-tools select {

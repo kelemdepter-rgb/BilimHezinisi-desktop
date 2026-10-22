@@ -349,6 +349,7 @@
       await mountEditor();
       if (_s().rightTab === 'history') loadHistory();
       else if (_s().rightTab === 'outline') refreshOutline();
+      else if (_s().rightTab === 'dictionary') loadDictionaryPane();
     }
   };
 
@@ -694,6 +695,7 @@
         <div class="notes-right-pane" data-pane="ai" style="${vis('ai')}">${renderAiTab()}</div>
         <div class="notes-right-pane" data-pane="history" style="${vis('history')}">${renderHistoryPane()}</div>
         <div class="notes-right-pane" data-pane="outline" style="${vis('outline')}">${renderOutlinePane()}</div>
+        <div class="notes-right-pane" data-pane="dictionary" style="${vis('dictionary')}">${renderDictionaryPane()}</div>
       </div>
     </div>`;
   }
@@ -2739,6 +2741,128 @@
     if (_s().panelCollapsed) window.notesTogglePanel();
     window.notesSetTab('outline');
     refreshOutline();
+  };
+
+  // ========== THE PERSONAL DICTIONARY (W8, K12) ==========
+  // The words added with «لۇغەتكە قوشۇش» could never be seen or removed.
+  // This lists them with a filter, deletes, exports and imports them (a JSON
+  // array, the web edition's file), and marks the ones that look like two
+  // words glued together — what the owner's bug 2 could store. A hint only.
+  // Every word goes on screen through textContent: an imported file is
+  // untrusted, and an old entry can be anything.
+
+  let dictWords = [];
+  let dictGlued = new Set();
+
+  function renderDictionaryPane() {
+    return `<div id="notes-dictionary" class="notes-side-pane">
+      <div class="notes-side-pane-head">${icon('book-marked')} شەخسىي لۇغەت</div>
+      <div class="notes-side-pane-note">«لۇغەتكە قوشۇش» بىلەن قوشقان سۆزلىرىڭىز. «چاپلاشقان بولۇشى مۇمكىن» دەپ بەلگىلەنگەن سۆزنى تەكشۈرۈڭ — ئىككى سۆز قوشۇلۇپ قالغان بولسا ئۆچۈرۈڭ.</div>
+      <input type="text" id="notes-dict-filter" class="notes-dict-filter" placeholder="سۆز ئىزدەش…">
+      <div class="nh-actions" style="margin:8px 0">
+        <button type="button" class="notes-ref-act" data-action="export">${icon('download', 'ic-sm')} چىقىرىش</button>
+        <button type="button" class="notes-ref-act" data-action="import">${icon('folder', 'ic-sm')} كىرگۈزۈش</button>
+      </div>
+      <div id="notes-dict-count" class="notes-side-pane-note"></div>
+      <div id="notes-dict-list"></div>
+    </div>`;
+  }
+
+  function wireDictionaryPane() {
+    const pane = document.getElementById('notes-dictionary');
+    if (!pane || pane.dataset.wired) return;
+    pane.dataset.wired = '1';
+    document.getElementById('notes-dict-filter').addEventListener('input', renderDictionaryList);
+    pane.querySelector('[data-action="export"]').addEventListener('click', exportDictionary);
+    pane.querySelector('[data-action="import"]').addEventListener('click', importDictionary);
+  }
+
+  async function loadDictionaryPane() {
+    wireDictionaryPane();
+    if (!window.SpellCheck || typeof window.SpellCheck.personalWords !== 'function') return;
+    dictWords = (await window.SpellCheck.personalWords()).slice().sort(compareTitles);
+    dictGlued = new Set();
+    renderDictionaryList();
+    try {
+      const r = await window.electron.spellGlued(dictWords);
+      if (r && r.success && Array.isArray(r.glued)) dictGlued = new Set(r.glued);
+    } catch (e) { /* no hints, the list still works */ }
+    renderDictionaryList();
+  }
+
+  function renderDictionaryList() {
+    const list = document.getElementById('notes-dict-list');
+    const count = document.getElementById('notes-dict-count');
+    if (!list) return;
+    const filterEl = document.getElementById('notes-dict-filter');
+    const q = filterEl ? filterEl.value.trim() : '';
+    const shown = q ? dictWords.filter(w => w.indexOf(q) !== -1) : dictWords;
+    if (count) {
+      count.textContent = dictWords.length + ' سۆز' + (dictGlued.size ? ' · ' + dictGlued.size + ' سى چاپلاشقان بولۇشى مۇمكىن' : '');
+    }
+    list.textContent = '';
+    if (!shown.length) {
+      const empty = document.createElement('div');
+      empty.className = 'notes-ref-empty';
+      empty.textContent = dictWords.length ? 'تېپىلمىدى' : 'لۇغەت بوش. ئىملا تاختىسىدىكى «لۇغەتكە قوشۇش» بىلەن سۆز قوشۇلىدۇ.';
+      list.appendChild(empty);
+      return;
+    }
+    for (const word of shown) {
+      const row = document.createElement('div');
+      row.className = 'nd-row';
+      const text = document.createElement('span');
+      text.className = 'nd-word';
+      text.textContent = word;
+      row.appendChild(text);
+      if (dictGlued.has(word)) {
+        const hint = document.createElement('span');
+        hint.className = 'nd-glued';
+        hint.textContent = 'چاپلاشقان بولۇشى مۇمكىن';
+        row.appendChild(hint);
+      }
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'nd-del';
+      del.title = 'لۇغەتتىن ئۆچۈرۈش';
+      del.textContent = '×';
+      del.addEventListener('click', async () => {
+        await window.SpellCheck.removePersonal(word);
+        toast('لۇغەتتىن ئۆچۈرۈلدى', 'i');
+        await loadDictionaryPane();
+      });
+      row.appendChild(del);
+      list.appendChild(row);
+    }
+  }
+
+  async function exportDictionary() {
+    let r = null;
+    try { r = await window.electron.spellDictionaryExport(dictWords); } catch (e) { r = null; }
+    if (r && r.success) toast('لۇغەت ساقلاندى: ' + r.name, 's');
+    else if (!r || !r.canceled) toast('لۇغەت چىقىرىلمىدى', 'e');
+  }
+
+  const IMPORT_REFUSALS = {
+    not_json: 'بۇ ھۆججەت JSON ئەمەس',
+    not_array: 'بۇ ھۆججەتتە سۆز تىزىملىكى يوق',
+    too_big: 'ھۆججەت بەك چوڭ'
+  };
+
+  async function importDictionary() {
+    let r = null;
+    try { r = await window.electron.spellDictionaryImport(dictWords); } catch (e) { r = null; }
+    if (!r || r.canceled) return;
+    if (!r.success) { toast('لۇغەت كىرگۈزۈلمىدى — ' + (IMPORT_REFUSALS[r.reason] || r.error || ''), 'e'); return; }
+    await window.SpellCheck.replacePersonal(r.words);
+    toast(r.added + ' سۆز قوشۇلدى' + (r.rejected ? '، ' + r.rejected + ' سى قوبۇل قىلىنمىدى' : ''), 's');
+    await loadDictionaryPane();
+  }
+
+  window.notesShowDictionary = async function () {
+    if (_s().panelCollapsed) window.notesTogglePanel();
+    window.notesSetTab('dictionary');
+    await loadDictionaryPane();
   };
 
   // ========== BLOCK STYLE (W4, K11) ==========

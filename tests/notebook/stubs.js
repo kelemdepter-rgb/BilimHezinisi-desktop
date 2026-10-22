@@ -248,6 +248,18 @@
       return out;
     },
     spellSuggest: async function () { return FAKE.suggest.slice(); },
+    // The personal-dictionary panel (W8): the rules are tested in the main suite.
+    spellGlued: async function (words) {
+      return { success: true, glued: (words || []).filter(function (w) { return FAKE.glued.indexOf(w) !== -1; }) };
+    },
+    spellDictionaryExport: async function (words) {
+      FAKE.calls.push(['spellDictionaryExport', (words || []).slice()]);
+      return { success: true, name: 'bilim-hezinisi-lughet.json' };
+    },
+    spellDictionaryImport: async function (existing) {
+      FAKE.calls.push(['spellDictionaryImport', (existing || []).slice()]);
+      return FAKE.importAnswer || { success: false, canceled: true };
+    },
     spellPersonal: async function (words) { FAKE.personal = (words || []).slice(); return { ok: true }; },
     /**
      * One word only, by the engine's own rules. The real check is in the main
@@ -317,11 +329,13 @@
     };
     FAKE.nextId = 100;
     FAKE.calls = [];
-    FAKE.settings = {
+    FAKE.settings = Object.assign({
       notes_spell_check: opts.spell ? 'on' : 'off',
       notes_ref_scan: opts.refscan ? 'on' : 'off'
-    };
+    }, opts.settings || {});
     FAKE.saves = [];
+    FAKE.glued = opts.glued || [];
+    FAKE.importAnswer = null;
     FAKE.versionCalls = [];
     FAKE.versionRows = opts.versionRows || [];
     FAKE.dirtyReports = [];

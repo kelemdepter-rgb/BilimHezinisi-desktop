@@ -120,6 +120,10 @@ contextBridge.exposeInMainWorld('electron', {
   spellPersonal: (words) => ipcRenderer.invoke('spell-personal', words),
   // Guards «لۇغەتكە قوشۇش»: one word only, by the engine's own rules.
   spellValidateWord: (word) => ipcRenderer.invoke('spell-validate-word', word),
+  // The personal-dictionary panel: glued-word hints, export, import (W8).
+  spellGlued: (words) => ipcRenderer.invoke('spell-glued', words),
+  spellDictionaryExport: (words) => ipcRenderer.invoke('spell-dictionary-export', words),
+  spellDictionaryImport: (existing) => ipcRenderer.invoke('spell-dictionary-import', existing),
 
   // AI (Gemini) — all network happens in the main process (see ai.js).
   // The real API key never crosses into the renderer; only a masked form.
