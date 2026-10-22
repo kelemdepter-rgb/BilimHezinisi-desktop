@@ -15,8 +15,8 @@ Read prompts/3.5/PROMPT-3.5.md in full, then prompts/3.5/PROGRESS.md, and contin
 | Phase | What | Status | Commits | Tests |
 |---|---|---|---|---|
 | 0 | Groundwork: branch, `npm test`, CLAUDE.md rules | **done** | `1809615` docs: add the 3.5 audit and work order · `c51ac2f` test: an Electron test runner for the notebook and the database · `1589d4f` docs(claude): record the 3.5 notebook and data rules · docs(progress): this file | 12 added, 10 failing on purpose (see below) |
-| 1 | Notebook: nothing written may be damaged or lost (owner's bugs 1–2, K1, K2, K3, K7) | **done** — waiting for the owner's check | `56f4548` fix(notes): show the messages that were thrown away (K7) · `f79fc17` fix(spellcheck): one text map, where a line end is a word boundary · `6a900fe` fix(notes): nothing typed may be lost (K3) · `7be9db0` fix(notes): replace each hit where it stands (K1) · `38fa3ba` fix(notes): the format painter paints, it does not rebuild · `a935fff` fix(notes): the reference scan paints its matches (K2) · docs(progress) ×2 | 20 green, 1 red by design (`sanitize-keeps-markers` → Phase 2.3) |
-| 2 | Library safety: K4, K6, K18 + backup/restore | not started | — | — |
+| 1 | Notebook: nothing written may be damaged or lost (owner's bugs 1–2, K1, K2, K3, K7) | **done** — waiting for the owner's check | `56f4548` fix(notes): show the messages that were thrown away (K7) · `f79fc17` fix(spellcheck): one text map, where a line end is a word boundary · `6a900fe` fix(notes): nothing typed may be lost (K3) · `7be9db0` fix(notes): replace each hit where it stands (K1) · `38fa3ba` fix(notes): the format painter paints, it does not rebuild · `a935fff` fix(notes): the reference scan paints its matches (K2) · docs(progress) ×2 | 20 green; `sanitize-keeps-markers` stayed red until Phase 2.3 |
+| 2 | Library safety: K4, K6, K18 + backup/restore | **done** — waiting for the owner's check | `5aef0a4` fix(library): a book is deleted only when the writer deletes it (K4) · `1203572` feat(library): backup, restore and a migrations framework · `71cdcdf` fix(sanitize): the allow lists are the lists that are applied (K6) · `d7552b9` docs: correct the removeFormat measurement; repair CLAUDE.md · `9f91645` fix(window): the window stays in the app; only http(s) goes outside (K18) · `87de2d6` build: drop sql.js, which nothing uses (K18) · docs(progress) | 37 in all (with the syntax gate), every one green |
 | 3 | Versions and document structure: W1, W4, W5, W14, K11 | not started | — | — |
 | 4 | Export: W6, K8 | not started | — | — |
 | 5 | List, trash, spelling: W2, W3, W7–W10, K12, K13 | not started | — | — |
@@ -132,6 +132,48 @@ a reference match.
 6. يېزىپلا Ctrl+2، ئاندىن دەرھال Ctrl+3 → يازغانلىرىڭىز جايىدا.
 7. يېزىپلا كۆزنەكنى تاقاڭ، قايتا ئېچىڭ → يازغانلىرىڭىز جايىدا.
 
+## Phase 2 — done
+
+| Item | What changed | Tests (red before → green after) |
+|---|---|---|
+| 2.1 | `syncBooks()` only upserts. `load-library` / `save-library` live in `library-sync.js`: each part read on its own (`loadErrors`), a part that never loaded this session is never written back (main and renderer both — `S.loadedParts`), an empty book list is refused while books exist. `delBook()` calls `db-delete-book` first. Page turns and closing the reader save the position through `db-save-progress`. The batch-import reload takes only what loaded. A red banner if the book list did not load; no welcome screen over it. | `sync-never-deletes` (red: `syncBooks()` deleted the book), `empty-book-list-refused`, `failed-part-not-synced`, `renderer-library-writes`; guard: `delete-book-cascade` |
+| 2.2 | `backup.js` + `database.backupTo()` (SQLite online backup, written to `.tmp` and renamed). Weekly `auto-<date>.db`, newest 3 kept. Settings: «ھازىر زاپاسلاش», «زاپاس قىسقۇچىنى ئېچىش», «زاپاستىن ئەسلىگە كەلتۈرۈش», folder size. Restore: check → native confirm → `library-before-restore-<time>.db` → checkpoint, close, replace, drop `-wal`/`-shm` → relaunch. `MIGRATIONS` + `runMigrations()` on `PRAGMA user_version`, backup `library-before-<version>.db` before the first pending step; empty list for now. | `backup-copy`, `restore-validation`, `migrations-backup-first`, `auto-backup-rotation`, `restore-replaces-file` |
+| 2.3 | No `USE_PROFILES`. Tables, `strike`, `del`, `ins`, `small` added; no `img`. `style` filtered per declaration in an `uponSanitizeAttribute` hook that exists only during the notebook's own call; `text-indent`, `list-style-type` added; no `url()`, `image-set()`, `expression()`, `javascript:`, `@import`, escapes. | `sanitize-keeps-markers`, `sanitize-tables-urls-styles`; guard: `sanitize-keeps-editor-output` (every toolbar command survives) |
+| 2.4 | `navigation.js`: new windows → system browser only for parsed http(s); `will-navigate` allows only `src/index.html`. `export-as-pdf` destroys its hidden window in `finally`. `sql.js` uninstalled (`--ignore-scripts`), lockfile committed on its own. | `external-links-http-only`, `navigation-app-page-only`, `window-hardening-wired`, `no-unused-sqljs` |
+
+Checked by hand in `npm run dev`: the app starts with no main-process error,
+writes `JamiyKutupxana-DEV\backups\auto-2026-10-22.db` (6.6 MB) on the first
+start and none on the second (the weekly rule). Not checked by hand: the
+settings section, restore, and the Tanzil link — the owner's checklist below.
+
+Findings on the way:
+
+- **A wrong measurement from Phase 1, corrected.** `removeFormat` keeps
+  `data-*` attributes. Phase 1 recorded the opposite because the old
+  sanitizer had already stripped `data-ref-insert` when the fixture opened.
+  `engine-removeformat` now checks the attribute is present first. The
+  painter still skips quoted material, for the reason rule 6 gives.
+- **`PRAGMA integrity_check` cannot run on this app's libraries as a whole**
+  ("SQL logic error", SQLite 3.49.2): it also checks FTS5, and `book_fts`
+  declares `content_rowid` without an external content table. The restore
+  check runs it table by table. Changing `book_fts` would be a schema
+  migration and is not part of this release.
+- **A formatting bug of mine in CLAUDE.md**, from `1c9425c`: the measurements
+  section was one comma-joined line and swallowed the next heading. Repaired
+  in `d7552b9`.
+- `npm uninstall` filled 23 packages into `node_modules` that the lockfile
+  already listed but the folder lacked. The lockfile did not change for them.
+
+### Phase 2 checklist for the owner (`npm run dev`)
+
+1. «تەڭشەكلەر» نى ئېچىڭ → ئاستىدا «زاپاسلاش ۋە ئەسلىگە كەلتۈرۈش» بۆلىكى بار، زاپاس قىسقۇچىنىڭ ھۆججەت سانى ۋە چوڭلۇقى كۆرۈنىدۇ.
+2. «ھازىر زاپاسلاش» نى بېسىڭ، ساقلاڭ → «زاپاس ساقلاندى» دېگەن ئۇچۇر چىقىدۇ. «زاپاس قىسقۇچىنى ئېچىش» نى بېسىڭ → ھۆججەت شۇ يەردە.
+3. سىناق كۇتۇپخانىسىدا بىر كىتابنى ئۆچۈرۈڭ → شۇ كىتابلا يوقايدۇ، قالغانلىرى جايىدا. دېتالنى تاقاپ قايتا ئېچىڭ → ئۆچۈرۈلگەن كىتاب قايتىپ كەلمەيدۇ، قالغانلىرى يەنىلا جايىدا.
+4. «زاپاستىن ئەسلىگە كەلتۈرۈش» نى بېسىپ 2-قەدەمدىكى زاپاسنى تاللاڭ → سوئال كۆزنىكى كىتاب سانىنى كۆرسىتىدۇ؛ «ئەسلىگە كەلتۈرۈش» نى بېسىڭ → دېتال قايتا قوزغىلىدۇ، ئۆچۈرگەن كىتابىڭىز قايتىپ كېلىدۇ.
+5. «زاپاستىن ئەسلىگە كەلتۈرۈش» تە .db بولمىغان ياكى باشقا ھۆججەتنى تاللاڭ → «بۇ ھۆججەت بىلىم خەزىنىسىنىڭ ساندانى ئەمەس» دېگەن ئۇچۇر چىقىدۇ، ھېچنېمە ئۆزگەرمەيدۇ.
+6. قۇرئاندا بىر سۈرە ئېچىپ، ئاستىدىكى «Tanzil Project» ئۇلىنىشىنى بېسىڭ → توركۆرگۈچتە ئېچىلىدۇ.
+7. بىر كىتابنى ئوقۇپ بىرنەچچە بەت ۋاراقلاڭ، تاقاپ قايتا ئېچىڭ → ئوقۇغان يېرىڭىزدىن داۋاملىشىدۇ.
+
 ## Measurements
 
 Anything the audit or the web edition measured in another engine has to be
@@ -146,6 +188,7 @@ confirmed here goes into `CLAUDE.md`.
 | `removeFormat` keeps `<a>`, `<br>`, blocks, classes? | **yes** | `engine-removeformat`, Phase 1.2 |
 | `removeFormat` keeps `data-*` attributes? | **yes.** Corrected in Phase 2.3: Phase 1 recorded «no», but the old sanitizer had already stripped `data-ref-insert` when the fixture was opened (K6), so the command was never measured. The test now checks the attribute is there first. The painter still skips quoted material — a verse or citation is not the writer's to restyle — just not for this reason | `engine-removeformat`, Phases 1.2 / 2.3 |
 | The toolbar's font-size levels 1–7, in pixels | 10, 13, 16, 18, 24, 32, 48 — a source size is painted as the nearest level | `engine-font-sizes`, Phase 1.2 |
+| `PRAGMA integrity_check` on a whole library | **fails**: "SQL logic error" — FTS5 is checked too, and `book_fts` has `content_rowid` without external content. Table by table works | `backup-copy`, Phase 2.2 |
 | `formatBlock div` / `outdent` to leave a quote | **not yet measured** — Phase 3.2 | — |
 
 ## Deferred

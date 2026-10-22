@@ -15,7 +15,7 @@ offline; AI is an OPTIONAL, opt-in online layer (see Architecture).
 
 ## Architecture (actual — supersedes any "React/TypeScript" assumption)
 - **Electron 28 + plain JavaScript** (NOT React, NOT TypeScript; app code is not built/transpiled).
-  - Main process: `main.js`, `database.js`, `ai.js`, `ocr-postprocess.js`; secure IPC bridge in `preload.js` (contextBridge).
+  - Main process: `main.js`, `database.js`, `ai.js`, `ocr-postprocess.js`, `library-sync.js` (the safe load/save of the library), `backup.js` (backups and restore), `navigation.js` (where windows may go); secure IPC bridge in `preload.js` (contextBridge). Every new top-level main-process file must also be listed in `build.files`.
   - Renderer: single `src/index.html` + vanilla JS modules (`notes.js`, `quran.js`, `spellcheck.js`, `ngram.js`, `sanitize.js`, `ai-client.js`).
 - **Data:** better-sqlite3 + SQLite FTS5 (unicode61). The library lives OUTSIDE the source tree at `%USERPROFILE%\JamiyKutupxana\library.db` (WAL mode); `npm run dev` uses a separate `JamiyKutupxana-DEV`. Tables include `book_content`/`book_fts`, `quran_ayas`/`quran_fts`, and a key/value `settings` table.
 - **Parsing:** PDF (pdfjs-dist, local), DOCX (mammoth), DOC (word-extractor), TXT, HTML/Markdown + web-page import (@mozilla/readability + turndown + node-html-parser).
@@ -71,6 +71,7 @@ Each of these is a bug the 2026-10-22 audit reproduced. The reason is the rule.
 - **Destructive changes are undoable.** Replace-all, AI apply and version restore store a `note_versions` row first.
 - **Quoted material is not the writer's text.** `QUOTED_SELECTOR` — `a[href]`, an inline `UthmanicHafs` (the desktop's alias, written without a space) or `Uthmanic Hafs`, `[data-ref-insert="1"]`, `.notes-inserted-ref` — is never spell-marked, never painted, never scanned and never sent to the AI.
 - **The format painter copies font family and size** (the desktop's advantage over the web edition), captures only formatting that is explicitly set, and never copies the theme's text colour: text painted in the dark theme was near-invisible in the light one.
+- **The sanitizer is explicit.** No `USE_PROFILES` in DOMPurify — a profile silently REPLACES the allow lists, which is how `data-ref-insert` was stripped while `<img>` and any CSS passed (K6). Tags, attributes and CSS properties are named one by one in `src/sanitize.js`; `style` is filtered per declaration, never with a `url()`. `sanitize-keeps-editor-output` proves every toolbar command survives it.
 - **Messages go through `toast(msg, type)`.** `showToast` never existed, so 19 messages were thrown away silently. No `window.prompt()` (Electron does not implement it) and no new renderer `confirm()`.
 
 ### Measured in Electron 28 (Chromium 120)
