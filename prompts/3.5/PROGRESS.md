@@ -15,7 +15,7 @@ Read prompts/3.5/PROMPT-3.5.md in full, then prompts/3.5/PROGRESS.md, and contin
 | Phase | What | Status | Commits | Tests |
 |---|---|---|---|---|
 | 0 | Groundwork: branch, `npm test`, CLAUDE.md rules | **done** | `1809615` docs: add the 3.5 audit and work order · `c51ac2f` test: an Electron test runner for the notebook and the database · `1589d4f` docs(claude): record the 3.5 notebook and data rules · docs(progress): this file | 12 added, 10 failing on purpose (see below) |
-| 1 | Notebook: nothing written may be damaged or lost (owner's bugs 1–2, K1, K2, K3, K7) | **1.1–1.3, 1.5, 1.6 done; 1.4 (reference scan) left** | `56f4548` fix(notes): show the messages that were thrown away (K7) · `f79fc17` fix(spellcheck): one text map, where a line end is a word boundary · `6a900fe` fix(notes): nothing typed may be lost (K3) · `7be9db0` fix(notes): replace each hit where it stands (K1) · `38fa3ba` fix(notes): the format painter paints, it does not rebuild | 17 green, 2 red (`refscan-caret` → 1.4, `sanitize-keeps-markers` → Phase 2.3) |
+| 1 | Notebook: nothing written may be damaged or lost (owner's bugs 1–2, K1, K2, K3, K7) | **done** — waiting for the owner's check | `56f4548` fix(notes): show the messages that were thrown away (K7) · `f79fc17` fix(spellcheck): one text map, where a line end is a word boundary · `6a900fe` fix(notes): nothing typed may be lost (K3) · `7be9db0` fix(notes): replace each hit where it stands (K1) · `38fa3ba` fix(notes): the format painter paints, it does not rebuild · `a935fff` fix(notes): the reference scan paints its matches (K2) · docs(progress) ×2 | 20 green, 1 red by design (`sanitize-keeps-markers` → Phase 2.3) |
 | 2 | Library safety: K4, K6, K18 + backup/restore | not started | — | — |
 | 3 | Versions and document structure: W1, W4, W5, W14, K11 | not started | — | — |
 | 4 | Export: W6, K8 | not started | — | — |
@@ -100,21 +100,37 @@ Notes on two of them:
   `PROMPT-SPELLCHECK-MORPHOLOGY.md`, `TARQITISH-TEKISTLIRI.md`) were left
   alone, as instructed.
 
-## Phase 1 — where it stands
+## Phase 1 — done
 
-Done: **1.1** one text map with line ends (`src/textmap.js`, ported from the
-web edition's `lib/spellcheck/marks.ts`) · **1.2** the format painter ·
-**1.3** find & replace · **1.5** saving · **1.6** the messages.
+| Item | What changed | Tests (red before → green after) |
+|---|---|---|
+| 1.1 | `src/textmap.js` (ported from web `lib/spellcheck/marks.ts`): one offset map with a `"\n"` at every block edge and `<br>`, shared by spellcheck, find and the reference scan. Quoted material stays in the map and is blanked for the engine (`maskSpans`). A correction goes through `wordRange()` on a fresh map. «لۇغەتكە قوشۇش» asks the main process (`spell-validate-word`) whether it is one word. | `spell-enter`, `spell-shift-enter`, `spell-correction-scope` |
+| 1.2 | The painter captures only what is SET (walk up to the editor root, never the theme's ink), splits the selection around `QUOTED_SELECTOR`, and paints each part with `removeFormat` + the editing commands. Alignment through `justify*` per whole block; margins no longer copied; one input pass per paint. | `painter-blocks`; new: `painter-skips-quoted`, `engine-removeformat`, `engine-font-sizes` |
+| 1.3 | Hits painted (`bh-find-hit`, `bh-find-current`); each replaced over its own live Range, last first; «ھەممىنى يېنىۋېلىش» after a replace-all. | `replace-all-structure`; new: `replace-all-undo` |
+| 1.4 | Matches painted (`bh-ref-match`); clicks and hovers hit-tested through `TextMap.pointAt`; the scan reads the masked map and never paints inside quoted material. | `refscan-caret`, new `refscan-skips-quoted`; guards: `refscan-click`, `legacy-markup-unwrapped` |
+| 1.5 | `putDocument()` is the one writer of the editor's `innerHTML` (the AI's rebuild goes through it too); `notesFlush()`; `setMode` flushes before replacing `#main`; open/create/delete/go-to stop on a failed flush; retry 5 s / 15 s / 45 s / 60 s; the close handshake (`notes-dirty`, `app-flush-request`, `app-flush-done`, native dialog); `beforeunload` uses the clean snapshot. | `leave-and-return`, `failed-save-switch`; new: `close-waits-for-save`, `one-document-writer` |
+| 1.6 | 19 `showToast` calls → `toast`. | `toasts` |
 
-Left: **1.4** the reference scan — it still wraps matches in
-`<span class="ref-match">`, which moves the caret and is saved with the note.
-`refscan-caret` is red and waiting for it. The pieces it needs are all in
-place: `textmap.js` (`hitTest`, `offsetAtPoint`, `QUOTED_SELECTOR`),
-`setHighlight`, `putDocument`'s legacy unwrap, and `snapshotHtml`, which
-already strips `span.ref-match`.
+Still red, on purpose: **`sanitize-keeps-markers`** is the K6 test and its fix
+is Phase 2.3 (the sanitizer passes `USE_PROFILES`, so its allow lists are
+ignored). It was one of the ten ported in Phase 0; it is not weakened or
+skipped. The notebook does not depend on it any more: `QUOTED_SELECTOR`
+recognises an inserted passage by its class.
 
-`sanitize-keeps-markers` is red too, and belongs to Phase 2.3 (K6): the
-sanitizer passes `USE_PROFILES` to DOMPurify, so its allow lists are ignored.
+Not covered by an automated test, to check by hand (the owner's list): the
+native «ساقلانمىغان خاتىرە بار» dialog on close (the renderer half is
+tested, the main-process half needs a real window), and the help cursor over
+a reference match.
+
+### Phase 1 checklist for the owner (`npm run dev`)
+
+1. ئىملا تەكشۈرۈشنى ئېچىڭ. بىر خاتا سۆز يېزىپ Enter نى بېسىڭ، كېيىنكى ئابزاسقا توغرا سۆز يېزىڭ → پەقەت خاتا سۆزنىڭ ئاستىغىلا سىزىق چىقىدۇ. تەكلىپنى تاللىسىڭىز، پەقەت شۇ سۆز ئالمىشىدۇ، كېيىنكى ئابزاس ئۆزگەرمەيدۇ.
+2. Shift+Enter بىلەن ئوخشاش سىناڭ → نەتىجە ئوخشاش.
+3. بىر ئابزاسنى چوڭ خەت ۋە باشقا فونت قىلىڭ. سۈپۈرگە بىلەن ئۈچ ئابزاسقا سۈرۈڭ → ئۈچ ئابزاس ئۈچ ئابزاس پېتى قالىدۇ، فونت ۋە چوڭلۇق ئۆتىدۇ.
+4. خاتىرىنى نەقىل بىلەن باشلاڭ، Ctrl+H بىلەن بىر سۆزنى «ھەممىنى ئالماشتۇرۇش» قىلىڭ → پەقەت سۆزلەر ئالمىشىدۇ، خاتىرە نەقىلنىڭ ئىچىگە كىرمەيدۇ. «ھەممىنى يېنىۋېلىش» نى بېسىڭ → ئەسلىگە قايتىدۇ.
+5. كىتاب ئامبىرىدىكى بىر كىتابتىن جۈملە يېزىڭ، توختىماي داۋاملاشتۇرۇڭ → نۇر بەلگە يازغان يېرىڭىزدە قالىدۇ. سېرىق سىزىقلىق سۆزنى بېسىڭ → «مەنبە» بەتكۈچى ئېچىلىدۇ.
+6. يېزىپلا Ctrl+2، ئاندىن دەرھال Ctrl+3 → يازغانلىرىڭىز جايىدا.
+7. يېزىپلا كۆزنەكنى تاقاڭ، قايتا ئېچىڭ → يازغانلىرىڭىز جايىدا.
 
 ## Measurements
 
