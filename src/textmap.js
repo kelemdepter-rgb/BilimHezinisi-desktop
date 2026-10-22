@@ -318,7 +318,7 @@
   }
 
   /**
-   * The marked word under a screen position.
+   * The text position under a screen point, as { node, offset }, or null.
    *
    * Two APIs do the same job under different names: caretPositionFromPoint is
    * the standard one, caretRangeFromPoint is WebKit's older spelling. Chromium
@@ -326,18 +326,23 @@
    * is the one that actually runs here (measured, Phase 0); both are kept
    * because the first is what every engine is moving to.
    */
-  function hitTest(map, marks, x, y) {
-    let node = null;
-    let offset = 0;
+  function pointAt(x, y) {
     if (typeof document.caretPositionFromPoint === 'function') {
       const position = document.caretPositionFromPoint(x, y);
-      if (position) { node = position.offsetNode; offset = position.offset; }
-    } else if (typeof document.caretRangeFromPoint === 'function') {
-      const range = document.caretRangeFromPoint(x, y);
-      if (range) { node = range.startContainer; offset = range.startOffset; }
+      return position ? { node: position.offsetNode, offset: position.offset } : null;
     }
-    if (!node) return null;
-    const flat = offsetOf(map, node, offset);
+    if (typeof document.caretRangeFromPoint === 'function') {
+      const range = document.caretRangeFromPoint(x, y);
+      return range ? { node: range.startContainer, offset: range.startOffset } : null;
+    }
+    return null;
+  }
+
+  /** The marked word under a screen position. */
+  function hitTest(map, marks, x, y) {
+    const point = pointAt(x, y);
+    if (!point) return null;
+    const flat = offsetOf(map, point.node, point.offset);
     return flat === null ? null : wordAtOffset(marks, flat);
   }
 
@@ -384,6 +389,7 @@
     overlapsAny: overlapsAny,
     maskSpans: maskSpans,
     wordAtOffset: wordAtOffset,
+    pointAt: pointAt,
     hitTest: hitTest,
     canHighlight: canHighlight,
     setHighlight: setHighlight,

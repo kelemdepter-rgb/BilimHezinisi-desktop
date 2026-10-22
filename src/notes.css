@@ -219,12 +219,17 @@
   color: var(--text2); background: var(--bg2);
 }
 .notes-editor mark { background: var(--ab2); color: var(--text); padding: 0 2px; border-radius: 2px; }
-.notes-editor .ref-match {
-  background: rgba(186,117,23,0.12);
-  border-bottom: 1.5px dotted var(--am);
-  cursor: help; padding: 0 1px;
+/* Reference matches are PAINTED, never written into the note (K2): wrapping
+   them in spans moved the caret and saved the spans with the note.
+   ::highlight() takes no border or cursor, so the dotted line is a text
+   decoration and the help cursor goes on the editor while the pointer is
+   over a match (.ref-hover, set by src/notes.js). */
+::highlight(bh-ref-match) {
+  background-color: rgba(186,117,23,0.12);
+  text-decoration: underline dotted #BA7517;
+  text-decoration-skip-ink: none;
 }
-.notes-editor .ref-match:hover { background: rgba(186,117,23,0.22); }
+.notes-editor.ref-hover { cursor: help; }
 
 /* Right panel */
 .notes-right-panel {

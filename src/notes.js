@@ -725,6 +725,12 @@
       }, 0);
     });
 
+    // Reference matches are painted, so their clicks and hovers are hit-tested
+    // here rather than handled by elements.
+    editorEl.addEventListener('click', onEditorRefClick);
+    editorEl.addEventListener('mousemove', onEditorRefHover);
+    editorEl.addEventListener('mouseleave', () => setRefHover(false));
+
     // Sanitize pasted HTML — XSS defense-in-depth
     editorEl.addEventListener('paste', (e) => {
       // Pasted image with no text → offer offline OCR (Phase 5.1). Plain-text /
@@ -1487,7 +1493,7 @@
     try { await window.electron.dbSetSetting('notes_ref_scan', checked ? 'on' : 'off'); } catch(e) {}
     if (!checked) {
       _s().matches = new Map();
-      unwrapAllRefMatches();
+      clearRefMatches();
       if (_s().rightTab === 'refs') renderRefsPanel();
     } else {
       lastScannedText = '';
@@ -1514,14 +1520,17 @@
   // The hook that notes.js editor input listener calls
   window.notesScanReferences = scheduleScan;
 
-  // Returns the plain text of the editor MINUS any inserted reference
-  // blockquotes ([data-ref-insert="1"]). Inserted quotes must not feed the
-  // scanner — otherwise every word in them would re-match the source book.
+  // The text the scanner reads: the whole note through the shared text map,
+  // with quoted material — inserted passages, verses, citation links — blanked
+  // out. Those words came FROM the library, so matching them against it again
+  // would only find the source they were copied from. QUOTED_SELECTOR includes
+  // the .notes-inserted-ref class because notes saved before v3.5 lost
+  // data-ref-insert to the sanitizer (K6) and kept only the class.
   function getScannableText() {
-    if (!editorEl) return '';
-    const clone = editorEl.cloneNode(true);
-    clone.querySelectorAll('[data-ref-insert="1"], .notes-inserted-ref').forEach(n => n.remove());
-    return clone.innerText || '';
+    const TM = window.TextMap;
+    if (!editorEl || !TM) return '';
+    const map = TM.readTextMap(editorEl);
+    return TM.maskSpans(map.text, TM.quotedSpans(map, editorEl));
   }
 
   async function runScan() {
@@ -1532,7 +1541,7 @@
 
     if (!text.trim() || text.length < 10) {
       _s().matches = new Map();
-      unwrapAllRefMatches();
+      clearRefMatches();
       if (_s().rightTab === 'refs') renderRefsPanel();
       return;
     }
@@ -1540,7 +1549,7 @@
     const candidates = window.NGram.extractCandidates(text);
     if (!candidates.length) {
       _s().matches = new Map();
-      unwrapAllRefMatches();
+      clearRefMatches();
       if (_s().rightTab === 'refs') renderRefsPanel();
       return;
     }
@@ -1554,136 +1563,128 @@
       // Check again before applying.
       if (getScannableText() !== lastScannedText) return;
       _s().matches = matches;
-      wrapRefMatchesInEditor();
-      // Update cache AFTER wrapping so span insertion doesn't trigger a redundant re-scan
-      lastScannedText = getScannableText();
+      paintRefMatches();
       if (_s().rightTab === 'refs') renderRefsPanel();
     } catch(e) {
       console.error('[notes] reference scan failed:', e);
     }
   }
 
+  /** Painted by the ::highlight() rule in notes.css. */
+  const REF_HIGHLIGHT = 'bh-ref-match';
+
+  // [{ word, range }]. The Ranges are live, so they follow the text while the
+  // writer types; the next scan, 400 ms after typing stops, paints afresh.
+  let refMarks = [];
+
   /**
-   * Walk editor text nodes and wrap any match-word occurrences with
-   * <span class="ref-match" data-ref-word="…">. Preserves caret position
-   * as best as possible (text-node mutations may drift by 1-2 chars in
-   * rare cases, which is acceptable).
+   * Show where the scanner's words occur — on the highlight layer.
+   *
+   * This used to wrap every occurrence in a <span class="ref-match">,
+   * replacing the very text nodes the writer's caret sat in. The caret jumped
+   * to the start of the paragraph, the next word typed landed there, and the
+   * spans were saved with the note (K2). Painting Ranges touches nothing, so
+   * there is no caret to move and nothing to save.
+   *
+   * A match is still found inside one text node at a time, earliest first and
+   * the longer one on a tie, with overlaps dropped — as before.
    */
-  function wrapRefMatchesInEditor() {
-    if (!editorEl) return;
-    if (!_s().matches || !_s().matches.size) {
-      unwrapAllRefMatches();
-      return;
-    }
+  function paintRefMatches() {
+    const TM = window.TextMap;
+    refMarks = [];
+    if (!editorEl || !TM) return;
+    const words = _s().matches ? Array.from(_s().matches.keys()) : [];
+    if (!words.length) { clearRefMatches(); return; }
 
-    // Save caret
-    const sel = window.getSelection();
-    let caretNode = null, caretOffset = -1;
-    if (sel && sel.rangeCount) {
-      const range = sel.getRangeAt(0);
-      if (editorEl.contains(range.startContainer)) {
-        caretNode = range.startContainer;
-        caretOffset = range.startOffset;
-      }
-    }
+    const map = TM.readTextMap(editorEl);
+    const quoted = TM.quotedSpans(map, editorEl);
+    // Room for at least a bigram (≈ MIN_WORD_LEN * 2 + 1 characters).
+    const minLength = ((window.NGram && window.NGram.MIN_WORD_LEN) || 2) * 2 + 1;
 
-    // Rebuild from scratch: unwrap existing, then re-wrap.
-    unwrapAllRefMatches();
+    for (let i = 0; i < map.nodes.length; i++) {
+      const data = map.nodes[i].data;
+      if (data.length < minLength) continue;
 
-    const wordSet = new Set(_s().matches.keys());
-    if (!wordSet.size) return;
-
-    // Collect text nodes (skip nodes already under a .ref-match — there
-    // shouldn't be any after unwrap, but be defensive)
-    const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT, null);
-    const textNodes = [];
-    let n;
-    while ((n = walker.nextNode())) {
-      if (n.parentElement && n.parentElement.closest('.ref-match')) continue;
-      // Never wrap text inside an inserted reference blockquote
-      if (n.parentElement && n.parentElement.closest('[data-ref-insert="1"]')) continue;
-      // Need room for at least a bigram (≈ MIN_WORD_LEN*2 + 1 chars)
-      if (!n.nodeValue || n.nodeValue.length < window.NGram.MIN_WORD_LEN * 2 + 1) continue;
-      textNodes.push(n);
-    }
-
-    for (const tn of textNodes) {
-      const txt = tn.nodeValue;
-      const matches = [];
-
-      // Find all occurrences of all match-words in this text node
-      for (const w of wordSet) {
-        let idx = 0;
-        while ((idx = txt.indexOf(w, idx)) !== -1) {
-          matches.push({ start: idx, end: idx + w.length, word: w });
-          idx += w.length;
+      const found = [];
+      for (const w of words) {
+        let at = 0;
+        while ((at = data.indexOf(w, at)) !== -1) {
+          found.push({ start: at, end: at + w.length, word: w });
+          at += w.length;
         }
       }
-      if (!matches.length) continue;
+      if (!found.length) continue;
+      found.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
 
-      // Sort by start; if ties, prefer the longer span
-      matches.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
-
-      // Remove overlaps: greedy, keep earliest non-overlapping
-      const clean = [];
+      const base = map.starts[i];
       let lastEnd = 0;
-      for (const m of matches) {
-        if (m.start >= lastEnd) { clean.push(m); lastEnd = m.end; }
-      }
-
-      // Build a fragment: plain text | <span> | plain text | …
-      const frag = document.createDocumentFragment();
-      let cursor = 0;
-      for (const m of clean) {
-        if (m.start > cursor) {
-          frag.appendChild(document.createTextNode(txt.slice(cursor, m.start)));
-        }
-        const span = document.createElement('span');
-        span.className = 'ref-match';
-        span.setAttribute('data-ref-word', m.word);
-        span.textContent = txt.slice(m.start, m.end);
-        span.title = 'كىتابلاردىن تېپىلدى — چېكىپ مەنبىلەرنى كۆرۈڭ';
-        span.addEventListener('click', onRefMatchClick);
-        frag.appendChild(span);
-        cursor = m.end;
-      }
-      if (cursor < txt.length) {
-        frag.appendChild(document.createTextNode(txt.slice(cursor)));
-      }
-
-      if (tn.parentNode) tn.parentNode.replaceChild(frag, tn);
-    }
-
-    // Restore caret (best effort)
-    try {
-      if (caretNode && caretNode.nodeType === Node.TEXT_NODE && caretNode.parentNode) {
+      for (const m of found) {
+        if (m.start < lastEnd) continue;
+        lastEnd = m.end;
+        if (TM.overlapsAny(quoted, base + m.start, base + m.end)) continue;
         const range = document.createRange();
-        const safe = Math.min(caretOffset, caretNode.nodeValue.length);
-        range.setStart(caretNode, safe);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
+        range.setStart(map.nodes[i], m.start);
+        range.setEnd(map.nodes[i], m.end);
+        refMarks.push({ word: m.word, range: range });
       }
-    } catch(e) { /* caret may drift; acceptable */ }
-  }
-
-  function onRefMatchClick(e) {
-    e.stopPropagation();
-    const word = this.getAttribute('data-ref-word');
-    if (!word) return;
-    window.notesShowRefFor(word);
-  }
-
-  function unwrapAllRefMatches() {
-    if (!editorEl) return;
-    const spans = editorEl.querySelectorAll('.ref-match');
-    for (const s of spans) {
-      const parent = s.parentNode;
-      if (!parent) continue;
-      while (s.firstChild) parent.insertBefore(s.firstChild, s);
-      parent.removeChild(s);
     }
-    editorEl.normalize();
+    TM.setHighlight(REF_HIGHLIGHT, refMarks.map(m => m.range));
+  }
+
+  function clearRefMatches() {
+    refMarks = [];
+    if (window.TextMap) window.TextMap.clearHighlight(REF_HIGHLIGHT);
+    setRefHover(false);
+  }
+
+  /**
+   * The matched word under a screen point, if it is still there.
+   *
+   * There is no element to click any more, so the point is hit-tested back
+   * into the text (textmap.js, pointAt) — as the spellchecker does. A match
+   * the writer has since edited into something else is not a match.
+   */
+  function refMarkAt(x, y) {
+    if (!refMarks.length || !window.TextMap) return null;
+    const point = window.TextMap.pointAt(x, y);
+    if (!point || !editorEl || !editorEl.contains(point.node)) return null;
+    for (const mark of refMarks) {
+      const range = mark.range;
+      if (range.collapsed || range.toString() !== mark.word) continue;
+      try {
+        if (range.isPointInRange(point.node, point.offset)) return mark;
+      } catch (e) { /* a point in another tree */ }
+    }
+    return null;
+  }
+
+  // A click places the caret as usual AND opens the word's sources — what
+  // clicking the old span did.
+  function onEditorRefClick(e) {
+    const mark = refMarkAt(e.clientX, e.clientY);
+    if (mark) window.notesShowRefFor(mark.word);
+  }
+
+  // The old span carried a help cursor and a tooltip. Without an element they
+  // move to the editor while the pointer is over a match — at most once a
+  // frame.
+  let refHoverFrame = 0;
+  function onEditorRefHover(e) {
+    if (!refMarks.length) { setRefHover(false); return; }
+    if (refHoverFrame) return;
+    const x = e.clientX;
+    const y = e.clientY;
+    refHoverFrame = requestAnimationFrame(() => {
+      refHoverFrame = 0;
+      setRefHover(!!refMarkAt(x, y));
+    });
+  }
+
+  function setRefHover(on) {
+    if (!editorEl) return;
+    editorEl.classList.toggle('ref-hover', !!on);
+    if (on) editorEl.title = 'كىتابلاردىن تېپىلدى — چېكىپ مەنبىلەرنى كۆرۈڭ';
+    else if (editorEl.hasAttribute('title')) editorEl.removeAttribute('title');
   }
 
   // ========== REFS PANEL RENDERING ==========
@@ -1864,14 +1865,16 @@
     txtEl.textContent = 'سۆز: ' + words + ' · ھەرپ: ' + chars;
   }
 
-  // Clean snapshot for saving: drop transient find-highlight marks so they
-  // never persist into the stored document.
+  // Clean snapshot for saving. Nothing transient is written into the note any
+  // more — spelling, find hits and reference matches are all painted — and
+  // putDocument() unwraps what older versions stored. This is the safety net
+  // behind both: if any of that markup is in the editor, it is not saved.
   function snapshotHtml() {
     if (!editorEl) return '';
-    if (!editorEl.querySelector('mark.notes-find-hit, span.spell-error')) return editorEl.innerHTML;
+    if (!editorEl.querySelector('mark.notes-find-hit, span.spell-error, span.ref-match')) return editorEl.innerHTML;
     const clone = editorEl.cloneNode(true);
     clone.querySelectorAll('mark.notes-find-hit').forEach(mk => mk.replaceWith(document.createTextNode(mk.textContent)));
-    clone.querySelectorAll('span.spell-error').forEach(sp => sp.replaceWith(...sp.childNodes));
+    clone.querySelectorAll('span.spell-error, span.ref-match').forEach(sp => sp.replaceWith(...sp.childNodes));
     return clone.innerHTML;
   }
 
@@ -2157,6 +2160,7 @@
 
   // Reset transient editor tools when (re-)mounting a document.
   function resetEditorTools() {
+    clearRefMatches();
     findState = { hits: [], idx: -1, map: null, query: '' };
     findUndo = null;
     showUndoAll(false);
