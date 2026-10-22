@@ -1063,7 +1063,10 @@ const S = {
   readerFont:'auto',
   mode: 'library',
   quran: { suras:[], curSura:1, curAya:1, searchResults:null, searchQuery:'', searchLang:'auto', sidebarFilter:'', showTranslation:true },
-  notes: { docs:[], curDoc:null, dirty:false, matches:new Map(), rightTab:'quran', quickSura:null, quickAya:null, quickWithTr:true, refsFilter:null }
+  notes: { docs:[], curDoc:null, dirty:false, matches:new Map(), rightTab:'quran', quickSura:null, quickAya:null, quickWithTr:true, refsFilter:null },
+  // The library parts that have loaded at least once. saveData() sends only
+  // these: for any other, what S holds is a fallback, not the user's data (K4).
+  loadedParts: new Set()
 };
 
 // Cache of the library's main-area DOM. Captured once after first render so
@@ -1090,15 +1093,8 @@ async function init() {
   } catch(e) {}
 
   const data = await window.electron.loadLibrary();
-  S.books = data.books || [];
-  S.cats = data.cats || defaultCats();
-  S.nid = data.nid || 1;
+  applyLibraryData(data, true);
   S.darkMode = data.darkMode !== undefined ? data.darkMode : null;
-  S.theme = data.theme || null;
-  S.recent = data.recent || [];
-  S.readPos = data.readPos || {};
-  S.bookmarks = data.bookmarks || {};
-  S.bookNotes = data.notes || {};
 
   // Apply dark mode
   migrateTheme();
@@ -1109,8 +1105,9 @@ async function init() {
   setupFileZone();
   setupKeyboardShortcuts();
 
-  // Show welcome screen for first-time users
-  if (S.books.length === 0) showWelcome();
+  // Show welcome screen for first-time users — not when the book list merely
+  // failed to load; the banner says so instead.
+  if (S.books.length === 0 && S.loadedParts.has('books')) showWelcome();
 
   // Cache the library main-area HTML so we can restore it after mode switches
   // overwrote `#main`. Capture happens AFTER renderBooks() so #bd is populated.
@@ -1152,18 +1149,77 @@ function showWelcome() {
     </div>`;
 }
 
+// Take what load-library read. A part that failed to load keeps the fallback
+// on the first load (and its current value on a later one), and is not marked
+// as loaded — so saveData() never sends it back. Sending an empty list for a
+// part the app merely failed to read is how a whole library could be erased
+// (K4). `only` limits a later reload to the parts it is about.
+function applyLibraryData(data, first, only) {
+  const failed = new Set((data && data.loadErrors) || []);
+  const take = (part, assign, fallback) => {
+    if (only && only.indexOf(part) === -1) return;
+    const value = data ? data[part] : undefined;
+    if (!failed.has(part) && value !== undefined && value !== null) {
+      assign(value);
+      S.loadedParts.add(part);
+    } else if (first) {
+      assign(fallback);
+    }
+  };
+  take('books', v => { S.books = v; }, []);
+  take('cats', v => { S.cats = v; }, defaultCats());
+  take('nid', v => { S.nid = v || 1; }, 1);
+  take('theme', v => { S.theme = v || null; }, null);
+  take('recent', v => { S.recent = v; }, []);
+  take('readPos', v => { S.readPos = v; }, {});
+  take('bookmarks', v => { S.bookmarks = v; }, {});
+  take('notes', v => { S.bookNotes = v; }, {});
+  if (!S.loadedParts.has('books')) showLibraryLoadBanner();
+}
+
+// Stays until the app is restarted: nothing was changed, and nothing will be.
+function showLibraryLoadBanner() {
+  if (document.getElementById('lib-load-banner')) return;
+  const b = document.createElement('div');
+  b.id = 'lib-load-banner';
+  b.setAttribute('role', 'alert');
+  b.textContent = 'كىتاب تىزىملىكى ئوقۇلمىدى — ھېچنېمە ئۆزگەرتىلمىدى. دېتالنى قايتا قوزغىتىڭ.';
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:10000;padding:10px 16px;' +
+    'background:#A32D2D;color:#fff;font-size:13px;font-weight:600;text-align:center;direction:rtl';
+  document.body.appendChild(b);
+}
+
+// Send the library state back — the parts that loaded, and only those.
+// save-library applies the same rule on its side.
 async function saveData() {
-  await window.electron.saveLibrary({
+  const parts = {
     books: S.books,
     cats: S.cats,
     nid: S.nid,
-    darkMode: S.darkMode,
     theme: S.theme,
     recent: S.recent,
     readPos: S.readPos,
     bookmarks: S.bookmarks,
     notes: S.bookNotes
-  });
+  };
+  const payload = { darkMode: S.darkMode };
+  for (const part of Object.keys(parts)) {
+    if (S.loadedParts.has(part)) payload[part] = parts[part];
+  }
+  await window.electron.saveLibrary(payload);
+}
+
+// A page turn is not a library change. It writes one row through its own IPC
+// instead of sending the whole library — which it used to do on every page,
+// each time one more chance for the delete-by-omission bug (K4).
+function saveReadingPosition() {
+  if (!S.curB || !S.readerPages || !S.readerPages.length) return;
+  const pct = S.readerPages.length > 1 ? Math.round(((S.readerPage - 1) / (S.readerPages.length - 1)) * 100) : 0;
+  S.readPos[S.curB.id] = pct;
+  try {
+    const p = window.electron.dbSaveProgress(S.curB.id, pct, S.readerPage);
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) { /* the position is also in S.readPos */ }
 }
 
 function applyTheme() {
@@ -1698,11 +1754,7 @@ function renderReaderPage() {
   }
 
   // Save reading position as percentage
-  if (S.curB) {
-    const pct = S.readerPages.length > 1 ? Math.round(((S.readerPage - 1) / (S.readerPages.length - 1)) * 100) : 0;
-    S.readPos[S.curB.id] = pct;
-    saveData();
-  }
+  saveReadingPosition();
 
   // Render page navigation
   renderReaderPagination();
@@ -1768,9 +1820,7 @@ function closeReader() {
   document.getElementById('rnotes-panel').classList.remove('on');
   raiOnReaderClose();
   readerUpdateSplitter();
-  if (S.curB) {
-    saveData();
-  }
+  saveReadingPosition();
   S.curB=null;
 }
 
@@ -4532,13 +4582,23 @@ async function delBook(id, e) {
   e.stopPropagation();
   const b=S.books.find(x=>x.id===id);
   if(!confirm((b?sanitize(b.title):'بۇ كىتاب')+'نى ئۆچۈرمەكچىمۇ؟'))return;
+  // From the database first, through the one IPC that deletes a book — its
+  // text, bookmarks, notes, position and file go with it. Only then from the
+  // screen. save-library no longer deletes anything (K4).
+  let res = null;
+  try { res = await window.electron.dbDeleteBook(id); }
+  catch (err) { res = { success: false, error: err && err.message }; }
+  if (!res || !res.success) {
+    toast('كىتاب ئۆچۈرۈلمىدى' + (res && res.error ? ' — ' + res.error : ''), 'e');
+    return;
+  }
   S.books=S.books.filter(x=>x.id!==id);
   delete S.readPos[id];
   delete S.bookmarks[id];
   delete S.bookNotes[id];
   delete S.searchIndex[id];
   S.recent = S.recent.filter(r => r.id !== id);
-  await saveData();renderSide();renderBooks();if(b)toast(sanitize(b.title)+' ئۆچۈرۈلدى','i');
+  renderSide();renderBooks();if(b)toast(sanitize(b.title)+' ئۆچۈرۈلدى','i');
 }
 
 function showAdd(){
@@ -4766,11 +4826,9 @@ async function confirmBatchImport() {
   // Phase 3: refresh frontend state from backend (so IDs are correct)
   try {
     const data = await window.electron.loadLibrary();
-    S.books = data.books || [];
-    S.cats = data.cats || S.cats;
-    S.nid = data.nid || S.nid;
-    S.bookmarks = data.bookmarks || S.bookmarks;
-    S.bookNotes = data.notes || S.bookNotes;
+    // Only what loaded replaces what is on screen — a failed read here used
+    // to empty S.books, and the next save then emptied the library.
+    applyLibraryData(data, false, ['books', 'cats', 'nid', 'bookmarks', 'notes']);
   } catch (e) {
     console.warn('Refresh library after batch import failed:', e);
   }

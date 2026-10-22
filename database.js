@@ -1358,14 +1358,15 @@ function upsertBook(id, title, author, category, format, date, description) {
   }
 }
 
+/**
+ * Write the renderer's book metadata. It NEVER deletes: a book missing from
+ * the list is left alone (K4). Deleting is db-delete-book's job and nobody
+ * else's — this used to delete every book the list did not mention, and one
+ * failed read at startup sent an empty list.
+ */
 function syncBooks(books) {
   if (!Array.isArray(books)) return;
   const tx = db.transaction(() => {
-    const existing = getAllBooks();
-    const incomingIds = new Set(books.map(b => b.id));
-    for (const eb of existing) {
-      if (!incomingIds.has(eb.id)) deleteBook(eb.id);
-    }
     for (const b of books) {
       upsertBook(b.id, b.title, b.author, b.category, b.format, b.date, b.desc || b.description || '');
     }
@@ -1476,6 +1477,11 @@ function getRecentForFrontend() {
   `).all().map(r => ({ id: r.book_id, time: r.read_at || new Date().toISOString() }));
 }
 
+function getBookCount() {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM books').get();
+  return row ? row.n : 0;
+}
+
 function getMaxBookId() {
   const row = db.prepare('SELECT MAX(id) AS m FROM books').get();
   return row && row.m !== null ? row.m : 0;
@@ -1499,7 +1505,7 @@ module.exports = {
   upsertBook, syncBooks, syncCategories, syncBookmarks, syncNotes,
   syncReadingProgress, syncRecent,
   getAllBookmarksGrouped, getAllNotesGrouped, getAllReadingProgress,
-  getRecentForFrontend, getMaxBookId,
+  getRecentForFrontend, getMaxBookId, getBookCount,
   // Quran
   quranSuraExists, quranSeedBulk, quranGetSuras, quranGetAyas, quranGetAya, quranSearch, quranLookupSura,
   migrationStripBasmalaAyah1,

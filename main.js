@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const database = require('./database');
+const librarySync = require('./library-sync');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
 // The word rules themselves (WORD_PATTERN, isCheckable, tokenize) — used by
@@ -590,66 +591,26 @@ ipcMain.handle('compute-hash', (event, content) => {
 
 // ========== LEGACY IPC (kept for backward compatibility) ==========
 
-// Load library (returns all data for frontend state)
-ipcMain.handle('load-library', () => {
-  try {
-    const books = database.getAllBooks();
-    const cats = database.getCategoryNames();
-    const theme = database.getSetting('theme', 'light');
-    const nid = database.getMaxBookId() + 1;
-    const bookmarks = database.getAllBookmarksGrouped();
-    const notes = database.getAllNotesGrouped();
-    const readPos = database.getAllReadingProgress();
-    const recent = database.getRecentForFrontend();
-    return { books, cats, theme, nid, bookmarks, notes, readPos, recent };
-  } catch(e) {
-    console.error('load-library error:', e);
-    return { books: [], cats: defaultCats(), theme: 'light', nid: 1, bookmarks: {}, notes: {}, readPos: {}, recent: [] };
-  }
-});
+// Which parts of the library have loaded at least once in this session.
+// save-library writes only those — see library-sync.js (K4).
+const libraryState = librarySync.createState();
 
-// Save library (syncs all frontend state to SQLite)
+// Load library (returns all data for frontend state). Each part is read on
+// its own; the ones that failed are listed in `loadErrors` instead of being
+// replaced by empty values that the next save would write back.
+ipcMain.handle('load-library', () => librarySync.loadLibrary(database, libraryState));
+
+// Save library (syncs the frontend state to SQLite). It never deletes a book
+// — that is db-delete-book's job alone — refuses an empty book list while the
+// library holds books, and never writes back a part that has not loaded in
+// this session (library-sync.js, K4).
 ipcMain.handle('save-library', (event, data) => {
   try {
-    // Save theme
-    if (data.theme) database.setSetting('theme', data.theme);
-
-    // Sync books metadata (and clean up disk files for deleted books)
-    if (data.books) {
-      // Find books that will be deleted during sync
-      const existingBooks = database.getAllBooks();
-      const incomingIds = new Set(data.books.map(b => b.id));
-      for (const eb of existingBooks) {
-        if (!incomingIds.has(eb.id)) {
-          cleanupBookFiles(eb.id);
-        }
-      }
-      database.syncBooks(data.books);
-    }
-
-    // Sync categories
-    if (data.cats) database.syncCategories(data.cats);
-
-    // Sync bookmarks
-    if (data.bookmarks) database.syncBookmarks(data.bookmarks);
-
-    // Sync notes
-    if (data.notes) database.syncNotes(data.notes);
-
-    // Sync reading progress
-    if (data.readPos) database.syncReadingProgress(data.readPos);
-
-    // Sync recent reads
-    if (data.recent) database.syncRecent(data.recent);
-
-    // Update nid in settings
-    if (data.nid) database.setSetting('nid', data.nid);
-
-    database.saveDB(DATA_DIR);
-  } catch(e) {
+    return librarySync.saveLibrary(database, data, libraryState);
+  } catch (e) {
     console.error('save-library error:', e);
+    return { synced: [], refused: [], failed: ['all'] };
   }
-  return true;
 });
 
 // Save book content (legacy)
