@@ -144,7 +144,7 @@ confirmed here goes into `CLAUDE.md`.
 | `document.caretRangeFromPoint` | present (`caretPositionFromPoint` is not) — the spellchecker's hit test works | `npm test`, Phase 0 |
 | `document.execCommand('insertText' / 'insertParagraph' / 'insertLineBreak')` | all work in a hidden `BrowserWindow`, with layout and `getClientRects` | `npm test`, Phase 0 |
 | `removeFormat` keeps `<a>`, `<br>`, blocks, classes? | **yes** | `engine-removeformat`, Phase 1.2 |
-| `removeFormat` keeps `data-*` attributes? | **no — it strips them.** So a painted range must never contain quoted material; `.notes-inserted-ref` identifies a passage whose attribute is already gone | `engine-removeformat`, Phase 1.2 |
+| `removeFormat` keeps `data-*` attributes? | **yes.** Corrected in Phase 2.3: Phase 1 recorded «no», but the old sanitizer had already stripped `data-ref-insert` when the fixture was opened (K6), so the command was never measured. The test now checks the attribute is there first. The painter still skips quoted material — a verse or citation is not the writer's to restyle — just not for this reason | `engine-removeformat`, Phases 1.2 / 2.3 |
 | The toolbar's font-size levels 1–7, in pixels | 10, 13, 16, 18, 24, 32, 48 — a source size is painted as the nearest level | `engine-font-sizes`, Phase 1.2 |
 | `formatBlock div` / `outdent` to leave a quote | **not yet measured** — Phase 3.2 | — |
 

@@ -1057,9 +1057,8 @@
   /**
    * The parts of a range that are the writer's own text: the range minus every
    * stretch of quoted material in it (QUOTED_SELECTOR — verses, citation links,
-   * inserted passages). Painting a verse would restyle the Qur'an, and
-   * removeFormat strips the very attribute that says a passage is quoted
-   * (measured: tests/notebook/suite-engine.js).
+   * inserted passages). Painting a verse would restyle the Qur'an, and a
+   * citation is somebody else's words in somebody else's format.
    */
   function fpWritablePieces(target) {
     const TM = window.TextMap;
@@ -1102,7 +1101,7 @@
 
     // Word's override semantics: the painted text takes the source's format,
     // so whatever it had goes first. Measured in Electron 28: removeFormat
-    // keeps blocks, <br>, links and classes.
+    // keeps blocks, <br>, links, classes and data attributes.
     document.execCommand('removeFormat');
 
     if (f.fontFamily) document.execCommand('fontName', false, f.fontFamily);
