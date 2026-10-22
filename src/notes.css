@@ -459,6 +459,30 @@
   padding: 6px; direction: rtl;
 }
 .notes-ai-flyout.on { display: block; }
+
+/* «چىقىرىش ▾» — the export menu in the title bar. */
+.notes-export-wrap { position: relative; display: inline-flex; }
+.notes-export-menu {
+  display: none; position: absolute; top: 100%; inset-inline-end: 0;
+  margin-top: 6px; min-width: 230px; z-index: 200;
+  background-color: var(--bg); background-image: var(--grain);
+  border: 1px solid var(--ab2);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
+  padding: 6px; direction: rtl;
+}
+.notes-export-menu.on { display: block; }
+.notes-export-menu > button {
+  display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
+  text-align: right; background: none; border: none; color: var(--text);
+  font-family: var(--jf); font-size: 12.5px; padding: 8px 10px;
+  border-radius: var(--radius2); cursor: pointer;
+}
+.notes-export-menu > button:hover { background: var(--bg2); color: var(--am); }
+.notes-export-option {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  margin-top: 4px; padding: 8px 10px 4px; border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--text2);
+}
 .notes-ai-item, .notes-ai-item-label {
   display: block; width: 100%; text-align: right; box-sizing: border-box;
   background: none; border: none; color: var(--text);

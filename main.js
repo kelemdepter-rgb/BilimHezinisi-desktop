@@ -7,6 +7,7 @@ const database = require('./database');
 const librarySync = require('./library-sync');
 const backup = require('./backup');
 const navigation = require('./navigation');
+const noteExport = require('./note-export');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
 // The word rules themselves (WORD_PATTERN, isCheckable, tokenize) — used by
@@ -751,6 +752,53 @@ ipcMain.handle('backup-restore', async () => {
     app.relaunch();
     app.exit(0);
     return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// ========== EXPORTING A NOTE (W6, K8) ==========
+// The renderer sends what it made: the document model for Word (built into a
+// file here, note-export.js), the note's HTML for PDF (printed here), the
+// finished text for Markdown and TXT. One save dialog, one write.
+const NOTE_EXPORT_FORMATS = {
+  docx: { name: 'Word', extension: 'docx' },
+  pdf: { name: 'PDF', extension: 'pdf' },
+  md: { name: 'Markdown', extension: 'md' },
+  txt: { name: 'تېكىست', extension: 'txt' }
+};
+
+ipcMain.handle('export-note', async (event, format, payload) => {
+  try {
+    const kind = NOTE_EXPORT_FORMATS[format];
+    if (!kind || !payload || typeof payload !== 'object') return { success: false, error: 'unknown format' };
+    const title = String(payload.title || 'خاتىرە');
+    const pick = await dialog.showSaveDialog(mainWindow, {
+      title: 'خاتىرىنى چىقىرىش',
+      defaultPath: path.join(app.getPath('documents'), noteExport.fileNameFor(title, kind.extension)),
+      filters: [{ name: kind.name, extensions: [kind.extension] }]
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+
+    let data;
+    if (format === 'docx') {
+      data = await noteExport.buildDocx(payload.model);
+    } else if (format === 'pdf') {
+      // Sanitized by the renderer; again here, and printed from a page whose
+      // CSP lets no script run and nothing load but the app's fonts.
+      data = await noteExport.renderPdf({
+        title: title,
+        html: coarseSanitizeHtml(String(payload.html || '')),
+        credit: Array.isArray(payload.credit) ? payload.credit.map(String) : null
+      });
+    } else if (format === 'md') {
+      data = Buffer.from(String(payload.text || ''), 'utf8');
+    } else {
+      // Text: UTF-8 with a BOM, so Notepad and Word read the Uyghur right.
+      data = Buffer.from('\uFEFF' + String(payload.text || ''), 'utf8');
+    }
+    fs.writeFileSync(pick.filePath, data);
+    return { success: true, file: pick.filePath, name: path.basename(pick.filePath) };
   } catch (e) {
     return { success: false, error: e.message };
   }

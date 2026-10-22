@@ -359,7 +359,8 @@ function pdfDocument(job) {
   return '<!DOCTYPE html><html lang="ug" dir="rtl"><head><meta charset="UTF-8">' +
     '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; font-src file:">' +
     '<style>' + faces + '\n' +
-    '@page { size: A4; margin: 0; }' +
+    // The page margins are printToPDF's; an @page margin here would override them.
+    '@page { size: A4; }' +
     'body { margin: 0; font-family: \'UKIJ Ekran\', serif; font-size: 15.5px; line-height: 2; color: #1A1208;' +
     ' direction: rtl; text-align: right; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
     'h1.bh-title { font-size: 26px; text-align: center; margin: 0 0 18px; line-height: 1.5; }' +

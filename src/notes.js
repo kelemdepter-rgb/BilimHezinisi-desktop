@@ -289,8 +289,20 @@
           title="خاتىرىدىكى ماۋزۇلار" style="width:auto;padding:0 10px;gap:6px">${icon('list')} مۇندەرىجە</button>
         <button class="notes-collapse-btn" type="button" onclick="window.notesShowHistory()"
           title="خاتىرىنىڭ ئىلگىرىكى نۇسخىلىرى" style="width:auto;padding:0 10px;gap:6px">${icon('clock')} نەشر تارىخى</button>
-        <button class="notes-collapse-btn" type="button" onclick="window.notesExportDocx()"
-          title="Word قا چىقىرىش" style="width:auto;padding:0 10px;gap:6px">${icon('file-text')} Word</button>
+        <div class="notes-export-wrap" id="notes-export-wrap">
+          <button class="notes-collapse-btn" type="button" onclick="window.notesExportMenu(event)"
+            title="خاتىرىنى ھۆججەت قىلىپ چىقىرىش" style="width:auto;padding:0 10px;gap:6px">${icon('download')} چىقىرىش ▾</button>
+          <div class="notes-export-menu" id="notes-export-menu">
+            <button type="button" data-format="docx" onclick="window.notesExport('docx')">${icon('file-text')} Word (.docx)</button>
+            <button type="button" data-format="pdf" onclick="window.notesExport('pdf')">${icon('file-text')} PDF</button>
+            <button type="button" data-format="md" onclick="window.notesExport('md')">${icon('file-text')} Markdown (.md)</button>
+            <button type="button" data-format="txt" onclick="window.notesExport('txt')">${icon('file-text')} تېكىست (.txt)</button>
+            <label class="notes-export-option">
+              <input type="checkbox" id="notes-export-footnotes" onchange="window.notesSetExportFootnotes(this.checked)">
+              <span>مەنبەلەرنى ئاستى ئىزاھات قىلىش</span>
+            </label>
+          </div>
+        </div>
         <button class="notes-savebtn" type="button" onclick="window.notesSaveNow()" title="ساقلاش (Ctrl+S)">${icon('save')} ساقلاش</button>
         <button class="notes-collapse-btn" id="notes-collapse-panel-btn" type="button"
           onclick="window.notesTogglePanel()"
@@ -2136,17 +2148,86 @@
   };
 
   // --- 5.3 DOCX export ---------------------------------------------------------
-  window.notesExportDocx = async function () {
-    if (!_s().curDoc || !editorEl) { if (window.toast) window.toast('خاتىرە يوق', 'e'); return; }
-    const title = ((_s().curDoc.title || '').trim()) || 'خاتىرە';
-    const text = editorEl.innerText || '';
-    if (!text.trim()) { if (window.toast) window.toast('خاتىرە قۇرۇق', 'e'); return; }
+  // --- export (W6, K8) ---------------------------------------------------------
+  // «چىقىرىش ▾»: Word, PDF, Markdown, text. This used to send editor.innerText
+  // to a Word writer, and every heading, quote, list, face and colour was lost.
+  // The note is now read into a document model (src/notes-export.js); the
+  // main process writes the file (note-export.js).
+
+  const EXPORT_FOOTNOTES_KEY = 'notes_export_footnotes';
+
+  async function exportFootnotesOn() {
     try {
-      const r = await window.electron.exportAsDocx(title, '', text);
-      if (r && r.success) { if (window.toast) window.toast('Word ھۆججىتى ساقلاندى', 's'); }
-      else if (r && r.error) { if (window.toast) window.toast('چىقىرىش خاتالىقى: ' + r.error, 'e'); }
-    } catch (e) { if (window.toast) window.toast('چىقىرىش مەغلۇپ بولدى', 'e'); }
+      const r = await window.electron.dbGetSetting(EXPORT_FOOTNOTES_KEY, 'off');
+      const v = (r && typeof r === 'object' && 'value' in r) ? r.value : r;
+      return v === 'on';
+    } catch (e) { return false; }
+  }
+
+  window.notesSetExportFootnotes = function (on) {
+    try { window.electron.dbSetSetting(EXPORT_FOOTNOTES_KEY, on ? 'on' : 'off'); } catch (e) { /* not remembered */ }
   };
+
+  function closeExportMenu() {
+    const menu = document.getElementById('notes-export-menu');
+    if (menu) menu.classList.remove('on');
+  }
+
+  window.notesExportMenu = async function (ev) {
+    if (ev) ev.stopPropagation();
+    const menu = document.getElementById('notes-export-menu');
+    if (!menu) return;
+    const opening = !menu.classList.contains('on');
+    menu.classList.toggle('on', opening);
+    if (opening) {
+      const box = document.getElementById('notes-export-footnotes');
+      if (box) box.checked = await exportFootnotesOn();
+    }
+  };
+  // A click anywhere outside closes it.
+  document.addEventListener('click', (e) => {
+    const wrap = document.getElementById('notes-export-wrap');
+    if (wrap && !wrap.contains(e.target)) closeExportMenu();
+  });
+
+  window.notesExport = async function (format) {
+    closeExportMenu();
+    if (!_s().curDoc || !editorEl) { toast('خاتىرە يوق', 'e'); return; }
+    if (!(editorEl.innerText || '').trim()) { toast('خاتىرە قۇرۇق', 'e'); return; }
+    const NE = window.NoteExport;
+    if (!NE) { toast('چىقىرىش بۆلىكى يۈكلەنمىدى', 'e'); return; }
+
+    const raw = snapshotHtml();
+    const html = (window.SafeHTML && window.SafeHTML.sanitize) ? window.SafeHTML.sanitize(raw) : raw;
+    const title = ((_s().curDoc.title || '').trim()) || 'خاتىرە';
+    const footnotes = await exportFootnotesOn();
+
+    let payload;
+    try {
+      if (format === 'docx') payload = { title: title, model: NE.buildModel(html, { title: title, footnotes: footnotes }) };
+      else if (format === 'pdf') {
+        const body = NE.toPdfBody(html, { footnotes: footnotes });
+        payload = { title: title, html: body.html, credit: body.credit };
+      }
+      else if (format === 'md') payload = { title: title, text: NE.toMarkdown(html, { title: title, footnotes: footnotes }) };
+      else if (format === 'txt') payload = { title: title, text: NE.toText(NE.buildModel(html, { title: title, footnotes: footnotes })) };
+      else return;
+    } catch (e) {
+      console.error('[notes] export failed:', e);
+      toast('چىقىرىش مەغلۇپ بولدى', 'e');
+      return;
+    }
+
+    if (format === 'pdf') toast('PDF تەييارلىنىۋاتىدۇ...', 'i');
+    let r = null;
+    try { r = await window.electron.exportNote(format, payload); }
+    catch (e) { r = { success: false, error: e && e.message }; }
+    if (r && r.success) toast('ساقلاندى: ' + r.name, 's');
+    else if (r && !r.canceled) toast('چىقىرىش خاتالىقى' + (r.error ? ' — ' + r.error : ''), 'e');
+  };
+
+  // The old name, for anything that still calls it.
+  window.notesExportDocx = function () { return window.notesExport('docx'); };
 
   // --- 5.1 image → text (offline OCR) ------------------------------------------
   function insertPlainParagraphs(text) {

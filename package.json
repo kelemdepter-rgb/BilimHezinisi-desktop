@@ -79,6 +79,7 @@
       "library-sync.js",
       "backup.js",
       "navigation.js",
+      "note-export.js",
       "ocr-postprocess.js",
       "src/**/*",
       "assets/ukijekran.ttf",

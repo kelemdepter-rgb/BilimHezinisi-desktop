@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('electron', {
   saveFileDialog: (name, content) => ipcRenderer.invoke('save-file-dialog', name, content),
   exportAsDocx: (title, author, content) => ipcRenderer.invoke('export-as-docx', title, author, content),
   exportAsPdf: (title, author, content) => ipcRenderer.invoke('export-as-pdf', title, author, content),
+  // The notebook's export: format is docx | pdf | md | txt (see note-export.js).
+  exportNote: (format, payload) => ipcRenderer.invoke('export-note', format, payload),
   openFolder: () => ipcRenderer.invoke('open-folder'),
   readFolder: (folderPath) => ipcRenderer.invoke('read-folder', folderPath),
   // Offline OCR (main process runs tesseract.js; renderer ships base64 PNGs).

@@ -156,4 +156,38 @@
     t.assert.includes(md, '[^1]: بىلىم كىتابى', 'the footnote is missing');
     t.assert.includes(md, 'Tanzil Project', 'the Qur\'an credit is missing');
   });
+
+  // The notebook's «چىقىرىش ▾»: four formats through one IPC, and the
+  // footnote switch remembered. The old Word export (innerText) is not used.
+  test('export-menu', async function (t) {
+    await t.fresh({ html: CITED.replace('<p>مېنىڭ سۆزۈم</p>', '<h2>باب</h2><p>مېنىڭ سۆزۈم</p>') });
+    t.assert.ok(document.getElementById('notes-export-menu'), 'there is no «چىقىرىش» menu');
+    t.assert.equal(document.querySelectorAll('#notes-export-menu [data-format]').length, 4,
+      'the menu does not offer Word, PDF, Markdown and text');
+
+    for (const format of ['docx', 'pdf', 'md', 'txt']) await window.notesExport(format);
+    const calls = window.FAKE.noteExports;
+    t.assert.deepEqual(calls.map(function (c) { return c.format; }), ['docx', 'pdf', 'md', 'txt'],
+      'not every format reached the main process');
+    t.assert.equal(window.FAKE.exports.length, 0, 'the old text-only Word export was used');
+
+    t.assert.equal(calls[0].payload.model.blocks[0].heading, 2, 'Word was not sent the document model');
+    t.assert.equal(calls[0].payload.title, 'سىناق', 'the title was not sent');
+    t.assert.includes(calls[1].payload.html, '<h2>', 'the PDF was not sent the note\'s HTML');
+    t.assert.includes(calls[2].payload.text, '## باب', 'the Markdown was not made');
+    t.assert.includes(calls[3].payload.text, 'باب\r\n', 'the text was not made');
+    t.assert.includes(calls[3].payload.text, '— بىلىم كىتابى', 'with the switch off, the source line was not kept');
+
+    // The switch, remembered, and used.
+    const box = document.getElementById('notes-export-footnotes');
+    t.assert.ok(box, 'there is no footnote switch');
+    box.checked = true;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    await t.sleep(20);
+    t.assert.equal(window.FAKE.settings.notes_export_footnotes, 'on', 'the footnote switch is not remembered');
+    await window.notesExport('docx');
+    const last = window.FAKE.noteExports[window.FAKE.noteExports.length - 1];
+    t.assert.deepEqual(last.payload.model.footnotes.map(function (f) { return f.label; }), ['بىلىم كىتابى'],
+      'with the switch on, the citation did not become a footnote');
+  });
 })();

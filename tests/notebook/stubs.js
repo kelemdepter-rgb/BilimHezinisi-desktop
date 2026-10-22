@@ -25,7 +25,8 @@
     flushAnswers: [],       // what it answered to an app-flush-request
     flushRequest: null,     // the listener the renderer registered for one
     personal: [],           // the words handed to spellPersonal
-    exports: [],            // export calls
+    exports: [],            // the old exportAsDocx calls (innerText only)
+    noteExports: [],        // export-note calls: { format, payload }
     good: new Set(),        // words the fake engine accepts
     suggest: [],            // what spellSuggest answers
     failSave: false,        // make the database refuse every write
@@ -199,6 +200,10 @@
         aya: { sura: sura, aya: aya, text_ar: 'بِسْمِ ٱللَّهِ', text_ug: 'ئاللاھنىڭ ئىسمى بىلەن' }
       };
     },
+    exportNote: async function (format, payload) {
+      FAKE.noteExports.push({ format: format, payload: payload });
+      return { success: true, name: 'خاتىرە.' + format };
+    },
     exportAsDocx: async function (title, author, content) {
       FAKE.exports.push({ title: title, author: author, content: content });
       return { success: true };
@@ -254,6 +259,7 @@
     FAKE.flushAnswers = [];
     FAKE.personal = [];
     FAKE.exports = [];
+    FAKE.noteExports = [];
     FAKE.good = new Set(opts.good || []);
     FAKE.suggest = opts.suggest || ['تۈزىتىلگەن'];
     FAKE.failSave = false;
