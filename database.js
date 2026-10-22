@@ -311,6 +311,20 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_note_versions_note ON note_versions(note_id, created_at);
       `);
     }
+  },
+  {
+    // W2, W3 — the trash and pinning (Phase 5). Neither ever touches
+    // updated_at: moving a note to the trash and back, or pinning it, is not
+    // an edit of the note.
+    version: 2,
+    name: 'note_trash_and_pin',
+    up(db) {
+      db.exec(`
+        ALTER TABLE note_documents ADD COLUMN deleted_at TEXT;
+        ALTER TABLE note_documents ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+        CREATE INDEX IF NOT EXISTS idx_note_deleted ON note_documents(deleted_at);
+      `);
+    }
   }
 ];
 
@@ -990,16 +1004,22 @@ function quranSearchSimple(q, lang, limit) {
 
 // ========== NOTES (DOCUMENTS) ==========
 
+// The first 120 characters of a note's text on one line — computed here, so the
+// list never carries every note's whole text across the IPC.
+const NOTE_PREVIEW_SQL = "substr(trim(replace(replace(replace(substr(content_text, 1, 240), char(13), ' '), char(10), ' '), char(9), ' ')), 1, 120)";
+
+/** The notes in the list (not the trash), newest edit first. */
 function notesGetAll() {
   return db.prepare(`
-    SELECT id, title, created_at, updated_at, length(content_text) AS size
-    FROM note_documents ORDER BY updated_at DESC
+    SELECT id, title, created_at, updated_at, pinned, length(content_text) AS size,
+           ${NOTE_PREVIEW_SQL} AS preview
+    FROM note_documents WHERE deleted_at IS NULL ORDER BY updated_at DESC
   `).all();
 }
 
 function notesGet(id) {
   return db.prepare(`
-    SELECT id, title, content_html, content_text, created_at, updated_at
+    SELECT id, title, content_html, content_text, created_at, updated_at, deleted_at, pinned
     FROM note_documents WHERE id=?
   `).get(id) || null;
 }
@@ -1009,16 +1029,111 @@ function notesCreate(title) {
   return info.lastInsertRowid;
 }
 
+/** Write a note. A note in the trash is read-only: 0 rows are written. */
 function notesUpdate(id, title, contentHtml, contentText) {
-  db.prepare(`
+  return db.prepare(`
     UPDATE note_documents
     SET title=?, content_html=?, content_text=?, updated_at=datetime('now')
-    WHERE id=?
-  `).run(title || 'يېڭى خاتىرە', contentHtml || '', contentText || '', id);
+    WHERE id=? AND deleted_at IS NULL
+  `).run(title || 'يېڭى خاتىرە', contentHtml || '', contentText || '', id).changes;
 }
 
+/**
+ * Remove a note for good — with its versions (ON DELETE CASCADE) and the
+ * words ignored in it. Only ever reached from the trash, an emptied trash,
+ * the 30-day purge, or an untouched new note.
+ */
 function notesDelete(id) {
-  db.prepare('DELETE FROM note_documents WHERE id=?').run(id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM note_documents WHERE id=?').run(id);
+    db.prepare('DELETE FROM settings WHERE key=?').run('spell_ignore_note_' + id);
+  })();
+}
+
+// ========== THE TRASH (W2) AND THE LIST (W3) ==========
+// Deleting a note used to be one confirm() and gone. It now goes to the
+// trash, from where it can be restored, is deleted for ever only from there,
+// and is purged after 30 days. None of this, nor pinning, changes updated_at.
+
+const NOTE_TRASH_DAYS = 30;
+const DEFAULT_NOTE_TITLE = 'يېڭى خاتىرە';
+
+/** Move a note to the trash. `now` (ms) is for the tests. */
+function notesTrash(id, now) {
+  const when = new Date(Number.isFinite(now) ? now : Date.now()).toISOString();
+  return db.prepare('UPDATE note_documents SET deleted_at=? WHERE id=? AND deleted_at IS NULL').run(when, id).changes > 0;
+}
+
+function notesRestore(id) {
+  return db.prepare('UPDATE note_documents SET deleted_at=NULL WHERE id=? AND deleted_at IS NOT NULL').run(id).changes > 0;
+}
+
+function notesTrashList() {
+  return db.prepare(`
+    SELECT id, title, created_at, updated_at, deleted_at, length(content_text) AS size,
+           ${NOTE_PREVIEW_SQL} AS preview
+    FROM note_documents WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC
+  `).all();
+}
+
+/** Delete for ever — only a note that is already in the trash. */
+function notesDeleteForever(id) {
+  const row = db.prepare('SELECT deleted_at FROM note_documents WHERE id=?').get(id);
+  if (!row || !row.deleted_at) return false;
+  notesDelete(id);
+  return true;
+}
+
+/** Empty the trash; returns how many notes were removed. */
+function notesEmptyTrash() {
+  const rows = db.prepare('SELECT id FROM note_documents WHERE deleted_at IS NOT NULL').all();
+  for (const row of rows) notesDelete(row.id);
+  return rows.length;
+}
+
+/** At startup: whatever has been in the trash for more than 30 days. */
+function notesPurgeTrash(now) {
+  const cutoff = new Date((Number.isFinite(now) ? now : Date.now()) - NOTE_TRASH_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const rows = db.prepare('SELECT id FROM note_documents WHERE deleted_at IS NOT NULL AND deleted_at < ?').all(cutoff);
+  for (const row of rows) notesDelete(row.id);
+  return rows.length;
+}
+
+function notesSetPinned(id, pinned) {
+  return db.prepare('UPDATE note_documents SET pinned=? WHERE id=?').run(pinned ? 1 : 0, id).changes > 0;
+}
+
+/**
+ * Search titles AND text: a literal phrase (instr, so % and _ are just
+ * characters), case-insensitive for the letters that have case, 2–100
+ * characters, at most 50 results, pinned first, never the trash.
+ */
+function notesSearch(query) {
+  const q = String(query == null ? '' : query).trim();
+  if (q.length < 2 || q.length > 100) return { ok: false, reason: 'length', notes: [] };
+  const notes = db.prepare(`
+    SELECT id, title, created_at, updated_at, pinned, length(content_text) AS size,
+           ${NOTE_PREVIEW_SQL} AS preview
+    FROM note_documents
+    WHERE deleted_at IS NULL AND (instr(lower(title), lower(?)) > 0 OR instr(lower(content_text), lower(?)) > 0)
+    ORDER BY pinned DESC, updated_at DESC, id DESC
+    LIMIT 50
+  `).all(q, q);
+  return { ok: true, notes: notes };
+}
+
+/**
+ * A new note the writer opened and left untouched — the default title and no
+ * text — is removed when they leave it, instead of piling up in the list.
+ * Checked here, not trusted from the renderer.
+ */
+function notesDiscardIfEmpty(id) {
+  const row = db.prepare('SELECT title, content_text FROM note_documents WHERE id=?').get(id);
+  if (!row) return false;
+  const title = String(row.title || '').trim();
+  if ((title && title !== DEFAULT_NOTE_TITLE) || String(row.content_text || '').trim()) return false;
+  notesDelete(id);
+  return true;
 }
 
 // ========== NOTE VERSIONS (W1) ==========
@@ -1695,6 +1810,9 @@ module.exports = {
   migrationStripBasmalaAyah1,
   // Notes (documents)
   notesGetAll, notesGet, notesCreate, notesUpdate, notesDelete,
+  // The trash and the list (W2, W3)
+  notesTrash, notesRestore, notesTrashList, notesDeleteForever, notesEmptyTrash, notesPurgeTrash,
+  notesSetPinned, notesSearch, notesDiscardIfEmpty,
   // Note versions (W1)
   NOTE_VERSION_REASONS, noteVersionKeep, noteVersionList, noteVersionGet,
   // Ngram

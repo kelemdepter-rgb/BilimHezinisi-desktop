@@ -88,7 +88,14 @@ contextBridge.exposeInMainWorld('electron', {
   notesGet: (id) => ipcRenderer.invoke('notes-get', id),
   notesCreate: (title) => ipcRenderer.invoke('notes-create', title),
   notesUpdate: (id, title, html, text) => ipcRenderer.invoke('notes-update', id, title, html, text),
-  notesDelete: (id) => ipcRenderer.invoke('notes-delete', id),
+  notesDelete: (id) => ipcRenderer.invoke('notes-delete', id),   // to the trash
+  notesRestore: (id) => ipcRenderer.invoke('notes-restore', id),
+  notesTrashList: () => ipcRenderer.invoke('notes-trash-list'),
+  notesDeleteForever: (id) => ipcRenderer.invoke('notes-delete-forever', id),
+  notesEmptyTrash: () => ipcRenderer.invoke('notes-empty-trash'),
+  notesSetPinned: (id, pinned) => ipcRenderer.invoke('notes-set-pinned', id, pinned),
+  notesSearch: (query) => ipcRenderer.invoke('notes-search', query),
+  notesDiscardEmpty: (id) => ipcRenderer.invoke('notes-discard-empty', id),
   // Earlier versions of a note (W1): kept in the background, listed, read back.
   notesVersionKeep: (noteId, reason, title, html, text) => ipcRenderer.invoke('notes-version-keep', noteId, reason, title, html, text),
   notesVersionList: (noteId) => ipcRenderer.invoke('notes-version-list', noteId),

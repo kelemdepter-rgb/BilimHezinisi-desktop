@@ -110,6 +110,14 @@ async function initDatabase() {
     console.error('[migration] stopped, the schema is unchanged:', e.message);
   }
 
+  // Notes that have been in the trash for more than 30 days (W2).
+  try {
+    const purged = database.notesPurgeTrash();
+    if (purged) console.log('[notes] purged ' + purged + ' note(s) from the trash');
+  } catch (e) {
+    console.warn('[notes] trash purge failed:', e.message);
+  }
+
   // One-time cleanup: vacuum DB to reclaim space from removed n-gram table
   try {
     const vacuumDone = database.getSetting('ngram_vacuum_v1', false);
@@ -1367,16 +1375,46 @@ ipcMain.handle('notes-update', (e, id, title, html, text) => {
     const safeHtml = coarseSanitizeHtml(html || '');
     const safeTitle = String(title || '').slice(0, 500); // length cap
     const safeText = String(text || '');
-    database.notesUpdate(id, safeTitle, safeHtml, safeText);
-    return { success: true };
+    // 0 rows: the note is gone, or in the trash, where it is read-only. The
+    // renderer must hear that it was NOT saved.
+    const written = database.notesUpdate(id, safeTitle, safeHtml, safeText);
+    return written ? { success: true } : { success: false, error: 'not saved: the note is missing or in the trash' };
   } catch(err) { return { success: false, error: err.message }; }
 });
+// Deleting a note moves it to the trash (W2). Nothing deletes a note for good
+// except notes-delete-forever, the emptied trash, the 30-day purge and an
+// untouched new note.
 ipcMain.handle('notes-delete', (e, id) => {
-  try {
-    database.notesDelete(id);
-    database.saveDB(DATA_DIR);
-    return { success: true };
-  } catch(err) { return { success: false, error: err.message }; }
+  try { return { success: database.notesTrash(id) }; }
+  catch(err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('notes-restore', (e, id) => {
+  try { return { success: database.notesRestore(id) }; }
+  catch(err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('notes-trash-list', () => {
+  try { return { success: true, docs: database.notesTrashList() }; }
+  catch(err) { return { success: false, docs: [], error: err.message }; }
+});
+ipcMain.handle('notes-delete-forever', (e, id) => {
+  try { return { success: database.notesDeleteForever(id) }; }
+  catch(err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('notes-empty-trash', () => {
+  try { return { success: true, removed: database.notesEmptyTrash() }; }
+  catch(err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('notes-set-pinned', (e, id, pinned) => {
+  try { return { success: database.notesSetPinned(id, !!pinned) }; }
+  catch(err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('notes-search', (e, query) => {
+  try { return Object.assign({ success: true }, database.notesSearch(query)); }
+  catch(err) { return { success: false, ok: false, notes: [], error: err.message }; }
+});
+ipcMain.handle('notes-discard-empty', (e, id) => {
+  try { return { success: true, removed: database.notesDiscardIfEmpty(id) }; }
+  catch(err) { return { success: false, removed: false, error: err.message }; }
 });
 
 // ========== NGRAM IPC ==========
