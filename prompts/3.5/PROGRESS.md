@@ -19,7 +19,7 @@ Read prompts/3.5/PROMPT-3.5.md in full, then prompts/3.5/PROGRESS.md, and contin
 | 2 | Library safety: K4, K6, K18 + backup/restore | **done** — waiting for the owner's check | `5aef0a4` fix(library): a book is deleted only when the writer deletes it (K4) · `1203572` feat(library): backup, restore and a migrations framework · `71cdcdf` fix(sanitize): the allow lists are the lists that are applied (K6) · `d7552b9` docs: correct the removeFormat measurement; repair CLAUDE.md · `9f91645` fix(window): the window stays in the app; only http(s) goes outside (K18) · `87de2d6` build: drop sql.js, which nothing uses (K18) · docs(progress) | 37 in all (with the syntax gate), every one green |
 | 3 | Versions and document structure: W1, W4, W5, W14, K11 | **done** — waiting for the owner's check | `171cf60` feat(notes): keep earlier versions of a note - storage (W1) · `d7667bb` feat(notes): history, block style, outline, undo and redo (W1, W4, W5, W14, K11) · docs(progress) | 48 in all (with the syntax gate), every one green |
 | 4 | Export: W6, K8 | **done** — waiting for the owner's check | `a0c2c90` test: keep the runner alive when a suite closes its only window · `2ec60da` feat(export): a note keeps its shape in Word, PDF, Markdown and text (W6, K8) · `5972048` feat(export): «چىقىرىش ▾» in the notebook - Word, PDF, Markdown, text (W6, K8) · docs(progress) | 55 in all (with the syntax gate), every one green |
-| 5 | List, trash, spelling: W2, W3, W7–W10, K12, K13 | not started | — | — |
+| 5 | List, trash, spelling: W2, W3, W7–W10, K12, K13 | **done** — waiting for the owner's check | `828150e` feat(notes): the trash, pinning and content search - storage (W2, W3, K13) · `ce94748` feat(notes): the list sorts, pins, previews and searches; deleting can be undone (W2, W3, K13) · `4544b0d` feat(spellcheck): one error at a time, and words ignored in one note (W7, W9, W10) · `7bd1aef` feat(spellcheck): the personal dictionary can be seen, cleaned, moved (W8, K12) · docs(progress) | 75 in all (with the syntax gate), every one green |
 | 6 | Citations, sources, AI that keeps formatting: W11–W13, K9 | not started | — | — |
 | 7 | Reader, Qur'an, search: K5, K15, K17, W16–W18, W20 | not started | — | — |
 | 8 | Release 3.5.0 (no publishing) | not started | — | — |
@@ -247,6 +247,37 @@ Findings on the way:
 4. «مەنبەلەرنى ئاستى ئىزاھات قىلىش» نى بەلگىلەپ، قايتا Word قا چىقىرىڭ ← كىتاب نەقلىنىڭ ئاستىدىكى «— كىتاب نامى» قۇرى بەتنىڭ ئاستىغا ئىزاھات بولۇپ چۈشىدۇ.
 5. «تېكىست (.txt)» نى چىقىرىپ Notepad تا ئېچىڭ ← ئۇيغۇرچە بۇزۇلماي كۆرۈنىدۇ، ئابزاسلار ئارىسىدا بوش قۇر بار.
 6. Word ۋە PDF نىڭ رەسىمىنى ئەۋەتىڭ.
+
+## Phase 5 — done
+
+| Item | What changed | Tests |
+|---|---|---|
+| Trash (W2) | Migration step 2: `deleted_at`, `pinned`. Delete → trash at once, no question, toast «قايتۇرۇش» for 10 s (`toast(msg, type, { action, ms })`). «ئەخلەت ساندۇقى» at the bottom of the list: restore, delete for ever and empty — both with an inline second click. Delete-for-ever refuses a note not in the trash; the purge at startup takes what is older than 30 days; versions and ignored words go with a note. A trashed note opens read-only (main refuses to write it, too). Nothing of this touches `updated_at`. | main: `notes-trash-restore`, `notes-delete-forever-only-from-trash`, `notes-purge-30-days`; notebook: `list-trash-and-undo`, `list-trash-panel`, `list-trashed-opens-read-only` |
+| List (W3, K13) | Sort «يېڭىلانغان ۋاقىت / ماۋزۇ / ياسالغان ۋاقىت», remembered; Uyghur title order via the web's `uyghurSortKey` (Chromium has no `ug` collation); pin; a one-line preview from SQL; search in titles AND text in main (literal, case-insensitive, 2–100, ≤ 50, pinned first); an untouched «يېڭى خاتىرە» is removed when the writer leaves it (main checks it again). | main: `notes-search-content`, `notes-preview-and-discard`; notebook: `list-sort-pin-preview`, `list-search-content`, `list-discard-untouched` |
+| Step through (W7) | «▲ ئالدىنقى» / «▼ كېيىنكى خاتالىق» beside the switch, F7 / Shift+F7: from the caret, wrapping, scrolled into view, suggestions open; «ئىملا خاتالىقى قالمىدى» when none. | `spell-step-through`, `spell-step-none-left` |
+| Dictionary (W8, K12) | «لۇغەت» panel: filter, delete, export / import `bilim-hezinisi-lughet.json` (JSON array, the web's format); import is untrusted — read and checked in main, one word by the checker's own tokenizer, 2–64, ≤ 5,000, counts reported, words shown via `textContent`; glued-looking entries marked «چاپلاشقان بولۇشى مۇمكىن» (port of `looksGlued`), never removed. | main: `personal-word-rules`, `personal-import`, `personal-export`, `glued-hints`; notebook: `dictionary-panel` |
+| Ignore in note (W9) | «بۇ خاتىرىدە سەل قارا» in the popup, stored as `spell_ignore_note_<id>` (≤ 500), gone with the note. | `spell-ignore-in-note` |
+| Quoted (W10) | No change needed — confirmed. | `spell-skips-quoted` |
+
+Checked by hand in `npm run dev`: migration step 2 ran on the DEV library
+after its backup — `library-before-3.2.0.db` already existed from step 1, so
+the new one was named with the time (`library-before-3.2.0-<time>.db`), as
+designed. No main-process or renderer error at startup.
+
+One thing to know: the web edition gives «بىر-بىرلەپ كۆرۈش» no keyboard
+shortcut because F7 is caret browsing in Chrome and Firefox. Electron has no
+such binding, so the work order's F7 is used here.
+
+### Phase 5 checklist for the owner (`npm run dev`)
+
+1. بىر خاتىرىنى ئۆچۈرۈڭ ← ھېچنېمە سورىمايدۇ، ئاستىدا «قايتۇرۇش» كۇنۇپكىسى بار ئۇچۇر چىقىدۇ. 10 سېكۇنت ئىچىدە بېسىڭ ← خاتىرە قايتىدۇ.
+2. يەنە ئۆچۈرۈڭ، تىزىملىكنىڭ ئاستىدىكى «ئەخلەت ساندۇقى» نى ئېچىڭ ← خاتىرە شۇ يەردە. ئۇنى بېسىڭ ← ئوقۇشقىلا بولىدۇ. «قايتۇرۇش» نى بېسىڭ ← قايتىدۇ. «مەڭگۈلۈك ئۆچۈرۈش» بىر قېتىم بېسىلسا سورايدۇ، ئىككىنچى قېتىمدا ئۆچىدۇ.
+3. بىر خاتىرىدىكى يۇلتۇز بەلگىسىنى بېسىپ مىقلاڭ ← تىزىملىكنىڭ بېشىغا چىقىدۇ. «ماۋزۇ» بويىچە تىزىڭ ← ئېلىپبە تەرتىپى توغرا (ئ بىلەن باشلانغانلار ئالدىدا).
+4. پەقەت بىر خاتىرىنىڭ ئىچىدە بار سۆزنى ئىزدەڭ ← شۇ خاتىرە تېپىلىدۇ.
+5. «يېڭى خاتىرە» نى بېسىپ، ھېچنېمە يازماي باشقا خاتىرىگە ئۆتۈڭ ← بوش «يېڭى خاتىرە» تىزىملىكتە قالمايدۇ.
+6. ئىملا تەكشۈرۈشنى ئېچىپ F7 نى قايتا-قايتا بېسىڭ ← خاتالىقلار بىر-بىرلەپ ئېچىلىدۇ. Shift+F7 كەينىگە ماڭىدۇ.
+7. بىر خاتا سۆزدە «بۇ خاتىرىدە سەل قارا» نى بېسىڭ ← بۇ خاتىرىدە سىزىق يوقايدۇ، باشقا خاتىرىدە قالىدۇ.
+8. «لۇغەت» نى ئېچىڭ ← قوشقان سۆزلىرىڭىز كۆرۈنىدۇ. «چاپلاشقان بولۇشى مۇمكىن» دېگەن سۆز بولسا، تەكشۈرۈپ خاتا بولسا ئۆچۈرۈڭ. «چىقىرىش» بىلەن لۇغەتنى ساقلاپ قويۇڭ.
 
 ## Measurements
 
