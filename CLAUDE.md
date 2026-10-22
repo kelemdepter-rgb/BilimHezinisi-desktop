@@ -10,6 +10,7 @@ offline; AI is an OPTIONAL, opt-in online layer (see Architecture).
 - Development and code comments in English; Uyghur ONLY in UI strings and content.
 - Offline-first: every CORE feature must work with no network and no API key.
 - No transpile step — preserve CRLF line endings; `node --check` must pass on every changed `.js` file and on inline `<script>` blocks.
+- Every bug gets a test that fails before the fix and passes after: `npm test` (syntax gate + main-process and notebook suites). Never weaken or delete a test to make it pass.
 - Never break the renderer security model (see DO-NOT-TOUCH).
 
 ## Architecture (actual — supersedes any "React/TypeScript" assumption)
@@ -60,8 +61,29 @@ Startup <3s · Import <10s · Search (500 books) <3s · AI responses stream incr
 - Never log or expose the API key beyond a masked form; it stays in the main process.
 - Do not relocate, rename, or rewrite the user library at `JamiyKutupxana`.
 
+## Notebook rules (3.5)
+Each of these is a bug the 2026-10-22 audit reproduced. The reason is the rule.
+- **A line end is a word boundary.** Spellcheck, find and the reference scanner read the note through ONE text map (`src/textmap.js`) that puts `"\n"` at every block edge and every `<br>`. Concatenating text nodes glued «مەنىڭ» + «چۈشەنمىگەن» into one "word", and accepting its suggestion then deleted the next paragraph's first word.
+- **Never rewrite a selection, or the whole note, as HTML.** No `sel.toString()` + `insertHTML`, no `selectAll` + `insertHTML` — edit over Ranges with the editing commands (`insertText`, `bold`, `fontName`, …). Rebuilding the selection merged three painted paragraphs into one and nested a whole note inside its leading quote.
+- **`putDocument(html)` is the only code that assigns the editor's `innerHTML`** (mount, version restore, AI apply), so sanitizing, unwrapping legacy markup and re-running the counts happen in exactly one place. A static test fails if anything else assigns it.
+- **Nothing temporary goes into the note.** Spelling underlines, find hits and reference matches are painted with the CSS Custom Highlight API, and clicks are hit-tested back into the text. Elements were saved with the note and came back as dead markup the writer could not remove.
+- **Nothing typed is lost.** Save before leaving the notebook, switching notes, following a link or closing the window; retry a failed save (5 s, 15 s, 45 s, then every 60 s while dirty); never show «ساقلاندى» while something unsaved is on screen.
+- **Destructive changes are undoable.** Replace-all, AI apply and version restore store a `note_versions` row first.
+- **Quoted material is not the writer's text.** `QUOTED_SELECTOR` — `a[href]`, an inline `UthmanicHafs` (the desktop's alias, written without a space) or `Uthmanic Hafs`, `[data-ref-insert="1"]`, `.notes-inserted-ref` — is never spell-marked, never painted, never scanned and never sent to the AI.
+- **The format painter copies font family and size** (the desktop's advantage over the web edition), captures only formatting that is explicitly set, and never copies the theme's text colour: text painted in the dark theme was near-invisible in the light one.
+- **Messages go through `toast(msg, type)`.** `showToast` never existed, so 19 messages were thrown away silently. No `window.prompt()` (Electron does not implement it) and no new renderer `confirm()`.
+
+## Library data safety (3.5)
+- **A book is deleted only by `db-delete-book`.** `save-library` and `syncBooks` never delete by omission: one failed read at startup left `books: []`, and the next save (a theme change, a page turn) would have wiped the library.
+- **`load-library` reads its parts separately** and reports `loadErrors`. A part that failed to load in this session is never synced back; the renderer says so instead of saving over it.
+- **Schema changes are additive, ordered `PRAGMA user_version` steps**, each in a transaction, with a backup to `JamiyKutupxana\backups\` before the first pending step of a run.
+- **Backups live in `JamiyKutupxana\backups\`.** Nothing inside `JamiyKutupxana` is renamed or moved, ever.
+- **A reading position is saved with the targeted progress IPC**, not by sending the whole library on every page turn. `saveData()` is for real state changes.
+- **Risky testing uses `npm run dev`** (`JamiyKutupxana-DEV`); `npm test` uses a fresh temp directory. The real library is for a final check only.
+- **Nothing new reaches the network:** the renderer CSP stays `connect-src 'self'`, `will-navigate` allows only the app's own `index.html`, and `setWindowOpenHandler` hands only parsed `http:`/`https:` URLs to `shell.openExternal`.
+
 ## Build / Release Workflow
-Edit only in the source folder → `node --check` changed files → test with `npm start` (or `npm run dev` for risky tests) → bump `version` in `package.json` → `npm run fetch-ocr-models` on a networked machine (BEFORE dist, so models ship) → `npm run dist-win` → commit per change.
+Edit only in the source folder → `npm test` (the syntax gate — `node --check` over every `.js` and the inline scripts of `index.html` — plus the main-process and notebook suites; `npm run check-syntax` runs the gate alone) → test with `npm run dev` (`npm start` only for a final check on the real library) → bump `version` in `package.json` → `npm run fetch-ocr-models` on a networked machine (BEFORE dist, so models ship) → `npm run dist-win` → commit per change.
 
 ## Roadmap / Future Direction
 - Desktop ↔ mobile feature parity from shared AI/parser logic.
