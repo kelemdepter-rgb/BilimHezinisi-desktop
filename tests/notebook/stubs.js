@@ -19,6 +19,8 @@
     notes: {},              // id -> { id, title, content_html, content_text }
     settings: {},           // the settings table
     saves: [],              // every accepted notesUpdate, in order
+    versionCalls: [],       // every notesVersionKeep, in order
+    versionRows: [],        // what notesVersionList / notesVersionGet answer
     dirtyReports: [],       // what the renderer told main about unsaved writing
     flushAnswers: [],       // what it answered to an app-flush-request
     flushRequest: null,     // the listener the renderer registered for one
@@ -120,6 +122,26 @@
       return { success: true, id: id };
     },
     notesDelete: async function (id) { delete FAKE.notes[id]; return { success: true }; },
+
+    // Earlier versions (W1). The rules live in the main process and are tested
+    // there; here every keep is recorded, and FAKE.versionRows is the store.
+    notesVersionKeep: async function (noteId, reason, title, html, text) {
+      FAKE.versionCalls.push({ noteId: noteId, reason: reason, title: title, html: html, text: text });
+      return { success: true, outcome: 'kept' };
+    },
+    notesVersionList: async function (noteId) {
+      return {
+        success: true,
+        versions: FAKE.versionRows.filter(function (v) { return v.note_id === noteId; }).map(function (v) {
+          return { id: v.id, note_id: v.note_id, reason: v.reason, title: v.title,
+                   created_at: v.created_at, first_line: v.first_line, chars: v.chars };
+        })
+      };
+    },
+    notesVersionGet: async function (id) {
+      const v = FAKE.versionRows.find(function (r) { return r.id === id; });
+      return v ? { success: true, version: v } : { success: false, error: 'not found' };
+    },
 
     // The close-the-window handshake. FAKE.dirtyReports records what the
     // renderer told the main process; FAKE.flushRequest fires the request the
@@ -226,6 +248,8 @@
       notes_ref_scan: opts.refscan ? 'on' : 'off'
     };
     FAKE.saves = [];
+    FAKE.versionCalls = [];
+    FAKE.versionRows = opts.versionRows || [];
     FAKE.dirtyReports = [];
     FAKE.flushAnswers = [];
     FAKE.personal = [];

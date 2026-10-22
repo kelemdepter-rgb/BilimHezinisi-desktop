@@ -3543,6 +3543,8 @@ function naiSetEditorBlocks(ed, arr) {
       ? '<div>' + sanitize(t) + '</div>'
       : '<div><br></div>';
   }).join('');
+  // The note as it was, first — «AI تۈزىتىشتىن بۇرۇن» in «نەشر تارىخى» (W1).
+  if (typeof window.notesKeepVersion === 'function') window.notesKeepVersion('before-ai');
   // Through the notebook's one document writer (putDocument in notes.js):
   // it sanitizes, strips the transient markup older notes saved, and
   // re-reads the counts, the spelling and the references.

@@ -128,6 +128,8 @@
     applyCollapseState();
     if (_s().curDoc) {
       await mountEditor();
+      if (_s().rightTab === 'history') loadHistory();
+      else if (_s().rightTab === 'outline') refreshOutline();
     }
   };
 
@@ -283,6 +285,10 @@
           placeholder="خاتىرە نامى..."
           oninput="window.notesOnTitleInput(this.value)">
         <span class="notes-status saved" id="notes-status">ساقلاندى</span>
+        <button class="notes-collapse-btn" type="button" onclick="window.notesShowOutline()"
+          title="خاتىرىدىكى ماۋزۇلار" style="width:auto;padding:0 10px;gap:6px">${icon('list')} مۇندەرىجە</button>
+        <button class="notes-collapse-btn" type="button" onclick="window.notesShowHistory()"
+          title="خاتىرىنىڭ ئىلگىرىكى نۇسخىلىرى" style="width:auto;padding:0 10px;gap:6px">${icon('clock')} نەشر تارىخى</button>
         <button class="notes-collapse-btn" type="button" onclick="window.notesExportDocx()"
           title="Word قا چىقىرىش" style="width:auto;padding:0 10px;gap:6px">${icon('file-text')} Word</button>
         <button class="notes-savebtn" type="button" onclick="window.notesSaveNow()" title="ساقلاش (Ctrl+S)">${icon('save')} ساقلاش</button>
@@ -355,6 +361,18 @@
   function renderToolbar() {
     return `<div class="notes-toolbar">
       <div class="notes-toolbar-group">
+        <button type="button" id="notes-undo-btn" onmousedown="event.preventDefault()" onclick="window.notesExec('undo')" title="يېنىۋېلىش (Ctrl+Z)">${icon('undo')}</button>
+        <button type="button" id="notes-redo-btn" onmousedown="event.preventDefault()" onclick="window.notesExec('redo')" title="قايتىلاش (Ctrl+Y)">${icon('redo')}</button>
+      </div>
+      <div class="notes-toolbar-group">
+        <select id="notes-block-style" title="تېكىست شەكلى" onmousedown="window.notesSaveSel()" onchange="window.notesSetBlockStyle(this.value)">
+          <option value="normal">ئادەتتىكى تېكىست</option>
+          <option value="h2">چوڭ ماۋزۇ</option>
+          <option value="h3">كىچىك ماۋزۇ</option>
+          <option value="quote">نەقىل</option>
+        </select>
+      </div>
+      <div class="notes-toolbar-group">
         <button onclick="window.notesExec('bold')" title="توم (Ctrl+B)"><b>B</b></button>
         <button onclick="window.notesExec('italic')" title="يانتۇ (Ctrl+I)"><i>I</i></button>
         <button onclick="window.notesExec('underline')" title="ئاستى سىزىق (Ctrl+U)"><u>U</u></button>
@@ -381,7 +399,6 @@
       <div class="notes-toolbar-group">
         <button onclick="window.notesExec('insertUnorderedList')" title="نۇقتىلىق تىزىملىك">${icon('list')}</button>
         <button onclick="window.notesExec('insertOrderedList')" title="نومۇرلۇق تىزىملىك">${icon('list-ordered')}</button>
-        <button onclick="window.notesExec('formatBlock','blockquote')" title="نەقىل">${icon('quote')}</button>
       </div>
       <div class="notes-toolbar-group">
         <button onclick="window.notesExec('justifyRight')" title="ئوڭغا">${icon('align-right')}</button>
@@ -435,6 +452,8 @@
         <div class="notes-right-pane" data-pane="quran" style="${vis('quran')}">${renderQuranPicker()}</div>
         <div class="notes-right-pane" data-pane="refs" style="${vis('refs')}">${renderRefsEmpty()}</div>
         <div class="notes-right-pane" data-pane="ai" style="${vis('ai')}">${renderAiTab()}</div>
+        <div class="notes-right-pane" data-pane="history" style="${vis('history')}">${renderHistoryPane()}</div>
+        <div class="notes-right-pane" data-pane="outline" style="${vis('outline')}">${renderOutlinePane()}</div>
       </div>
     </div>`;
   }
@@ -563,6 +582,7 @@
     reportDirty(false);
 
     await window.renderNotesView();
+    keepVersion('open');
     await refreshNotesList();
   };
 
@@ -620,6 +640,7 @@
       window.notesRunSpellCheck();
     }
     if (typeof window.notesScanReferences === 'function') window.notesScanReferences();
+    scheduleOutline();
   }
   window.notesPutDocument = putDocument;
 
@@ -786,6 +807,7 @@
       _s()._spellTimer = setTimeout(() => window.notesRunSpellCheck(), 800);
     }
     scheduleWordCount();
+    scheduleOutline();
   }
 
   /** Run a batch of editing commands as one edit. */
@@ -1083,6 +1105,17 @@
       .filter(range => range && range.toString().trim());
   }
 
+  /** How many paragraphs (leaf blocks) a range has text in. */
+  function fpBlocksTouched(range) {
+    const TM = window.TextMap;
+    if (!TM || !editorEl) return 0;
+    const blocks = new Set();
+    for (const node of TM.readTextMap(editorEl).nodes) {
+      try { if (range.intersectsNode(node)) blocks.add(TM.blockOf(node)); } catch (_) {}
+    }
+    return blocks.size;
+  }
+
   /** Run a toggle only when the range does not already have it. */
   function fpToggle(command, wanted) {
     if (!wanted) return;        // removeFormat has already cleared it
@@ -1176,6 +1209,9 @@
       toast('ئايەت ۋە نەقىلگە سۈپۈرگە ئىشلىمەيدۇ', 'i');
       return;
     }
+    // Over more than one paragraph, a paint is a change worth taking back:
+    // the note is kept first (W1). Inside one paragraph, Ctrl+Z is enough.
+    if (fpBlocksTouched(target) > 1) keepVersion('before-paint');
 
     const f = fpFormat;
     editorEl.focus();
@@ -1308,6 +1344,9 @@
     if (ok) {
       lastSaveError = '';
       retryStep = 0;
+      // Only after the database confirmed it — and the main process keeps it
+      // at most every five minutes (W1).
+      sendVersion(docId, 'auto', doc.title, html, text);
       if (saveVersion === versionAtStart) {
         _s().dirty = false;
         reportDirty(false);
@@ -2044,6 +2083,7 @@
 
     const needle = findState.query.toLowerCase();
     const before = snapshotHtml();
+    if (all) keepVersion('before-replace-all', before);
     const ranges = chosen.map(hit => TM.rangeFor(findState.map, hit.start, hit.end));
 
     editorEl.focus();
@@ -2171,6 +2211,282 @@
     const btn = document.getElementById('notes-ocr-cleanup-btn'); if (btn) btn.style.display = 'none';
   }
   window.notesResetEditorTools = resetEditorTools;
+
+  // ========== EARLIER VERSIONS (W1) ==========
+  // A replace-all, an AI correction, a paint over several paragraphs or a
+  // restore is permanent the moment autosave writes it. Each keeps the note
+  // as it was first; «نەشر تارىخى» lists them and puts any one back. The
+  // rules (no duplicates, auto every five minutes, 30 per note) are in the
+  // main process — database.js, noteVersionKeep.
+
+  const VERSION_LABELS = {
+    open: 'ئاچقاندا',
+    auto: 'ئۆزلۈكىدىن',
+    'before-replace-all': 'ئالماشتۇرۇشتىن بۇرۇن',
+    'before-paint': 'سۈپۈرگىدىن بۇرۇن',
+    'before-ai': 'AI تۈزىتىشتىن بۇرۇن',
+    'before-restore': 'ئەسلىگە قايتۇرۇشتىن بۇرۇن'
+  };
+
+  /** Fire and forget: a version must never hold up, or break, an edit. */
+  function sendVersion(noteId, reason, title, html, text) {
+    try {
+      if (!window.electron || typeof window.electron.notesVersionKeep !== 'function') return;
+      const p = window.electron.notesVersionKeep(noteId, reason, title || '', html || '', text || '');
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch (e) { /* the edit goes ahead regardless */ }
+  }
+
+  /**
+   * Keep the note as it is on screen NOW — before a destructive change. The
+   * snapshot is taken synchronously, so the IPC is on its way before the
+   * change starts, and the main process handles it before the save that
+   * follows.
+   */
+  function keepVersion(reason, rawHtml) {
+    const doc = _s().curDoc;
+    if (!doc || !editorEl) return;
+    const raw = (rawHtml != null) ? rawHtml : snapshotHtml();
+    const html = (window.SafeHTML && window.SafeHTML.sanitize) ? window.SafeHTML.sanitize(raw) : raw;
+    sendVersion(doc.id, reason, doc.title, html, editorEl.innerText || '');
+  }
+  window.notesKeepVersion = keepVersion;
+
+  function pad2(n) { return String(n).padStart(2, '0'); }
+
+  /** «بۈگۈن 15:40», «تۈنۈگۈن 09:12», otherwise «2026-10-07 15:40» — local time. */
+  function versionTime(iso, now) {
+    const when = new Date(iso);
+    if (isNaN(when.getTime())) return '';
+    const clock = pad2(when.getHours()) + ':' + pad2(when.getMinutes());
+    const today = new Date(now);
+    const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    if (same(when, today)) return 'بۈگۈن ' + clock;
+    // The calendar's yesterday, not 24 hours ago.
+    if (same(when, new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1))) return 'تۈنۈگۈن ' + clock;
+    return when.getFullYear() + '-' + pad2(when.getMonth() + 1) + '-' + pad2(when.getDate()) + ' ' + clock;
+  }
+
+  function renderHistoryPane() {
+    return `<div id="notes-history" class="notes-side-pane">
+      <div class="notes-side-pane-head">${icon('clock')} نەشر تارىخى</div>
+      <div class="notes-side-pane-note">خاتىرە ئېچىلغاندا، ھەر 5 مىنۇتتا ۋە چوڭ ئۆزگەرتىشتىن بۇرۇن ئۆزلۈكىدىن ساقلىنىدۇ (ھەر خاتىرىگە 30 گىچە).</div>
+      <div id="notes-history-body"></div>
+    </div>`;
+  }
+
+  let historyChosen = null;    // the version being previewed
+
+  async function loadHistory() {
+    const body = document.getElementById('notes-history-body');
+    if (!body || !_s().curDoc) return;
+    historyChosen = null;
+    const noteId = _s().curDoc.id;
+    body.innerHTML = '<div class="notes-ref-empty">يۈكلىنىۋاتىدۇ...</div>';
+    let r = null;
+    try { r = await window.electron.notesVersionList(noteId); } catch (e) { r = null; }
+    if (!_s().curDoc || _s().curDoc.id !== noteId) return;
+    if (!r || !r.success) {
+      body.innerHTML = '<div class="notes-ref-empty">نەشر تارىخى ئوقۇلمىدى</div>';
+      return;
+    }
+    if (!r.versions.length) {
+      body.innerHTML = '<div class="notes-ref-empty">تېخى نۇسخا يوق.<br>يازغانسېرى بۇ يەردە ئۆزلۈكىدىن پەيدا بولىدۇ.</div>';
+      return;
+    }
+    const now = Date.now();
+    body.innerHTML = r.versions.map(v => `<button type="button" class="notes-history-item" data-id="${Number(v.id)}">
+        <span class="nh-label">${escHtml(VERSION_LABELS[v.reason] || v.reason)}</span>
+        <span class="nh-time">${escHtml(versionTime(v.created_at, now))}</span>
+        <span class="nh-first">${escHtml(v.first_line || '—')}</span>
+      </button>`).join('');
+    body.querySelectorAll('.notes-history-item').forEach(b => {
+      b.addEventListener('click', () => previewVersion(Number(b.dataset.id)));
+    });
+  }
+
+  /** A sanitized, read-only preview — nothing changes until «ئەسلىگە قايتۇرۇش». */
+  async function previewVersion(id) {
+    const body = document.getElementById('notes-history-body');
+    if (!body) return;
+    let r = null;
+    try { r = await window.electron.notesVersionGet(id); } catch (e) { r = null; }
+    if (!r || !r.success || !r.version) { toast('بۇ نۇسخا ئوقۇلمىدى', 'e'); return; }
+    historyChosen = r.version;
+    const v = r.version;
+    body.innerHTML = `<div class="nh-preview-head">
+        <span class="nh-label">${escHtml(VERSION_LABELS[v.reason] || v.reason)}</span>
+        <span class="nh-time">${escHtml(versionTime(v.created_at, Date.now()))}</span>
+      </div>
+      <div class="notes-history-preview"></div>
+      <div class="nh-actions">
+        <button type="button" class="notes-ref-act" data-action="restore">بۇ نۇسخىنى ئەسلىگە قايتۇرۇش</button>
+        <button type="button" class="notes-ref-act" data-action="back">تىزىملىككە قايتىش</button>
+      </div>`;
+    const preview = body.querySelector('.notes-history-preview');
+    preview.innerHTML = (window.SafeHTML && window.SafeHTML.sanitize)
+      ? window.SafeHTML.sanitize(v.content_html || '')
+      : '';
+    body.querySelector('[data-action="restore"]').addEventListener('click', restoreChosenVersion);
+    body.querySelector('[data-action="back"]').addEventListener('click', loadHistory);
+  }
+
+  /** Keep the note as it is, put the version back, and save it like an edit. */
+  function restoreChosenVersion() {
+    const v = historyChosen;
+    if (!v || !editorEl || !_s().curDoc || v.note_id !== _s().curDoc.id) return;
+    keepVersion('before-restore');
+    putDocument(v.content_html || '');
+    markDirty();
+    toast('ئەسلىگە قايتۇرۇلدى. ئالدىنقى ھالىتى «نەشر تارىخى» دا ساقلاندى.', 's');
+    loadHistory();
+  }
+
+  window.notesShowHistory = async function () {
+    if (_s().panelCollapsed) window.notesTogglePanel();
+    window.notesSetTab('history');
+    await loadHistory();
+  };
+
+  // ========== OUTLINE (W5) ==========
+  // «مۇندەرىجە» lists the note's h1–h4 so a long note can be crossed in one
+  // click — indented from the note's highest heading, empty ones left out (a
+  // heading being written this very moment has nothing to show yet). Ported
+  // from the web edition's lib/notes/outline.ts.
+
+  function outlineHeadings() {
+    if (!editorEl) return [];
+    return Array.from(editorEl.querySelectorAll('h1, h2, h3, h4'))
+      .filter(h => (h.textContent || '').replace(/\s+/g, ' ').trim() !== '');
+  }
+
+  function renderOutlinePane() {
+    return `<div id="notes-outline" class="notes-side-pane">
+      <div class="notes-side-pane-head">${icon('list')} مۇندەرىجە</div>
+      <div id="notes-outline-body"></div>
+    </div>`;
+  }
+
+  function refreshOutline() {
+    const body = document.getElementById('notes-outline-body');
+    if (!body) return;
+    const headings = outlineHeadings();
+    if (!headings.length) {
+      body.innerHTML = '<div class="notes-ref-empty">بۇ خاتىرىدە ماۋزۇ يوق.<br>«ئادەتتىكى تېكىست» تىزىملىكىدىن «چوڭ ماۋزۇ» نى تاللاڭ.</div>';
+      return;
+    }
+    const levels = headings.map(h => Number(h.tagName.slice(1)));
+    const top = Math.min.apply(null, levels);
+    body.innerHTML = headings.map((h, i) => {
+      const depth = levels[i] - top;
+      return `<button type="button" class="notes-outline-item" data-index="${i}" data-depth="${depth}"
+        style="padding-inline-start:${10 + depth * 16}px">${escHtml(h.textContent.replace(/\s+/g, ' ').trim())}</button>`;
+    }).join('');
+    body.querySelectorAll('.notes-outline-item').forEach(b => {
+      b.addEventListener('click', () => goToHeading(Number(b.dataset.index)));
+    });
+  }
+
+  // Re-read 300 ms after a change — only while the outline is showing.
+  let outlineTimer = null;
+  function scheduleOutline() {
+    if (_s().rightTab !== 'outline') return;
+    clearTimeout(outlineTimer);
+    outlineTimer = setTimeout(refreshOutline, 300);
+  }
+
+  /** Scroll the heading to just below the toolbar and put the caret at its start. */
+  function goToHeading(index) {
+    const heading = outlineHeadings()[index];
+    if (!heading || !editorEl) return;
+    const box = editorEl.getBoundingClientRect();
+    const rect = heading.getBoundingClientRect();
+    editorEl.scrollTop += (rect.top - box.top) - 8;
+    editorEl.focus();
+    const range = document.createRange();
+    range.setStart(heading, 0);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  window.notesShowOutline = function () {
+    if (_s().panelCollapsed) window.notesTogglePanel();
+    window.notesSetTab('outline');
+    refreshOutline();
+  };
+
+  // ========== BLOCK STYLE (W4, K11) ==========
+  // One menu that shows what the caret is in and turns it into normal text, a
+  // big or small heading, or a quote. K11: a quote could not be turned back
+  // — pressing the quote button again, or «فورماتنى ئۆچۈرۈش», left it a
+  // quote — and there was no heading at all. The commands follow the web
+  // edition's lib/notes/blocks.ts, re-measured in Electron 28
+  // (block-style-transitions), with one change: normal text is a <p> here,
+  // because that is what Enter makes in this editor and what the notebook's
+  // paragraph spacing is styled for.
+
+  function blockStyleAt(node) {
+    for (let cur = node; cur && cur !== editorEl; cur = cur.parentNode) {
+      if (cur.nodeType !== 1) continue;
+      if (/^H[1-6]$/.test(cur.tagName)) return { style: cur.tagName.toLowerCase(), element: cur };
+      if (cur.tagName === 'BLOCKQUOTE') return { style: 'quote', element: cur };
+    }
+    return { style: 'normal', element: null };
+  }
+
+  /** What the menu shows: h1/h2 as the big heading, h3–h6 as the small one. */
+  function menuValueFor(style) {
+    if (style === 'quote') return 'quote';
+    if (/^h[12]$/.test(style)) return 'h2';
+    if (/^h[3-6]$/.test(style)) return 'h3';
+    return 'normal';
+  }
+
+  function syncBlockStyleMenu() {
+    const menu = document.getElementById('notes-block-style');
+    if (!menu || !editorEl) return;
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !editorEl.contains(sel.anchorNode)) return;
+    menu.value = menuValueFor(blockStyleAt(sel.anchorNode).style);
+  }
+  document.addEventListener('selectionchange', syncBlockStyleMenu);
+
+  window.notesSetBlockStyle = function (value) {
+    if (!editorEl) return;
+    restoreSel();
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !editorEl.contains(sel.anchorNode)) { syncBlockStyleMenu(); return; }
+    const at = blockStyleAt(sel.anchorNode);
+
+    if (value === 'normal') {
+      if (at.style === 'quote') {
+        // Over the quote's whole content, so a quote of several lines goes as
+        // one. A quote of text lines becomes one paragraph with formatBlock; a
+        // quote of blocks (as pasted) ignores formatBlock and needs outdent.
+        const holdsBlocks = Array.from(at.element.children)
+          .some(c => window.TextMap && window.TextMap.BLOCK_TAGS.has(c.localName));
+        const range = document.createRange();
+        range.selectNodeContents(at.element);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        if (holdsBlocks) document.execCommand('outdent');
+        else document.execCommand('formatBlock', false, '<p>');
+      } else if (at.style !== 'normal') {
+        // A heading: formatBlock is the only command that undoes it —
+        // removeFormat and outdent leave it as it is.
+        document.execCommand('formatBlock', false, '<p>');
+      }
+    } else if (value === 'h2' || value === 'h3') {
+      document.execCommand('formatBlock', false, '<' + value + '>');
+    } else if (value === 'quote') {
+      document.execCommand('formatBlock', false, '<blockquote>');
+    }
+    markDirty();
+    scheduleOutline();
+    syncBlockStyleMenu();
+  };
 
   // ========== CLOSING THE WINDOW ==========
   // The main process asks before it closes: it prevented the close, so the
