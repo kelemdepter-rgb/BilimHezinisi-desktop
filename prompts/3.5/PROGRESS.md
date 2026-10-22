@@ -18,7 +18,7 @@ Read prompts/3.5/PROMPT-3.5.md in full, then prompts/3.5/PROGRESS.md, and contin
 | 1 | Notebook: nothing written may be damaged or lost (owner's bugs 1–2, K1, K2, K3, K7) | **done** — waiting for the owner's check | `56f4548` fix(notes): show the messages that were thrown away (K7) · `f79fc17` fix(spellcheck): one text map, where a line end is a word boundary · `6a900fe` fix(notes): nothing typed may be lost (K3) · `7be9db0` fix(notes): replace each hit where it stands (K1) · `38fa3ba` fix(notes): the format painter paints, it does not rebuild · `a935fff` fix(notes): the reference scan paints its matches (K2) · docs(progress) ×2 | 20 green; `sanitize-keeps-markers` stayed red until Phase 2.3 |
 | 2 | Library safety: K4, K6, K18 + backup/restore | **done** — waiting for the owner's check | `5aef0a4` fix(library): a book is deleted only when the writer deletes it (K4) · `1203572` feat(library): backup, restore and a migrations framework · `71cdcdf` fix(sanitize): the allow lists are the lists that are applied (K6) · `d7552b9` docs: correct the removeFormat measurement; repair CLAUDE.md · `9f91645` fix(window): the window stays in the app; only http(s) goes outside (K18) · `87de2d6` build: drop sql.js, which nothing uses (K18) · docs(progress) | 37 in all (with the syntax gate), every one green |
 | 3 | Versions and document structure: W1, W4, W5, W14, K11 | **done** — waiting for the owner's check | `171cf60` feat(notes): keep earlier versions of a note - storage (W1) · `d7667bb` feat(notes): history, block style, outline, undo and redo (W1, W4, W5, W14, K11) · docs(progress) | 48 in all (with the syntax gate), every one green |
-| 4 | Export: W6, K8 | not started | — | — |
+| 4 | Export: W6, K8 | **done** — waiting for the owner's check | `a0c2c90` test: keep the runner alive when a suite closes its only window · `2ec60da` feat(export): a note keeps its shape in Word, PDF, Markdown and text (W6, K8) · `5972048` feat(export): «چىقىرىش ▾» in the notebook - Word, PDF, Markdown, text (W6, K8) · docs(progress) | 55 in all (with the syntax gate), every one green |
 | 5 | List, trash, spelling: W2, W3, W7–W10, K12, K13 | not started | — | — |
 | 6 | Citations, sources, AI that keeps formatting: W11–W13, K9 | not started | — | — |
 | 7 | Reader, Qur'an, search: K5, K15, K17, W16–W18, W20 | not started | — | — |
@@ -205,6 +205,49 @@ by hand: the panes and the menu — the owner's checklist below.
 5. بىر سۆزنى «ھەممىنى ئالماشتۇرۇش» قىلىڭ، ئاندىن «نەشر تارىخى» نى بېسىڭ ← «ئالماشتۇرۇشتىن بۇرۇن» دېگەن نۇسخا بار. ئۇنى بېسىپ قاراڭ، «بۇ نۇسخىنى ئەسلىگە قايتۇرۇش» نى بېسىڭ ← خاتىرە ئالماشتۇرۇشتىن بۇرۇنقى ھالىتىگە قايتىدۇ، تىزىملىككە «ئەسلىگە قايتۇرۇشتىن بۇرۇن» قوشۇلىدۇ.
 6. قورال بالدىقىنىڭ ئەڭ بېشىدىكى يېنىۋېلىش / قايتىلاش كۇنۇپكىلىرىنى سىناڭ ← Ctrl+Z / Ctrl+Y بىلەن ئوخشاش ئىشلەيدۇ.
 
+## Phase 4 — done
+
+| Part | What | Tests |
+|---|---|---|
+| Model | `src/notes-export.js` (renderer): the note → plain document model, the walk of the web's `lib/notes/export-docx.ts` turned into data — blocks at any depth, `<br>`, empty lines, list depth and one id per `<ol>`, tables with spans, runs with only what is on, paragraph alignment / line height / first-line indent, citations → footnotes on request, the Qur'an credit when a verse is quoted. Also Markdown (vendored turndown, `[^n]`) and text (CRLF, blank line between paragraphs). | `export-model-structure`, `export-model-footnotes`, `export-text-and-markdown` |
+| Word | `note-export.js` (main) with the existing `docx@8.5`: bidi paragraphs and runs, logical alignment (right/start → `left`, left/end → `right`), complex-script fonts and sizes, the notebook's face/size/line height as defaults, numbering per list, RTL tables, footnotes, the credit at the end. | `docx-writer` — the file unzipped with docx's own `jszip` and its XML read |
+| PDF | `renderPdf()`: temp HTML with the app's `@font-face` rules (file URLs), CSP `default-src 'none'`, waits for `document.fonts.ready`, A4, window destroyed in `finally`. | `pdf-writer` — both faces really embedded |
+| Credit | The export's credit lines must equal the sura footer's text. | `export-credit-matches-footer` |
+| UI | «چىقىرىش ▾» replaces «Word»: four formats + «مەنبەلەرنى ئاستى ئىزاھات قىلىش» (setting `notes_export_footnotes`, off). One IPC `export-note`; text gets a BOM. The library's book export (`export-as-docx` / `export-as-pdf`) is untouched. | `export-menu` |
+
+Findings on the way:
+
+- **The bundled Uthmani font is named «KFGQPC HafsEx1 Uthmanic Script»** inside
+  its file (read from the name tables of every bundled font). The work order
+  quoted the web edition's «KFGQPC Uthmanic Script HAFS» — that is the name in
+  the web edition's own, different file. Word finds a face by the name inside
+  the file, so the desktop writes its own. The UKIJ files carry the names the
+  app already uses.
+- **A PDF was printed and looked at**, not only tested: Uyghur shaped, bold /
+  italic / colour, the quote's bar, the list, the verse in the Uthmani face, an
+  RTL table, the credit. That look caught an `@page { margin: 0 }` that
+  overrode `printToPDF`'s margins — text ran to the edge of the paper. Fixed
+  before the commit.
+- **The test runner quit itself** when the PDF test closed its hidden window:
+  that window was the runner's only one, and Electron's default answer to
+  `window-all-closed` is to quit, so the next page load failed with
+  `ERR_FAILED`. The runner now handles the event (`a0c2c90`). The app is not
+  affected — its main window is open whenever an export window closes.
+- Not checked here: how Word itself lays the file out. The XML is what Word
+  and LibreOffice read as described, and the owner's checklist below opens
+  it in Word.
+
+### Phase 4 checklist for the owner (`npm run dev`)
+
+سىناق ئۈچۈن بىر خاتىرە تەييارلاڭ: بىر «چوڭ ماۋزۇ»، بىر ئابزاس (ئىچىدە **توم** سۆز ۋە باشقا رەڭلىك سۆز)، بىر «نەقىل»، ئىككى قۇرلۇق بىر نومۇرلۇق تىزىملىك، «قۇرئان» تاختىسىدىن قىستۇرۇلغان بىر ئايەت ۋە «مەنبە» تاختىسىدىن قىستۇرۇلغان بىر كىتاب نەقلى.
+
+1. ماۋزۇ بالدىقىدىكى «چىقىرىش ▾» نى بېسىڭ ← Word، PDF، Markdown، تېكىست ۋە «مەنبەلەرنى ئاستى ئىزاھات قىلىش» كۆرۈنىدۇ.
+2. «Word (.docx)» نى تاللاپ ساقلاڭ، Word تا ئېچىڭ ← ئوڭدىن سولغا، ماۋزۇ ماۋزۇ پېتى، توم ۋە رەڭ جايىدا، تىزىملىك 1، 2 دەپ نومۇرلانغان، ئايەت ئوسمانى خەتتە (ئەگەر ئۇ خەت كومپيۇتېرىڭىزغا قاچىلانغان بولسا)، ئەڭ ئاخىرىدا قۇرئان مەنبەسى بار.
+3. «PDF» نى تاللاپ ساقلاڭ، ئېچىڭ ← ئۇيغۇرچە خەت توغرا ئۇلىنىدۇ، ئايەت ئوسمانى خەتتە، قەغەزنىڭ چېتىدە بوشلۇق بار.
+4. «مەنبەلەرنى ئاستى ئىزاھات قىلىش» نى بەلگىلەپ، قايتا Word قا چىقىرىڭ ← كىتاب نەقلىنىڭ ئاستىدىكى «— كىتاب نامى» قۇرى بەتنىڭ ئاستىغا ئىزاھات بولۇپ چۈشىدۇ.
+5. «تېكىست (.txt)» نى چىقىرىپ Notepad تا ئېچىڭ ← ئۇيغۇرچە بۇزۇلماي كۆرۈنىدۇ، ئابزاسلار ئارىسىدا بوش قۇر بار.
+6. Word ۋە PDF نىڭ رەسىمىنى ئەۋەتىڭ.
+
 ## Measurements
 
 Anything the audit or the web edition measured in another engine has to be
@@ -220,6 +263,7 @@ confirmed here goes into `CLAUDE.md`.
 | `removeFormat` keeps `data-*` attributes? | **yes.** Corrected in Phase 2.3: Phase 1 recorded «no», but the old sanitizer had already stripped `data-ref-insert` when the fixture was opened (K6), so the command was never measured. The test now checks the attribute is there first. The painter still skips quoted material — a verse or citation is not the writer's to restyle — just not for this reason | `engine-removeformat`, Phases 1.2 / 2.3 |
 | The toolbar's font-size levels 1–7, in pixels | 10, 13, 16, 18, 24, 32, 48 — a source size is painted as the nearest level | `engine-font-sizes`, Phase 1.2 |
 | `PRAGMA integrity_check` on a whole library | **fails**: "SQL logic error" — FTS5 is checked too, and `book_fts` has `content_rowid` without external content. Table by table works | `backup-copy`, Phase 2.2 |
+| The family name inside the bundled Uthmani font | «KFGQPC HafsEx1 Uthmanic Script» (regular and bold); the UKIJ files say «UKIJ Ekran», «UKIJ Esliye», «UKIJ Tuz», «UKIJ Tuz Kitab», «UKIJ Tuz Tom» | the fonts' `name` tables, Phase 4 |
 | Leaving a heading or a quote | `formatBlock <p>` turns a heading, or a quote of text lines, into normal text; a quote of blocks needs `outdent` over its whole content (formatBlock leaves it); each is ONE undo step and comes back with redo. Matches the web's Chromium 151 findings | `block-style-transitions`, Phase 3.2 |
 
 ## Deferred

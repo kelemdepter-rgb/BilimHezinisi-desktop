@@ -15,8 +15,8 @@ offline; AI is an OPTIONAL, opt-in online layer (see Architecture).
 
 ## Architecture (actual — supersedes any "React/TypeScript" assumption)
 - **Electron 28 + plain JavaScript** (NOT React, NOT TypeScript; app code is not built/transpiled).
-  - Main process: `main.js`, `database.js`, `ai.js`, `ocr-postprocess.js`, `library-sync.js` (the safe load/save of the library), `backup.js` (backups and restore), `navigation.js` (where windows may go); secure IPC bridge in `preload.js` (contextBridge). Every new top-level main-process file must also be listed in `build.files`.
-  - Renderer: single `src/index.html` + vanilla JS modules (`notes.js`, `quran.js`, `spellcheck.js`, `ngram.js`, `sanitize.js`, `ai-client.js`).
+  - Main process: `main.js`, `database.js`, `ai.js`, `ocr-postprocess.js`, `library-sync.js` (the safe load/save of the library), `backup.js` (backups and restore), `navigation.js` (where windows may go), `note-export.js` (a note as Word and PDF); secure IPC bridge in `preload.js` (contextBridge). Every new top-level main-process file must also be listed in `build.files`.
+  - Renderer: single `src/index.html` + vanilla JS modules (`notes.js`, `notes-export.js`, `textmap.js`, `quran.js`, `spellcheck.js`, `ngram.js`, `sanitize.js`, `ai-client.js`).
 - **Data:** better-sqlite3 + SQLite FTS5 (unicode61). The library lives OUTSIDE the source tree at `%USERPROFILE%\JamiyKutupxana\library.db` (WAL mode); `npm run dev` uses a separate `JamiyKutupxana-DEV`. Tables include `book_content`/`book_fts`, `quran_ayas`/`quran_fts`, and a key/value `settings` table.
 - **Parsing:** PDF (pdfjs-dist, local), DOCX (mammoth), DOC (word-extractor), TXT, HTML/Markdown + web-page import (@mozilla/readability + turndown + node-html-parser).
 - **OCR (offline):** tesseract.js + tesseract.js-core with bundled UyghurOCR 2.0 LSTM models (ukij + uig) under `assets/ocr`; `ocr-postprocess.js` reflows paragraphs and normalizes characters. Models are downloaded via `npm run fetch-ocr-models` and shipped asar-unpacked.
@@ -72,6 +72,7 @@ Each of these is a bug the 2026-10-22 audit reproduced. The reason is the rule.
 - **Quoted material is not the writer's text.** `QUOTED_SELECTOR` — `a[href]`, an inline `UthmanicHafs` (the desktop's alias, written without a space) or `Uthmanic Hafs`, `[data-ref-insert="1"]`, `.notes-inserted-ref` — is never spell-marked, never painted, never scanned and never sent to the AI.
 - **The format painter copies font family and size** (the desktop's advantage over the web edition), captures only formatting that is explicitly set, and never copies the theme's text colour: text painted in the dark theme was near-invisible in the light one.
 - **The sanitizer is explicit.** No `USE_PROFILES` in DOMPurify — a profile silently REPLACES the allow lists, which is how `data-ref-insert` was stripped while `<img>` and any CSS passed (K6). Tags, attributes and CSS properties are named one by one in `src/sanitize.js`; `style` is filtered per declaration, never with a `url()`. `sanitize-keeps-editor-output` proves every toolbar command survives it.
+- **Export reads a model, not text.** `src/notes-export.js` turns the note into a plain document model (and into Markdown / text); `note-export.js` writes Word from it and prints the PDF. Word paragraphs and runs are right-to-left, alignment is written logically (CSS right/start → `left`), fonts are named — never embedded — by the family inside the font file, for complex script too. A note quoting a verse ends with the Qur'an credit, word for word as the sura footer says it (a test keeps them in step).
 - **Messages go through `toast(msg, type)`.** `showToast` never existed, so 19 messages were thrown away silently. No `window.prompt()` (Electron does not implement it) and no new renderer `confirm()`.
 
 ### Measured in Electron 28 (Chromium 120)
@@ -81,6 +82,7 @@ Kept as tests in `tests/notebook/suite-engine.js`, so an Electron upgrade that c
 - `removeFormat` keeps block elements, `<br>`, links, classes and `data-*` attributes. (Phase 1 first recorded that it strips `data-*`: that was the old sanitizer stripping `data-ref-insert` on open — K6 — not the command. The test now checks the attribute is there before the command runs.)
 - Line height and first-line indent have no editing command: they are set directly on blocks and are **not** part of the browser's undo history. Accepted; the version history (Phase 3) covers them.
 - A heading, or a quote of text lines, becomes normal text with `formatBlock <p>`; a quote of blocks needs `outdent` over its whole content. Each is one undo step. Normal text is `<p>` in this editor (that is what Enter makes), not the web edition's `<div>`.
+- The bundled `UthmanicHafs1.otf` names itself «KFGQPC HafsEx1 Uthmanic Script» (read from its name table) — that is the name an exported Word file uses for a verse. The UKIJ files carry the names the app already uses.
 - A plain `PRAGMA integrity_check` fails with "SQL logic error" on every library this app has made: the bundled SQLite (3.49.2) also checks FTS5, and `book_fts` declares `content_rowid` without an external content table. Check table by table (`backup.js`).
 
 ## Library data safety (3.5)
