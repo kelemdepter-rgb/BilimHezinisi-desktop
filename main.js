@@ -6,6 +6,9 @@ const crypto = require('crypto');
 const database = require('./database');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
+// The word rules themselves (WORD_PATTERN, isCheckable, tokenize) — used by
+// spell-validate-word so the renderer never holds a second copy of them.
+const spellWords = require('./src/spellcheck/dictionary');
 const { cleanOcrPage } = require('./ocr-postprocess');
 const { seedQuran } = require('./scripts/seed-quran');
 const windowStateKeeper = require('electron-window-state');
@@ -1200,6 +1203,27 @@ ipcMain.handle('spell-suggest', (event, word) => {
 ipcMain.handle('spell-personal', (event, words) => {
   try { return spellEngine.setPersonal(words); }
   catch (e) { return { ok: false }; }
+});
+
+// Is this one word, by the same rules the checker tokenizes with?
+//
+// «لۇغەتكە قوشۇش» writes into the writer's own dictionary, and a word in there
+// is accepted for ever. Before v3.5 the renderer glued the last word of a
+// paragraph to the first of the next, and that glued "word" could be added
+// this way — after which a real misspelling looked correct. The renderer asks
+// here rather than testing the word itself, because a second copy of
+// WORD_PATTERN that drifted by one character would disagree with the checker.
+ipcMain.handle('spell-validate-word', (event, word) => {
+  try {
+    const text = String(word == null ? '' : word).trim();
+    if (text.length < 2 || text.length > 64) return { ok: false, reason: 'length' };
+    const tokens = spellWords.tokenize(text);
+    if (tokens.length !== 1 || tokens[0].word !== text) return { ok: false, reason: 'not-one-word' };
+    if (!spellWords.isCheckable(text)) return { ok: false, reason: 'not-checkable' };
+    return { ok: true, word: text };
+  } catch (e) {
+    return { ok: false, reason: 'error' };
+  }
 });
 
 // ========== AI (GEMINI) — see ai.js ==========

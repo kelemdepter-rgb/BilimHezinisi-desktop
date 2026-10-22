@@ -95,6 +95,8 @@ contextBridge.exposeInMainWorld('electron', {
   spellCheck: (text) => ipcRenderer.invoke('spell-check', text),
   spellSuggest: (word) => ipcRenderer.invoke('spell-suggest', word),
   spellPersonal: (words) => ipcRenderer.invoke('spell-personal', words),
+  // Guards «لۇغەتكە قوشۇش»: one word only, by the engine's own rules.
+  spellValidateWord: (word) => ipcRenderer.invoke('spell-validate-word', word),
 
   // AI (Gemini) — all network happens in the main process (see ai.js).
   // The real API key never crosses into the renderer; only a masked form.

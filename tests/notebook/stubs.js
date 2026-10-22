@@ -26,6 +26,7 @@
     failSave: false,        // make the database refuse every write
     lastChecked: '',        // the exact string the engine last received
     forceMarks: null,       // see spellCheck below
+    validateWord: null,     // override the one-word check
     ngramWords: [],         // the words the fake n-gram matcher "finds"
     nextId: 3
   };
@@ -147,6 +148,18 @@
     },
     spellSuggest: async function () { return FAKE.suggest.slice(); },
     spellPersonal: async function (words) { FAKE.personal = (words || []).slice(); return { ok: true }; },
+    /**
+     * One word only, by the engine's own rules. The real check is in the main
+     * process (spell-validate-word); the stand-in answers the same shape, and
+     * FAKE.validateWord lets a test make it refuse.
+     */
+    spellValidateWord: async function (word) {
+      if (FAKE.validateWord) return FAKE.validateWord(word);
+      const text = String(word || '').trim();
+      if (text.length < 2 || text.length > 64) return { ok: false, reason: 'length' };
+      if (/\s/.test(text)) return { ok: false, reason: 'not-one-word' };
+      return { ok: true, word: text };
+    },
 
     quranGetAya: async function (sura, aya) {
       return {
@@ -210,6 +223,7 @@
     FAKE.failSave = false;
     FAKE.lastChecked = '';
     FAKE.forceMarks = opts.forceMarks || null;
+    FAKE.validateWord = opts.validateWord || null;
     FAKE.ngramWords = opts.ngramWords || [];
     window.TOASTS = [];
 

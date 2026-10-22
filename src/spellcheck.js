@@ -29,7 +29,15 @@
 // caret, and no text node split through the middle of an Arabic word.
 //
 // The cost is that there is no element to click, so the popup is opened by
-// hit-testing the pointer position back into the text — see hitTest below.
+// hit-testing the pointer position back into the text — see hitTest in
+// src/textmap.js.
+//
+// WHERE THE WORDS ARE. src/textmap.js, shared with find & replace and the
+// reference scanner. This file used to hold its own copy of the offset map,
+// and that copy concatenated text nodes with nothing between them — so the
+// last word of one paragraph and the first of the next arrived at the engine
+// as one word, and accepting a suggestion for it deleted a word out of the
+// next paragraph (the owner's bug 2, audit §2).
 // ============================================================================
 
 (function () {
@@ -61,123 +69,23 @@
   }
 
   // ==========================================================================
-  // Positions: a flat view of the editor's text, and the way back
-  // (ported from the web edition's lib/spellcheck/marks.ts)
+  // Positions — src/textmap.js holds all of this now
+  //
+  // The map, the offsets, the hit test and the same-block check are shared with
+  // find & replace and the reference scanner, so the three can never disagree
+  // about where a word is or where a line ends.
   // ==========================================================================
 
-  /**
-   * Flatten a subtree's text. Nodes are visited in document order, so the
-   * string reads the way the page does.
-   *
-   * The filter skips exactly what the old checker skipped: the popup's own
-   * text, and inserted Qur'an references, which must never be spell-checked.
-   * Filtering HERE rather than after the fact is what keeps the offsets honest —
-   * the map and the string handed to the engine are then the same thing.
-   */
-  function readTextMap(root) {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        const parent = node.parentElement;
-        if (parent && (parent.closest('.spell-popup') || parent.closest('[data-ref-insert="1"]'))) {
-          return NodeFilter.FILTER_REJECT;
-        }
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    });
-    const nodes = [];
-    const starts = [];
-    let text = '';
-    let node = walker.nextNode();
-    while (node) {
-      starts.push(text.length);
-      nodes.push(node);
-      text += node.data;
-      node = walker.nextNode();
-    }
-    return { text, nodes, starts };
+  const TM = window.TextMap;
+  if (!TM) {
+    console.error('[spellcheck] src/textmap.js must be loaded before this file');
+    return;
   }
-
-  /**
-   * Which text node holds a flattened offset, and where inside it.
-   *
-   * An offset sitting exactly on a boundary belongs to the node that STARTS
-   * there, so a range built from [start, end) never begins at the tail of the
-   * previous node — which would place the underline one node too early.
-   */
-  function locate(map, offset) {
-    if (map.nodes.length === 0) return null;
-    let low = 0;
-    let high = map.starts.length - 1;
-    let found = 0;
-    while (low <= high) {
-      const mid = (low + high) >> 1;
-      if (map.starts[mid] <= offset) { found = mid; low = mid + 1; }
-      else high = mid - 1;
-    }
-    const node = map.nodes[found];
-    const within = offset - map.starts[found];
-    // A trailing offset can land one past the end of an empty or exhausted node.
-    return { node, offset: Math.min(Math.max(within, 0), node.data.length) };
-  }
-
-  /** A live Range covering [start, end) of the flattened text. */
-  function rangeFor(map, start, end) {
-    const from = locate(map, start);
-    const to = locate(map, end);
-    if (!from || !to) return null;
-    try {
-      const range = document.createRange();
-      range.setStart(from.node, from.offset);
-      range.setEnd(to.node, to.offset);
-      return range;
-    } catch (e) { return null; }
-  }
-
-  /** The flattened offset of a DOM position, or null when it is outside the map. */
-  function offsetOf(map, node, offset) {
-    const index = map.nodes.indexOf(node);
-    if (index >= 0) return map.starts[index] + offset;
-    // The point landed on an element rather than a text node — normal when a
-    // click hits padding between nodes. Fall back to the nearest text node that
-    // the element contains.
-    for (let i = 0; i < map.nodes.length; i++) {
-      if (node && typeof node.contains === 'function' && node.contains(map.nodes[i])) return map.starts[i];
-    }
-    return null;
-  }
-
-  /** The marked word covering an offset, if any. Marks never overlap. */
-  function wordAtOffset(list, offset) {
-    for (const mark of list) {
-      // Inclusive of `end` so a click at the very end of a word still opens it.
-      if (offset >= mark.start && offset <= mark.end) return mark;
-    }
-    return null;
-  }
-
-  /**
-   * The marked word under a screen position.
-   *
-   * Two APIs do the same job under different names: `caretPositionFromPoint` is
-   * the standard one, `caretRangeFromPoint` is WebKit's older spelling. Chromium
-   * 120 — which is what Electron 28 is — has only the second, so that branch is
-   * the one that actually runs here; both are kept because the first is what
-   * every browser is moving to.
-   */
-  function hitTest(map, list, x, y) {
-    let node = null;
-    let offset = 0;
-    if (typeof document.caretPositionFromPoint === 'function') {
-      const position = document.caretPositionFromPoint(x, y);
-      if (position) { node = position.offsetNode; offset = position.offset; }
-    } else if (typeof document.caretRangeFromPoint === 'function') {
-      const range = document.caretRangeFromPoint(x, y);
-      if (range) { node = range.startContainer; offset = range.startOffset; }
-    }
-    if (!node) return null;
-    const flat = offsetOf(map, node, offset);
-    return flat === null ? null : wordAtOffset(list, flat);
-  }
+  const readTextMap = TM.readTextMap;
+  const rangeFor = TM.rangeFor;
+  const offsetOf = TM.offsetOf;
+  const hitTest = TM.hitTest;
+  const canHighlight = TM.canHighlight;
 
   /**
    * Re-point marks after an edit, without re-checking anything.
@@ -197,13 +105,6 @@
       // Straddling the edit: dropped on purpose, see above.
     }
     return out;
-  }
-
-  /** Is the Custom Highlight API usable here? Chromium 120 says yes. */
-  function canHighlight() {
-    return typeof CSS !== 'undefined' &&
-           typeof CSS.highlights === 'object' && CSS.highlights !== null &&
-           typeof Highlight === 'function';
   }
 
   // ==========================================================================
@@ -242,9 +143,7 @@
   // ==========================================================================
 
   function clearHighlight() {
-    if (canHighlight()) {
-      try { CSS.highlights.delete(HIGHLIGHT_NAME); } catch (e) { /* nothing painted */ }
-    }
+    TM.clearHighlight(HIGHLIGHT_NAME);
     clearFallbackSpans();
   }
 
@@ -287,16 +186,12 @@
       paintFallbackSpans(currentMap, marks);
       return;
     }
-    if (!marks.length) {
-      try { CSS.highlights.delete(HIGHLIGHT_NAME); } catch (e) {}
-      return;
-    }
-    const highlight = new Highlight();
+    const ranges = [];
     for (const mark of marks) {
       const range = rangeFor(currentMap, mark.start, mark.end);
-      if (range) highlight.add(range);
+      if (range) ranges.push(range);
     }
-    CSS.highlights.set(HIGHLIGHT_NAME, highlight);
+    TM.setHighlight(HIGHLIGHT_NAME, ranges);
   }
 
   // ==========================================================================
@@ -312,10 +207,17 @@
     if (!editor) return;
     bindEditor(editor);
 
+    // The map holds EVERYTHING, quotations included, so the words on either
+    // side of a verse are not glued together. What the ENGINE sees has the
+    // quoted spans blanked out character for character, so every offset it
+    // answers with still addresses the same text (maskSpans in textmap.js).
+    // Dropping those nodes from the map instead — what this file used to do —
+    // is what glued the words on either side of a quotation.
     const map = readTextMap(editor);
+    const quoted = TM.quotedSpans(map, editor);
     let found;
     try {
-      found = await window.electron.spellCheck(map.text);
+      found = await window.electron.spellCheck(TM.maskSpans(map.text, quoted));
     } catch (e) {
       console.error('[spellcheck] check failed:', e);
       return;
@@ -329,7 +231,9 @@
     if (now.text !== map.text) return;
 
     currentMap = now;
-    marks = found.filter(mark => !ignored.has(normalizeForLookup(mark.word)));
+    marks = found.filter(mark =>
+      !ignored.has(normalizeForLookup(mark.word)) &&
+      !TM.overlapsAny(quoted, mark.start, mark.end));
     paint();
   };
 
@@ -470,12 +374,26 @@
    * Through the selection and execCommand rather than by writing to the DOM,
    * because that is what keeps the browser's own undo stack intact: Ctrl+Z now
    * undoes a spelling fix, which swapping the text of a span never allowed.
+   *
+   * The Range comes from a FRESH map through wordRange(), which refuses unless
+   * the note still holds exactly that word there and both ends sit in the same
+   * block. Without it, a mark that spanned a paragraph break was replaced
+   * wholesale and took the next paragraph's first word with it. On refusal
+   * nothing is written at all: the underlines are dropped and the note is
+   * checked again.
    */
   function applyCorrection(mark, correction) {
-    const range = rangeFor(currentMap, mark.start, mark.end);
-    if (!range) return;
     const editor = document.getElementById('notes-editor');
-    if (editor) editor.focus();
+    if (!editor) return;
+    const range = TM.wordRange(readTextMap(editor), mark);
+    if (!range) {
+      marks = [];
+      currentMap = null;
+      clearHighlight();
+      rescan();
+      return;
+    }
+    editor.focus();
     const selection = window.getSelection();
     selection.removeAllRanges();
     selection.addRange(range);
@@ -490,10 +408,36 @@
     dropWord(word);
   }
 
-  /** Add to the user's own dictionary — persisted, and told to the engine. */
+  /**
+   * Add to the writer's own dictionary — persisted, and told to the engine.
+   *
+   * Only something that is a single word by the engine's OWN rules gets in.
+   * Two words glued together by the old text map could be added this way, and
+   * once in the personal dictionary they made a real misspelling look correct
+   * for ever. The check runs in the main process, against the same
+   * WORD_PATTERN and isCheckable the checker tokenizes with, so this file
+   * never holds a second copy of the word rules.
+   */
   async function addToDictionary(word) {
     const normalized = normalizeForLookup(word);
     if (!normalized) return;
+
+    let answer = null;
+    try {
+      answer = await window.electron.spellValidateWord(normalized);
+    } catch (e) {
+      console.error('[spellcheck] word validation failed:', e);
+    }
+    if (!answer || !answer.ok) {
+      const reason = answer && answer.reason;
+      if (typeof window.toast === 'function') {
+        window.toast(reason === 'length'
+          ? 'لۇغەتكە 2–64 ھەرپلىك بىر سۆزلا قوشۇلىدۇ'
+          : 'بۇ بىر سۆز ئەمەس — لۇغەتكە قوشۇلمىدى', 'e');
+      }
+      return;
+    }
+
     userWords.add(normalized);
     try {
       await window.electron.dbSetSetting('spell_user_words', Array.from(userWords).join(','));
