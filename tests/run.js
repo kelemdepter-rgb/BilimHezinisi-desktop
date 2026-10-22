@@ -126,6 +126,13 @@ async function rendererResults() {
 }
 
 // --------------------------------------------------------------------- driver
+
+// A suite may open a window of its own and close it again (the PDF export
+// does). When that window is the only one, Electron's default answer to
+// 'window-all-closed' is to quit — and the next page the runner loads fails
+// with ERR_FAILED. The runner decides when it ends: app.exit() below.
+app.on('window-all-closed', function () { /* stay alive */ });
+
 app.whenReady().then(async function () {
   const started = Date.now();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bilim-test-'));
