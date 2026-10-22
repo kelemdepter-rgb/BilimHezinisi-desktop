@@ -5,6 +5,7 @@ const os = require('os');
 const crypto = require('crypto');
 const database = require('./database');
 const librarySync = require('./library-sync');
+const backup = require('./backup');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
 // The word rules themselves (WORD_PATTERN, isCheckable, tokenize) — used by
@@ -44,6 +45,8 @@ const DATA_DIR = path.join(os.homedir(), DATA_FOLDER_NAME);
 const DATA_FILE = path.join(DATA_DIR, 'library.json');
 const CONTENT_DIR = path.join(DATA_DIR, 'content');
 const DB_PATH = path.join(DATA_DIR, 'library.db');
+// Inside JamiyKutupxana, next to the library — nothing in that folder is moved.
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 
 // Ensure directories exist
 function ensureDirs() {
@@ -85,6 +88,25 @@ let dbReady = false;
 async function initDatabase() {
   ensureDirs();
   await database.initDB(DATA_DIR);
+
+  // Schema steps (database.js, MIGRATIONS). Before the first pending one of
+  // this run the library is copied to backups\ — and if that copy fails, no
+  // step runs: the library keeps the schema it had rather than change with no
+  // way back.
+  try {
+    await database.runMigrations({
+      beforeFirst: async (from, to) => {
+        let name = 'library-before-' + app.getVersion() + '.db';
+        if (fs.existsSync(path.join(BACKUP_DIR, name))) {
+          name = 'library-before-' + app.getVersion() + '-' + backup.stamp(new Date()) + '.db';
+        }
+        await backup.backupAtomically(database, path.join(BACKUP_DIR, name));
+        console.log('[migration] backed up to ' + name + ' before schema ' + from + ' → ' + to);
+      }
+    });
+  } catch (e) {
+    console.error('[migration] stopped, the schema is unchanged:', e.message);
+  }
 
   // One-time cleanup: vacuum DB to reclaim space from removed n-gram table
   try {
@@ -264,6 +286,13 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   await initDatabase();
   createWindow();
+  // The weekly automatic backup — in the background, a few seconds after the
+  // window is up, so it never delays startup.
+  setTimeout(() => {
+    backup.autoBackupIfDue(database, BACKUP_DIR)
+      .then((r) => { if (r.made) console.log('[backup] automatic backup: ' + path.basename(r.file)); })
+      .catch((e) => console.error('[backup] automatic backup failed:', e.message));
+  }, 5000);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -610,6 +639,106 @@ ipcMain.handle('save-library', (event, data) => {
   } catch (e) {
     console.error('save-library error:', e);
     return { synced: [], refused: [], failed: ['all'] };
+  }
+});
+
+// ========== BACKUP AND RESTORE (audit §4.5) ==========
+// The library holds every book's text, every note and bookmark. These copy
+// it out and back; the file handling is in backup.js, the copies themselves
+// are SQLite's online backup (database.backupTo).
+
+const RESTORE_REFUSALS = {
+  missing: 'ھۆججەت تېپىلمىدى',
+  'not-sqlite': 'بۇ ھۆججەت بىلىم خەزىنىسىنىڭ ساندانى ئەمەس',
+  damaged: 'بۇ ساندان بۇزۇلغان',
+  'missing-tables': 'بۇ ھۆججەتتە كۇتۇپخانا جەدۋەللىرى يوق'
+};
+
+ipcMain.handle('backup-info', () => {
+  try { return Object.assign({ success: true }, backup.folderInfo(BACKUP_DIR)); }
+  catch (e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle('backup-now', async () => {
+  try {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const pick = await dialog.showSaveDialog(mainWindow, {
+      title: 'كۇتۇپخانىنى زاپاسلاش',
+      defaultPath: path.join(BACKUP_DIR, backup.manualName(new Date())),
+      filters: [{ name: 'SQLite', extensions: ['db'] }]
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    if (path.resolve(pick.filePath).toLowerCase() === path.resolve(DB_PATH).toLowerCase()) {
+      return { success: false, error: 'كۇتۇپخانىنىڭ ئۆزىنىڭ ئۈستىگە يېزىلمايدۇ' };
+    }
+    await backup.backupAtomically(database, pick.filePath);
+    return { success: true, file: pick.filePath, name: path.basename(pick.filePath) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('backup-open-folder', async () => {
+  try {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const err = await shell.openPath(BACKUP_DIR);
+    return err ? { success: false, error: err } : { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Restore: check the file before anything is touched, ask, back up the library
+// as it is now, and only then replace library.db and restart. Every step that
+// can fail does so before the library is changed.
+ipcMain.handle('backup-restore', async () => {
+  try {
+    const pick = await dialog.showOpenDialog(mainWindow, {
+      title: 'زاپاستىن ئەسلىگە كەلتۈرۈش',
+      defaultPath: fs.existsSync(BACKUP_DIR) ? BACKUP_DIR : DATA_DIR,
+      filters: [{ name: 'SQLite', extensions: ['db'] }],
+      properties: ['openFile']
+    });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths.length) return { success: false, canceled: true };
+    const file = pick.filePaths[0];
+    if (path.resolve(file).toLowerCase() === path.resolve(DB_PATH).toLowerCase()) {
+      return { success: false, error: 'بۇ ھازىر ئىشلىتىلىۋاتقان كۇتۇپخانىنىڭ ئۆزى' };
+    }
+
+    const check = backup.validateLibraryFile(file);
+    if (!check.ok) return { success: false, error: RESTORE_REFUSALS[check.reason] || check.reason };
+
+    const answer = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning',
+      title: 'بىلىم خەزىنىسى',
+      message: 'كۇتۇپخانا مۇشۇ زاپاستىكى ھالىتىگە قايتىدۇ.',
+      detail: 'زاپاستا ' + check.counts.books + ' كىتاب، ' + check.counts.notes + ' خاتىرە بار.\n' +
+              'ھازىرقى كۇتۇپخانا ئاۋۋال «backups» قىسقۇچىغا زاپاسلىنىدۇ، ئاندىن دېتال قايتا قوزغىلىدۇ.',
+      buttons: ['ئەسلىگە كەلتۈرۈش', 'ۋاز كېچىش'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true
+    });
+    if (answer !== 0) return { success: false, canceled: true };
+
+    // The library as it is now, first: a restore must be undoable too.
+    const safety = path.join(BACKUP_DIR, 'library-before-restore-' + backup.stamp(new Date()) + '.db');
+    await backup.backupAtomically(database, safety);
+
+    database.checkpoint();
+    database.close();
+    try {
+      backup.replaceLibraryFile(file, DB_PATH);
+    } catch (e) {
+      // The copy went to a temporary name first, so the library is intact.
+      await database.initDB(DATA_DIR);
+      return { success: false, error: e.message };
+    }
+    app.relaunch();
+    app.exit(0);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
   }
 });
 

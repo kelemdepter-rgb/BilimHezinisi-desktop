@@ -747,6 +747,18 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
       <p style="font-size:11px;color:var(--text3);margin:0 0 10px">«ھەقسىز» مودېللار Google نىڭ ھەقسىز ھەققى بىلەن ئىشلەيدۇ. «پۇللۇق» مودېل ئۈچۈن Google ھېساباتىڭىزدا billing ئوچۇق بولۇشى شەرت. باھالار ئۆزگىرىپ تۇرىدۇ — <a href="https://ai.google.dev/pricing" target="_blank" rel="noopener" style="color:var(--acc)">Google نىڭ باھا بېتى ↗</a></p>
       <div id="aiUsage" style="font-size:11px;color:var(--text3);margin-bottom:12px">بۈگۈن ئىشلىتىلگەن: 0</div>
 
+      <!-- Backup and restore. All local: the automatic backups live in
+           JamiyKutupxana\backups, next to the library. -->
+      <div style="border-top:1px solid rgba(128,128,128,.25);margin:6px 0 12px"></div>
+      <h3 style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:6px">زاپاسلاش ۋە ئەسلىگە كەلتۈرۈش</h3>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 8px">كۇتۇپخانا (كىتابلار، خەتكۈچلەر، خاتىرىلەر) ھەپتىدە بىر قېتىم ئۆزلۈكىدىن زاپاسلىنىدۇ؛ ئەڭ يېڭى 3 زاپاس ساقلىنىدۇ. زاپاسنى USB ياكى باشقا دىسكىغا كۆچۈرۈپ قويسىڭىز تېخىمۇ بىخەتەر.</p>
+      <div id="bkInfo" style="font-size:11px;color:var(--text3);min-height:15px;margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button onclick="bkBackupNow()" class="hbtn p" id="bkNowBtn">ھازىر زاپاسلاش</button>
+        <button onclick="bkOpenFolder()" class="hbtn">زاپاس قىسقۇچىنى ئېچىش</button>
+        <button onclick="bkRestore()" class="hbtn">زاپاستىن ئەسلىگە كەلتۈرۈش</button>
+      </div>
+
       <div class="fa">
         <button onclick="hideSettings()" class="hbtn">تاقاش</button>
       </div>
@@ -2417,6 +2429,7 @@ async function importWebPage() {
 // placeholder after save.
 
 async function showSettings() {
+  bkRefreshInfo();
   try {
     document.getElementById('aiEnabled').checked = await window.AI.isEnabled();
     const ki = document.getElementById('aiKey');
@@ -2482,6 +2495,62 @@ async function showSettings() {
     console.warn('[settings] load failed:', e);
   }
   document.getElementById('setov').classList.add('on');
+}
+
+// ===== Backup and restore (settings) =====
+
+function bkFormatSize(bytes) {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+// The backups hold every book's text, so the folder can grow large: its size
+// is shown where the writer decides about it.
+async function bkRefreshInfo() {
+  const el = document.getElementById('bkInfo');
+  if (!el) return;
+  try {
+    const info = await window.electron.backupInfo();
+    if (!info || !info.success) { el.textContent = ''; return; }
+    el.textContent = 'زاپاس قىسقۇچى: ' + info.count + ' ھۆججەت، ' + bkFormatSize(info.bytes) +
+      (info.newestAuto ? ' · ئاخىرقى ئۆزلۈكىدىن زاپاس: ' + info.newestAuto : '');
+  } catch (e) { el.textContent = ''; }
+}
+
+async function bkBackupNow() {
+  const btn = document.getElementById('bkNowBtn');
+  if (btn) btn.disabled = true;
+  try {
+    // The open note first, so the copy holds what is on screen.
+    if (typeof window.notesFlush === 'function') await window.notesFlush();
+    const r = await window.electron.backupNow();
+    if (r && r.success) toast('زاپاس ساقلاندى: ' + r.name, 's');
+    else if (r && !r.canceled) toast('زاپاسلاش مەغلۇپ بولدى' + (r.error ? ' — ' + r.error : ''), 'e');
+  } catch (e) {
+    toast('زاپاسلاش مەغلۇپ بولدى', 'e');
+  } finally {
+    if (btn) btn.disabled = false;
+    bkRefreshInfo();
+  }
+}
+
+async function bkOpenFolder() {
+  try {
+    const r = await window.electron.backupOpenFolder();
+    if (!r || !r.success) toast('قىسقۇچ ئېچىلمىدى', 'e');
+  } catch (e) { toast('قىسقۇچ ئېچىلمىدى', 'e'); }
+}
+
+// The main process checks the file, asks, backs up the current library and
+// restarts the app; nothing comes back here on success.
+async function bkRestore() {
+  try {
+    if (typeof window.notesFlush === 'function') await window.notesFlush();
+    const r = await window.electron.backupRestore();
+    if (r && !r.success && !r.canceled) toast('ئەسلىگە كەلتۈرۈلمىدى — ' + (r.error || ''), 'e');
+  } catch (e) { toast('ئەسلىگە كەلتۈرۈلمىدى', 'e'); }
 }
 
 function hideSettings() {

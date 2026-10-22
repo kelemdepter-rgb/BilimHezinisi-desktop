@@ -77,6 +77,7 @@
       "preload.js",
       "database.js",
       "library-sync.js",
+      "backup.js",
       "ocr-postprocess.js",
       "src/**/*",
       "assets/ukijekran.ttf",

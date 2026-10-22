@@ -35,6 +35,11 @@ contextBridge.exposeInMainWorld('electron', {
   // Legacy operations (kept for backward compatibility)
   loadLibrary: () => ipcRenderer.invoke('load-library'),
   saveLibrary: (data) => ipcRenderer.invoke('save-library', data),
+  // Backup and restore — the files are handled in the main process (backup.js).
+  backupInfo: () => ipcRenderer.invoke('backup-info'),
+  backupNow: () => ipcRenderer.invoke('backup-now'),
+  backupOpenFolder: () => ipcRenderer.invoke('backup-open-folder'),
+  backupRestore: () => ipcRenderer.invoke('backup-restore'),
   saveBookContent: (id, content) => ipcRenderer.invoke('save-book-content', id, content),
   loadBookContent: (id) => ipcRenderer.invoke('load-book-content', id),
 

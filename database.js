@@ -279,6 +279,79 @@ function close() {
   }
 }
 
+// ========== SCHEMA MIGRATIONS ==========
+// Every schema change from v3.5 on is a numbered step here, run in order at
+// startup; PRAGMA user_version records the last one applied. createTables()
+// stays as the baseline every library already has. The rules:
+//
+//   - additive only — new tables, new columns. User data is never dropped,
+//     renamed or rewritten by a step;
+//   - each step runs in its own transaction and user_version moves with it,
+//     so a step that fails leaves nothing behind and nothing after it runs;
+//   - before the FIRST pending step of a run, main.js backs the library up to
+//     JamiyKutupxana\backups\ (beforeFirst). If that backup fails, no step
+//     runs at all.
+const MIGRATIONS = [
+  // { version: 1, name: '…', up(db) { db.exec('CREATE TABLE …'); } },
+];
+
+/** The last migration step applied to this library (0: none yet). */
+function schemaVersion() {
+  return db.pragma('user_version', { simple: true });
+}
+
+/**
+ * Apply the pending steps. `opts.steps` replaces MIGRATIONS (the tests use it);
+ * `opts.beforeFirst(from, to)` runs — and is awaited — before the first one.
+ * @returns {Promise<{from: number, to: number, ran: number[]}>}
+ */
+async function runMigrations(opts) {
+  const options = opts || {};
+  const steps = (options.steps || MIGRATIONS).slice().sort((a, b) => a.version - b.version);
+  steps.forEach((step, i) => {
+    if (!Number.isInteger(step.version) || step.version < 1 ||
+        (i > 0 && step.version === steps[i - 1].version) || typeof step.up !== 'function') {
+      throw new Error('migration steps need distinct positive versions and an up() function');
+    }
+  });
+
+  const from = schemaVersion();
+  const pending = steps.filter(step => step.version > from);
+  if (!pending.length) return { from: from, to: from, ran: [] };
+  const to = pending[pending.length - 1].version;
+
+  if (typeof options.beforeFirst === 'function') await options.beforeFirst(from, to);
+
+  const ran = [];
+  for (const step of pending) {
+    db.transaction(() => {
+      step.up(db);
+      db.pragma('user_version = ' + step.version);
+    })();
+    ran.push(step.version);
+    console.log('[migration] ' + step.version + ' ' + (step.name || '') + ' applied');
+  }
+  return { from: from, to: to, ran: ran };
+}
+
+// ========== BACKUP ==========
+
+/**
+ * A consistent copy of the open library at `file`, made with SQLite's online
+ * backup — safe while the app is using the database, WAL included.
+ */
+async function backupTo(file) {
+  if (!db) throw new Error('the database is not open');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  await db.backup(file);
+  return file;
+}
+
+/** Fold the WAL back into the main file — before the file is replaced. */
+function checkpoint() {
+  if (db) db.pragma('wal_checkpoint(TRUNCATE)');
+}
+
 // ========== BOOKS ==========
 
 function addBook(title, author, category, format, date, description, content, fileHash) {
@@ -1489,6 +1562,8 @@ function getMaxBookId() {
 
 module.exports = {
   initDB, saveDB, vacuum, close,
+  // Schema migrations and backup
+  MIGRATIONS, schemaVersion, runMigrations, backupTo, checkpoint,
   normalizeArabicQuery, isArabicScript,
   addBook, addBooksBatch, updateBook, deleteBook, getBook, getAllBooks, getBooksByCategory,
   getBookContent, saveBookContent, checkDuplicateHash,
