@@ -27,6 +27,13 @@
             '<blockquote class="notes-inserted-ref" data-ref-insert="1">نەقىل</blockquote>'
     });
 
+    // The attribute has to be there BEFORE removeFormat, or this measures the
+    // sanitizer instead of the command. (It did, in Phase 1: the old sanitizer
+    // stripped data-ref-insert on open — K6 — and the attribute's absence was
+    // put down to removeFormat.)
+    t.assert.ok(ed.querySelector('[data-ref-insert="1"]'),
+      'the fixture lost data-ref-insert before removeFormat ran — the sanitizer, not the command');
+
     t.select(t.firstText(ed.children[0]), 0,
              t.lastText(ed.children[2]), t.lastText(ed.children[2]).data.length);
     ed.focus();
@@ -41,15 +48,9 @@
     t.assert.ok(ed.children[0].querySelector('a[href]'),
       'removeFormat removed a link' + detail);
     // MEASURED in Electron 28 (Chromium 120): removeFormat keeps the blocks,
-    // the <br>, the link and the class — and STRIPS data attributes. So a
-    // painted range must never contain quoted material: data-ref-insert="1"
-    // would be lost and the passage would stop being recognised as a
-    // quotation. The painter splits the selection around QUOTED_SELECTOR for
-    // exactly that reason, and .notes-inserted-ref is in that selector so the
-    // class alone still identifies a quote. If a future engine starts keeping
-    // the attribute, this line goes red and the split can be reconsidered.
-    t.assert.ok(!ed.querySelector('[data-ref-insert="1"]'),
-      'removeFormat now KEEPS data attributes — re-read the painter\'s split' + detail);
+    // the <br>, the link, the class AND data attributes.
+    t.assert.ok(ed.querySelector('[data-ref-insert="1"]'),
+      'removeFormat removed a data attribute' + detail);
     t.assert.ok(ed.querySelector('.notes-inserted-ref'),
       'removeFormat removed the class that identifies a quoted passage' + detail);
     t.assert.ok(!ed.children[0].querySelector('b'),
