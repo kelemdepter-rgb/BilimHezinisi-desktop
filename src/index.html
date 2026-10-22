@@ -327,6 +327,8 @@ mark.reader-hit-flash { animation: readerHitFlash 1.5s ease-out 1; }
 .tk.s { border-color: #3B6D11; color: #3B6D11; }
 .tk.e { border-color: #A32D2D; color: #A32D2D; }
 .tk.i { border-color: var(--am); color: var(--am); }
+.tk-act { margin-inline-start: 10px; padding: 3px 10px; border-radius: 6px; border: 1px solid currentColor; background: none; color: inherit; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.tk-act:hover { background: rgba(128,128,128,.12); }
 @keyframes tin { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 /* About panel */
 #about { position: fixed; inset: 0; z-index: 200; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); }
@@ -1329,6 +1331,8 @@ function setMode(mode) {
     // three-second autosave window used to be lost from the screen and from
     // the database both (K3a).
     if (typeof window.notesFlush === 'function') window.notesFlush();
+    // A new note opened and left untouched does not stay in the list (W3).
+    if (typeof window.notesDiscardUntouched === 'function') window.notesDiscardUntouched();
     const side = document.getElementById('side');
     if (side) { side.classList.remove('side-collapsed'); side.style.width = ''; }
     // Also disarm the format painter (Phase 3) and abort any in-flight
@@ -5294,9 +5298,19 @@ function progress(val) {
   }
 }
 
-function toast(msg,type='i'){
+// toast(msg, type) — and, for a change that can be taken back, a button:
+// toast(msg, type, { action: { label, run }, ms }). The note moved to the trash
+// is the first user: «قايتۇرۇش» for 10 seconds.
+function toast(msg,type='i',opts){
   const tc=document.getElementById('toast');const tk=document.createElement('div');
-  tk.className='tk '+type;tk.textContent=msg;tc.appendChild(tk);setTimeout(()=>tk.remove(),3000);
+  tk.className='tk '+type;
+  const text=document.createElement('span');text.textContent=msg;tk.appendChild(text);
+  if(opts&&opts.action&&typeof opts.action.run==='function'){
+    const b=document.createElement('button');b.type='button';b.className='tk-act';b.textContent=opts.action.label||'';
+    b.addEventListener('click',()=>{tk.remove();try{opts.action.run();}catch(e){}});
+    tk.appendChild(b);
+  }
+  tc.appendChild(tk);setTimeout(()=>tk.remove(),(opts&&opts.ms)||3000);
 }
 
 init();

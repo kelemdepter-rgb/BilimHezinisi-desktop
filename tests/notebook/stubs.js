@@ -19,6 +19,7 @@
     notes: {},              // id -> { id, title, content_html, content_text }
     settings: {},           // the settings table
     saves: [],              // every accepted notesUpdate, in order
+    calls: [],              // list and trash IPC calls, in order
     versionCalls: [],       // every notesVersionKeep, in order
     versionRows: [],        // what notesVersionList / notesVersionGet answer
     dirtyReports: [],       // what the renderer told main about unsaved writing
@@ -58,8 +59,8 @@
   };
 
   window.TOASTS = [];
-  window.toast = function (msg, type) {
-    window.TOASTS.push([msg, type || 'i']);
+  window.toast = function (msg, type, opts) {
+    window.TOASTS.push([msg, type || 'i', opts || null]);
     const tc = document.getElementById('toast');
     if (!tc) return;
     const tk = document.createElement('div');
@@ -81,16 +82,24 @@
     return { success: true, value: has ? FAKE.settings[key] : def };
   }
 
+  function docRow(d) {
+    return {
+      id: d.id,
+      title: d.title,
+      created_at: d.created_at || '2026-10-01 09:00:00',
+      updated_at: d.updated_at || '2026-10-22 09:00:00',
+      deleted_at: d.deleted_at || null,
+      pinned: d.pinned ? 1 : 0,
+      size: (d.content_text || '').length,
+      preview: String(d.content_text || '').replace(/\s+/g, ' ').trim().slice(0, 120)
+    };
+  }
+
+  /** The list: not the trash. Order is the renderer's business. */
   function docList() {
-    return Object.keys(FAKE.notes).map(function (id) {
-      const d = FAKE.notes[id];
-      return {
-        id: d.id,
-        title: d.title,
-        updated_at: d.updated_at || '2026-10-22 09:00:00',
-        size: (d.content_text || '').length
-      };
-    });
+    return Object.keys(FAKE.notes).map(function (id) { return FAKE.notes[id]; })
+      .filter(function (d) { return !d.deleted_at; })
+      .map(docRow);
   }
 
   window.electron = {
@@ -104,13 +113,15 @@
       // A copy: the renderer owns curDoc and mutates it.
       return {
         success: true,
-        doc: { id: d.id, title: d.title, content_html: d.content_html, content_text: d.content_text }
+        doc: { id: d.id, title: d.title, content_html: d.content_html, content_text: d.content_text,
+               deleted_at: d.deleted_at || null, pinned: d.pinned ? 1 : 0 }
       };
     },
     notesUpdate: async function (id, title, html, text) {
       if (FAKE.failSave) return { success: false, error: 'disk' };
       const d = FAKE.notes[id];
       if (!d) return { success: false, error: 'not found' };
+      if (d.deleted_at) return { success: false, error: 'in the trash' };
       d.title = title;
       d.content_html = html;
       d.content_text = text;
@@ -122,7 +133,64 @@
       FAKE.notes[id] = { id: id, title: title || 'يېڭى خاتىرە', content_html: '<p><br></p>', content_text: '' };
       return { success: true, id: id };
     },
-    notesDelete: async function (id) { delete FAKE.notes[id]; return { success: true }; },
+    // The trash (W2): delete moves a note there; only the trash deletes for good.
+    notesDelete: async function (id) {
+      FAKE.calls.push(['notesDelete', id]);
+      const d = FAKE.notes[id];
+      if (!d || d.deleted_at) return { success: false };
+      d.deleted_at = '2026-10-22T10:00:00.000Z';
+      return { success: true };
+    },
+    notesRestore: async function (id) {
+      FAKE.calls.push(['notesRestore', id]);
+      const d = FAKE.notes[id];
+      if (!d || !d.deleted_at) return { success: false };
+      d.deleted_at = null;
+      return { success: true };
+    },
+    notesTrashList: async function () {
+      return { success: true, docs: Object.keys(FAKE.notes).map(function (id) { return FAKE.notes[id]; })
+        .filter(function (d) { return d.deleted_at; }).map(docRow) };
+    },
+    notesDeleteForever: async function (id) {
+      FAKE.calls.push(['notesDeleteForever', id]);
+      const d = FAKE.notes[id];
+      if (!d || !d.deleted_at) return { success: false };
+      delete FAKE.notes[id];
+      return { success: true };
+    },
+    notesEmptyTrash: async function () {
+      FAKE.calls.push(['notesEmptyTrash']);
+      let removed = 0;
+      Object.keys(FAKE.notes).forEach(function (id) {
+        if (FAKE.notes[id].deleted_at) { delete FAKE.notes[id]; removed++; }
+      });
+      return { success: true, removed: removed };
+    },
+    notesSetPinned: async function (id, pinned) {
+      const d = FAKE.notes[id];
+      if (!d) return { success: false };
+      d.pinned = !!pinned;
+      return { success: true };
+    },
+    notesSearch: async function (query) {
+      FAKE.calls.push(['notesSearch', query]);
+      const q = String(query || '').trim().toLowerCase();
+      if (q.length < 2 || q.length > 100) return { success: true, ok: false, notes: [] };
+      return { success: true, ok: true, notes: docList().filter(function (d) {
+        const full = FAKE.notes[d.id];
+        return (full.title || '').toLowerCase().indexOf(q) !== -1 || (full.content_text || '').toLowerCase().indexOf(q) !== -1;
+      }) };
+    },
+    notesDiscardEmpty: async function (id) {
+      FAKE.calls.push(['notesDiscardEmpty', id]);
+      const d = FAKE.notes[id];
+      if (!d) return { success: true, removed: false };
+      const title = String(d.title || '').trim();
+      if ((title && title !== 'يېڭى خاتىرە') || String(d.content_text || '').trim()) return { success: true, removed: false };
+      delete FAKE.notes[id];
+      return { success: true, removed: true };
+    },
 
     // Earlier versions (W1). The rules live in the main process and are tested
     // there; here every keep is recorded, and FAKE.versionRows is the store.
@@ -239,7 +307,7 @@
     window.S.notes.dirty = false;
     window.S.notes.curDoc = null;
 
-    FAKE.notes = {
+    FAKE.notes = opts.notes || {
       1: { id: 1, title: opts.title || 'سىناق', content_html: opts.html || '<p><br></p>', content_text: '' },
       2: {
         id: 2, title: 'ئىككىنچى خاتىرە',
@@ -247,7 +315,8 @@
         content_text: 'ئىككىنچى خاتىرىنىڭ مەزمۇنى'
       }
     };
-    FAKE.nextId = 3;
+    FAKE.nextId = 100;
+    FAKE.calls = [];
     FAKE.settings = {
       notes_spell_check: opts.spell ? 'on' : 'off',
       notes_ref_scan: opts.refscan ? 'on' : 'off'

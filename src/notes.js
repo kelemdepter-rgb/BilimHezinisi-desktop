@@ -32,7 +32,15 @@
   const RETRY_DELAYS = [5000, 15000, 45000];
   const RETRY_EVERY = 60000;
 
-  // ========== SIDEBAR ==========
+  // ========== SIDEBAR: THE LIST AND THE TRASH (W2, W3, K13) ==========
+  // The list searched titles only, could not be sorted or pinned, deleted a note
+  // for good after one confirm(), and kept every abandoned «يېڭى خاتىرە». Now:
+  // three orders (remembered), titles in Uyghur order, pinned notes first, a
+  // one-line preview, a search through titles AND text in the main process,
+  // and «ئەخلەت ساندۇقى» at the bottom, where a deleted note waits 30 days.
+
+  const DEFAULT_TITLE = 'يېڭى خاتىرە';
+  const LIST_SORTS = ['updated', 'title', 'created'];
 
   window.renderNotesSidebar = function renderNotesSidebar() {
     const h = `<div class="notes-sidebar-inner">
@@ -40,9 +48,20 @@
         <span class="nl-title">خاتىرە دەپتىرىم</span>
         <button onclick="window.notesCreate()">${icon('plus')} يېڭى خاتىرە</button>
       </div>
-      <div class="notes-search">${icon('search')}<input type="text" id="notes-list-search" placeholder="خاتىرە ئىزدەش…" oninput="window.notesListFilter(this.value)"></div>
+      <div class="notes-search">${icon('search')}<input type="text" id="notes-list-search" placeholder="ماۋزۇ ۋە مەزمۇندىن ئىزدەش…" oninput="window.notesListFilter(this.value)"></div>
+      <div class="notes-list-tools">
+        <select id="notes-list-sort" title="تەرتىپ" onchange="window.notesSetListSort(this.value)">
+          <option value="updated">يېڭىلانغان ۋاقىت</option>
+          <option value="title">ماۋزۇ</option>
+          <option value="created">ياسالغان ۋاقىت</option>
+        </select>
+      </div>
       <div class="notes-list" id="notes-list-inner">
         <div class="notes-sidebar-empty">يۈكلىنىۋاتىدۇ...</div>
+      </div>
+      <div class="notes-trash">
+        <button type="button" class="notes-trash-toggle" id="notes-trash-toggle" onclick="window.notesToggleTrash()">${icon('trash', 'ic-sm')} ئەخلەت ساندۇقى</button>
+        <div class="notes-trash-list" id="notes-trash-list" style="display:none"></div>
       </div>
     </div>`;
     // Trigger async refresh after the HTML is inserted
@@ -50,59 +69,259 @@
     return h;
   };
 
+  // ---- Uyghur order (the web edition's lib/notes/list-sort.ts) ----
+  // Chromium has no Uyghur collation: left to itself it puts «ە», the second
+  // letter, after «ب», and «ئۆ» before «ئۇ». Each Uyghur letter is mapped onto a
+  // run of private-use characters in alphabet order — ئ first, then ا ە ب پ …
+  // — and the keys are compared instead. Digits still compare as numbers.
+  const UG_ALPHABET = 'ئاەبپتجچخدرزژسشغفقكگڭلمنھوۇۆۈۋېىي';
+  const UG_FOLDED = { 'ث': 'س', 'ح': 'ھ', 'ذ': 'ز', 'ص': 'س', 'ض': 'ز', 'ط': 'ت', 'ظ': 'ز', 'ع': 'ا', 'ه': 'ھ', 'ة': 'ھ' };
+  const UG_MARKS = /[\u064B-\u0670\u06D6-\u06ED\u08D3-\u08FF\u0640]/g;
+  const UG_ALIFS = /[\u0671\u0622\u0623\u0625]/g;
+
+  function uyghurSortKey(title) {
+    const normal = String(title || '').replace(UG_MARKS, '').replace(UG_ALIFS, 'ا').replace(/\s+/g, ' ').trim().toLowerCase();
+    let key = '';
+    for (const ch of normal) {
+      const index = UG_ALPHABET.indexOf(UG_FOLDED[ch] || ch);
+      key += index >= 0 ? String.fromCharCode(0xE000 + index) : ch;
+    }
+    return key;
+  }
+
+  const rootCollator = new Intl.Collator(undefined, { numeric: true });
+  function compareTitles(a, b) {
+    return rootCollator.compare(uyghurSortKey(a), uyghurSortKey(b)) || (a < b ? -1 : (a > b ? 1 : 0));
+  }
+
+  /** The notes in the chosen order, pinned ones first under their own heading. */
+  function sortDocs(docs, sort) {
+    const newer = (a, b) => String(b || '').localeCompare(String(a || ''));
+    const tie = (a, b) => newer(a.updated_at, b.updated_at) || (b.id - a.id);
+    const order = sort === 'title' ? (a, b) => compareTitles(a.title || '', b.title || '') || tie(a, b)
+      : sort === 'created' ? (a, b) => newer(a.created_at, b.created_at) || tie(a, b)
+      : tie;
+    const sorted = docs.slice().sort(order);
+    return { pinned: sorted.filter(d => d.pinned), others: sorted.filter(d => !d.pinned) };
+  }
+
+  async function loadListSort() {
+    if (_s().listSort) return _s().listSort;
+    let value = 'updated';
+    try {
+      const r = await window.electron.dbGetSetting('notes_list_sort', 'updated');
+      const v = (r && typeof r === 'object' && 'value' in r) ? r.value : r;
+      if (LIST_SORTS.indexOf(v) !== -1) value = v;
+    } catch (e) { /* the default */ }
+    _s().listSort = value;
+    return value;
+  }
+
   async function refreshNotesList() {
     const list = document.getElementById('notes-list-inner');
     if (!list) return;
+    const sort = await loadListSort();
+    const menu = document.getElementById('notes-list-sort');
+    if (menu) menu.value = sort;
 
-    const r = await window.electron.notesGetAll();
-    if (!r.success) {
-      list.innerHTML = `<div class="notes-sidebar-empty" style="color:#A32D2D">خاتالىق: ${escHtml(r.error || '')}</div>`;
-      return;
+    const query = String(_s().listQuery || '').trim();
+    let docs;
+    if (query.length >= 2) {
+      // Titles AND text, in the main process (database.js, notesSearch).
+      const r = await window.electron.notesSearch(query);
+      if (String(_s().listQuery || '').trim() !== query) return;   // typed on meanwhile
+      docs = (r && r.ok && Array.isArray(r.notes)) ? r.notes : [];
+    } else {
+      const r = await window.electron.notesGetAll();
+      if (!r.success) {
+        list.innerHTML = `<div class="notes-sidebar-empty" style="color:#A32D2D">خاتالىق: ${escHtml(r.error || '')}</div>`;
+        return;
+      }
+      _s().docs = r.docs;
+      docs = r.docs;
     }
 
-    _s().docs = r.docs;
-
-    if (!r.docs.length) {
-      list.innerHTML = `<div class="notes-sidebar-empty">
-        ھازىرغىچە خاتىرە يوق<br><br>
-        «+ يېڭى خاتىرە» بىلەن باشلاڭ
-      </div>`;
-      return;
+    if (!docs.length) {
+      list.innerHTML = query.length >= 2
+        ? '<div class="notes-sidebar-empty">نەتىجە تېپىلمىدى</div>'
+        : `<div class="notes-sidebar-empty">ھازىرغىچە خاتىرە يوق<br><br>«+ يېڭى خاتىرە» بىلەن باشلاڭ</div>`;
+    } else {
+      const groups = sortDocs(docs, sort);
+      let h = '';
+      if (groups.pinned.length) {
+        h += '<div class="notes-list-group">مىقلانغانلار</div>' + buildNoteItems(groups.pinned);
+        if (groups.others.length) h += '<div class="notes-list-group">باشقىلار</div>';
+      }
+      h += buildNoteItems(groups.others);
+      list.innerHTML = h;
     }
-
-    list.innerHTML = buildNoteItems(r.docs);
+    await refreshTrash();
   }
+  window.notesRefreshList = refreshNotesList;
 
   function buildNoteItems(docs) {
     let h = '';
     for (const d of docs) {
       const active = (_s().curDoc && d.id === _s().curDoc.id) ? 'active' : '';
       const updated = formatDate(d.updated_at);
-      h += `<div class="notes-item ${active}" onclick="window.notesOpen(${d.id})">
-        <div class="notes-item-title">${escHtml(d.title || 'يېڭى خاتىرە')}</div>
-        <div class="notes-item-meta">${updated} · ${d.size} ھەرپ</div>
-        <button class="notes-item-delete" onclick="window.notesDelete(${d.id}, event)" title="ئۆچۈرۈش">${icon('trash','ic-sm')}</button>
+      const pinned = !!d.pinned;
+      h += `<div class="notes-item ${active}" data-id="${Number(d.id)}" onclick="window.notesOpen(${Number(d.id)})">
+        <div class="notes-item-title">${escHtml(d.title || DEFAULT_TITLE)}</div>
+        ${d.preview ? `<div class="notes-item-preview">${escHtml(d.preview)}</div>` : ''}
+        <div class="notes-item-meta">${updated} · ${Number(d.size) || 0} ھەرپ</div>
+        <button class="notes-item-pin ${pinned ? 'on' : ''}" onclick="event.stopPropagation();window.notesTogglePin(${Number(d.id)})"
+          title="${pinned ? 'مىقتىن ئېلىش' : 'تىزىملىكنىڭ بېشىغا مىقلاش'}">${icon('star', 'ic-sm')}</button>
+        <button class="notes-item-delete" onclick="window.notesDelete(${Number(d.id)}, event)" title="ئەخلەت ساندۇقىغا">${icon('trash','ic-sm')}</button>
       </div>`;
     }
     return h;
   }
 
-  // Client-side title filter for the notes list (transient; does not re-fetch).
+  // The search box: titles and text, 250 ms after typing stops.
+  let listSearchTimer = null;
   window.notesListFilter = function (q) {
-    const list = document.getElementById('notes-list-inner');
-    if (!list) return;
-    q = (q || '').trim().toLowerCase();
-    const docs = (_s().docs || []).filter(d => !q || (d.title || '').toLowerCase().includes(q));
-    list.innerHTML = docs.length ? buildNoteItems(docs) : '<div class="notes-sidebar-empty">نەتىجە تېپىلمىدى</div>';
+    _s().listQuery = String(q || '');
+    clearTimeout(listSearchTimer);
+    listSearchTimer = setTimeout(refreshNotesList, 250);
+  };
+
+  window.notesSetListSort = function (value) {
+    if (LIST_SORTS.indexOf(value) === -1) return;
+    _s().listSort = value;
+    try { window.electron.dbSetSetting('notes_list_sort', value); } catch (e) { /* not remembered */ }
+    refreshNotesList();
+  };
+
+  /** Pinning is not an edit: updated_at stays as it is (database.js). */
+  window.notesTogglePin = async function (id) {
+    const doc = (_s().docs || []).find(d => d.id === id);
+    const next = !(doc && doc.pinned);
+    let r = null;
+    try { r = await window.electron.notesSetPinned(id, next); } catch (e) { r = null; }
+    if (!r || !r.success) { toast('مىقلانمىدى', 'e'); return; }
+    await refreshNotesList();
   };
 
   function formatDate(iso) {
     try {
-      const d = new Date((iso || '').replace(' ', 'T') + 'Z');
+      const raw = String(iso || '');
+      // SQLite's datetime('now') has no zone and is UTC; the trash's ISO strings do.
+      const d = new Date(/(Z|[+-]\d\d:?\d\d)$/.test(raw) ? raw : raw.replace(' ', 'T') + 'Z');
       if (isNaN(d.getTime())) return '';
       return d.toLocaleDateString();
     } catch(e) { return ''; }
   }
+
+  // ---- the trash ----
+
+  async function refreshTrash() {
+    const toggle = document.getElementById('notes-trash-toggle');
+    const box = document.getElementById('notes-trash-list');
+    if (!toggle && !box) return;
+    let r = null;
+    try { r = await window.electron.notesTrashList(); } catch (e) { r = null; }
+    const docs = (r && r.success && Array.isArray(r.docs)) ? r.docs : [];
+    if (toggle) toggle.innerHTML = `${icon('trash', 'ic-sm')} ئەخلەت ساندۇقى (${docs.length})`;
+    if (!box) return;
+    box.style.display = _s().trashOpen ? '' : 'none';
+    if (!_s().trashOpen) return;
+    if (!docs.length) {
+      box.innerHTML = '<div class="notes-sidebar-empty">ئەخلەت ساندۇقى بوش.<br>ئۆچۈرۈلگەن خاتىرە 30 كۈن بۇ يەردە تۇرىدۇ.</div>';
+      return;
+    }
+    box.innerHTML = '<div class="notes-trash-note">ئۆچۈرۈلگەن خاتىرە 30 كۈندىن كېيىن ئۆزلۈكىدىن يوقىتىلىدۇ.</div>' +
+      docs.map(d => `<div class="notes-trash-item" data-id="${Number(d.id)}">
+        <div class="notes-item-title" data-action="open">${escHtml(d.title || DEFAULT_TITLE)}</div>
+        <div class="notes-item-meta">ئۆچۈرۈلگەن: ${escHtml(formatDate(d.deleted_at))}</div>
+        <div class="notes-trash-actions">
+          <button type="button" data-action="restore">قايتۇرۇش</button>
+          <button type="button" data-action="forever">مەڭگۈلۈك ئۆچۈرۈش</button>
+        </div>
+      </div>`).join('') +
+      '<button type="button" class="notes-trash-empty" id="notes-trash-empty">ئەخلەت ساندۇقىنى بوشىتىش</button>';
+
+    box.querySelectorAll('.notes-trash-item').forEach(row => {
+      const id = Number(row.dataset.id);
+      row.querySelector('[data-action="open"]').addEventListener('click', () => window.notesOpen(id));
+      row.querySelector('[data-action="restore"]').addEventListener('click', () => window.notesRestoreNote(id));
+      const forever = row.querySelector('[data-action="forever"]');
+      forever.addEventListener('click', () => twoStep(forever, 'يەنە بىر بېسىڭ — قايتۇرغىلى بولمايدۇ', async () => {
+        const res = await window.electron.notesDeleteForever(id);
+        if (!res || !res.success) { toast('ئۆچۈرۈلمىدى', 'e'); return; }
+        if (_s().curDoc && _s().curDoc.id === id) { _s().curDoc = null; await window.renderNotesView(); }
+        toast('مەڭگۈلۈك ئۆچۈرۈلدى', 'i');
+        await refreshNotesList();
+      }));
+    });
+    const empty = document.getElementById('notes-trash-empty');
+    empty.addEventListener('click', () => twoStep(empty, 'يەنە بىر بېسىڭ — ھەممىسى مەڭگۈلۈك ئۆچىدۇ', async () => {
+      const res = await window.electron.notesEmptyTrash();
+      if (!res || !res.success) { toast('ئەخلەت ساندۇقى بوشىتىلمىدى', 'e'); return; }
+      if (_s().curDoc && _s().curDoc.deleted_at) { _s().curDoc = null; await window.renderNotesView(); }
+      toast('ئەخلەت ساندۇقى بوشىتىلدى', 'i');
+      await refreshNotesList();
+    }));
+  }
+
+  /**
+   * An irreversible button asks once, inline: the first click arms it and
+   * says what the second will do; the second runs it. Four seconds later it
+   * disarms by itself. (No confirm() — the rule for new renderer code.)
+   */
+  function twoStep(button, question, run) {
+    if (button.classList.contains('armed')) {
+      clearTimeout(button._disarm);
+      button.classList.remove('armed');
+      run();
+      return;
+    }
+    button.dataset.label = button.textContent;
+    button.classList.add('armed');
+    button.textContent = question;
+    button._disarm = setTimeout(() => {
+      button.classList.remove('armed');
+      button.textContent = button.dataset.label;
+    }, 4000);
+  }
+
+  window.notesToggleTrash = async function () {
+    _s().trashOpen = !_s().trashOpen;
+    await refreshTrash();
+  };
+
+  /** Back from the trash — from the toast, the trash list or the read-only banner. */
+  window.notesRestoreNote = async function (id) {
+    let r = null;
+    try { r = await window.electron.notesRestore(id); } catch (e) { r = null; }
+    if (!r || !r.success) { toast('قايتۇرۇلمىدى', 'e'); return; }
+    if (_s().curDoc && _s().curDoc.id === id) {
+      _s().curDoc.deleted_at = null;
+      await window.renderNotesView();
+    }
+    toast('خاتىرە قايتۇرۇلدى', 's');
+    await refreshNotesList();
+  };
+
+  /**
+   * A new note left untouched — the default title and no text — is removed
+   * when the writer leaves it, instead of piling up as «يېڭى خاتىرە» after
+   * «يېڭى خاتىرە». The main process checks again before it deletes anything.
+   */
+  async function discardIfUntouched() {
+    const doc = _s().curDoc;
+    if (!doc || doc.deleted_at) return false;
+    const title = String(doc.title || '').trim();
+    const text = (editorEl && editorEl.isConnected) ? (editorEl.innerText || '') : (doc.content_text || '');
+    if ((title && title !== DEFAULT_TITLE) || text.trim()) return false;
+    let r = null;
+    try { r = await window.electron.notesDiscardEmpty(doc.id); } catch (e) { r = null; }
+    return !!(r && r.removed);
+  }
+
+  /** setMode() calls this when the writer leaves the notebook. */
+  window.notesDiscardUntouched = async function () {
+    if (await discardIfUntouched()) _s().curDoc = null;
+  };
 
   // ========== MAIN VIEW ==========
 
@@ -280,7 +499,7 @@
         <button class="notes-collapse-btn" id="notes-collapse-list-btn" type="button"
           onclick="window.notesToggleList()"
           title="خاتىرىلەر تىزىملىكىنى يىغىش/ئېچىش (Ctrl+\\)">◨</button>
-        <input type="text" class="notes-title-input" id="notes-title"
+        <input type="text" class="notes-title-input" id="notes-title" ${d.deleted_at ? 'readonly' : ''}
           value="${escAttr(d.title || '')}"
           placeholder="خاتىرە نامى..."
           oninput="window.notesOnTitleInput(this.value)">
@@ -358,9 +577,13 @@
         <button type="button" id="notes-undo-all-btn" onclick="window.notesUndoReplaceAll()" style="display:none">ھەممىنى يېنىۋېلىش</button>
         <button type="button" onclick="window.notesFindClose()" title="تاقاش (Esc)">${icon('x','ic-sm')}</button>
       </div>
+      ${d.deleted_at ? `<div class="notes-trashed-banner" id="notes-trashed-banner">
+        ${icon('trash', 'ic-sm')} <span>بۇ خاتىرە ئەخلەت ساندۇقىدا — پەقەت ئوقۇشقا بولىدۇ.</span>
+        <button type="button" data-action="restore" onclick="window.notesRestoreNote(${Number(d.id)})">قايتۇرۇش</button>
+      </div>` : ''}
       <div class="notes-editor-wrap">
         <div class="notes-editor" id="notes-editor"
-          contenteditable="true" spellcheck="false"></div>
+          contenteditable="${d.deleted_at ? 'false' : 'true'}" spellcheck="false"></div>
       </div>
       <div class="notes-wordcount" id="notes-wordcount">
         <span id="notes-wc-text">سۆز: 0 · ھەرپ: 0</span>
@@ -557,6 +780,7 @@
 
   window.notesCreate = async function() {
     if (!await flushOrWarn()) return;
+    await discardIfUntouched();
 
     const r = await window.electron.notesCreate('يېڭى خاتىرە');
     if (!r.success) {
@@ -569,6 +793,7 @@
 
   window.notesOpen = async function(id) {
     if (!await flushOrWarn()) return;
+    if (_s().curDoc && _s().curDoc.id !== id) await discardIfUntouched();
 
     const r = await window.electron.notesGet(id);
     if (!r.success || !r.doc) {
@@ -598,26 +823,32 @@
     await refreshNotesList();
   };
 
+  /**
+   * Delete = to the trash, at once, no question (W2). The toast offers
+   * «قايتۇرۇش» for 10 seconds; «ئەخلەت ساندۇقى» keeps the note for 30 days.
+   */
   window.notesDelete = async function(id, ev) {
     if (ev) ev.stopPropagation();
+    const open = !!(_s().curDoc && _s().curDoc.id === id);
     // Deleting the note that is open must not take unsaved writing with it.
-    if (_s().curDoc && _s().curDoc.id === id && !await flushOrWarn()) return;
-    const doc = _s().docs.find(d => d.id === id);
-    const title = doc ? doc.title : '';
-    if (!confirm(`«${title}» دېگەن خاتىرىنى ئۆچۈرەمسىز؟\nبۇ ئىش قايتۇرۇپ بولمايدۇ.`)) return;
+    if (open && !await flushOrWarn()) return;
 
-    const r = await window.electron.notesDelete(id);
-    if (!r.success) {
+    let r = null;
+    try { r = await window.electron.notesDelete(id); } catch (e) { r = null; }
+    if (!r || !r.success) {
       toast('ئۆچۈرۈش مۇۋەپپەقىيەتسىز', 'e');
       return;
     }
-    if (_s().curDoc && _s().curDoc.id === id) {
+    if (open) {
       _s().curDoc = null;
       _s().matches = new Map();
+      await window.renderNotesView();
     }
     await refreshNotesList();
-    if (!_s().curDoc) await window.renderNotesView();
-    toast('ئۆچۈرۈلدى', 's');
+    toast('خاتىرە ئەخلەت ساندۇقىغا يۆتكەلدى', 'i', {
+      ms: 10000,
+      action: { label: 'قايتۇرۇش', run: () => window.notesRestoreNote(id) }
+    });
   };
 
   window.notesOnTitleInput = function(val) {
@@ -1279,7 +1510,8 @@
   window.notesDisarmFormatPainter = fpDisarm;
 
   function markDirty() {
-    if (!_s().curDoc) return;
+    // A note in the trash is read-only; nothing of it is ever written.
+    if (!_s().curDoc || _s().curDoc.deleted_at) return;
     _s().dirty = true;
     saveVersion++;
     setStatus('saving', 'ساقلىنىۋاتىدۇ...');
