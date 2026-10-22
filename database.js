@@ -292,7 +292,26 @@ function close() {
 //     JamiyKutupxana\backups\ (beforeFirst). If that backup fails, no step
 //     runs at all.
 const MIGRATIONS = [
-  // { version: 1, name: '…', up(db) { db.exec('CREATE TABLE …'); } },
+  {
+    // W1 — earlier versions of a note (Phase 3.1). AUTOINCREMENT, so an id is
+    // never reused after an eviction and the highest id is always the newest.
+    version: 1,
+    name: 'note_versions',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS note_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          note_id INTEGER NOT NULL REFERENCES note_documents(id) ON DELETE CASCADE,
+          reason TEXT NOT NULL,
+          title TEXT,
+          content_html TEXT,
+          content_text TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_note_versions_note ON note_versions(note_id, created_at);
+      `);
+    }
+  }
 ];
 
 /** The last migration step applied to this library (0: none yet). */
@@ -1002,6 +1021,96 @@ function notesDelete(id) {
   db.prepare('DELETE FROM note_documents WHERE id=?').run(id);
 }
 
+// ========== NOTE VERSIONS (W1) ==========
+// A replace-all, an AI correction, a format paint over several paragraphs or
+// a restore is permanent the moment autosave writes it. Each of them first
+// keeps the note as it was, and «نەشر تارىخى» puts any version back. The
+// rules come from the web edition's lib/notes/history.ts:
+//
+//   - a version identical to the note's newest is never stored twice; a
+//     before-* reason relabels an identical newest open/auto instead, so a
+//     note opened and at once replaced-all is found under the name the
+//     writer will look for;
+//   - auto at most every five minutes per note (and only after a save the
+//     database confirmed — the renderer's side);
+//   - at most 30 per note: the oldest auto goes first, then the oldest of any
+//     reason, and never the newest.
+
+const NOTE_VERSION_REASONS = ['open', 'auto', 'before-replace-all', 'before-paint', 'before-ai', 'before-restore'];
+const MAX_NOTE_VERSIONS = 30;
+const AUTO_VERSION_EVERY_MS = 5 * 60 * 1000;
+
+/**
+ * Keep the note as it is now, for `reason`. `now` (ms) is for the tests.
+ * @returns {'kept'|'same'|'recent'|'refused'}
+ */
+function noteVersionKeep(noteId, reason, title, html, text, now) {
+  const id = Number(noteId);
+  if (NOTE_VERSION_REASONS.indexOf(reason) === -1 || !Number.isInteger(id) || id < 1) return 'refused';
+  const when = Number.isFinite(now) ? now : Date.now();
+  const t = String(title == null ? '' : title);
+  const h = String(html == null ? '' : html);
+
+  return db.transaction(() => {
+    if (!db.prepare('SELECT 1 FROM note_documents WHERE id=?').get(id)) return 'refused';
+
+    if (reason === 'auto') {
+      const last = db.prepare('SELECT created_at FROM note_versions WHERE note_id=? AND reason=\'auto\' ORDER BY id DESC LIMIT 1').get(id);
+      const lastAt = last ? Date.parse(last.created_at) : NaN;
+      if (Number.isFinite(lastAt) && when - lastAt < AUTO_VERSION_EVERY_MS) return 'recent';
+    }
+
+    const newest = db.prepare('SELECT id, reason, title, content_html FROM note_versions WHERE note_id=? ORDER BY id DESC LIMIT 1').get(id);
+    if (newest && newest.title === t && newest.content_html === h) {
+      if (reason.indexOf('before-') === 0 && (newest.reason === 'open' || newest.reason === 'auto')) {
+        db.prepare('UPDATE note_versions SET reason=? WHERE id=?').run(reason, newest.id);
+      }
+      return 'same';
+    }
+
+    db.prepare('INSERT INTO note_versions (note_id, reason, title, content_html, content_text, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, reason, t, h, String(text == null ? '' : text), new Date(when).toISOString());
+    trimNoteVersions(id);
+    return 'kept';
+  })();
+}
+
+/** Over 30: the oldest auto first, then the oldest of any reason — never the newest. */
+function trimNoteVersions(noteId) {
+  const rows = db.prepare('SELECT id, reason FROM note_versions WHERE note_id=? ORDER BY id ASC').all(noteId);
+  let excess = rows.length - MAX_NOTE_VERSIONS;
+  if (excess <= 0) return;
+  const candidates = rows.slice(0, -1);
+  const order = candidates.filter(r => r.reason === 'auto').concat(candidates.filter(r => r.reason !== 'auto'));
+  const remove = db.prepare('DELETE FROM note_versions WHERE id=?');
+  for (const victim of order) {
+    if (excess <= 0) break;
+    remove.run(victim.id);
+    excess--;
+  }
+}
+
+function firstLine(text) {
+  const line = String(text || '').split('\n').map(s => s.trim()).find(Boolean) || '';
+  return line.length > 120 ? line.slice(0, 120) + '…' : line;
+}
+
+/** One note's versions, newest first — without their HTML, which only a preview needs. */
+function noteVersionList(noteId) {
+  return db.prepare(`
+    SELECT id, note_id, reason, title, created_at,
+           substr(content_text, 1, 400) AS head, length(content_text) AS chars
+    FROM note_versions WHERE note_id=? ORDER BY id DESC
+  `).all(Number(noteId)).map(r => ({
+    id: r.id, note_id: r.note_id, reason: r.reason, title: r.title,
+    created_at: r.created_at, first_line: firstLine(r.head), chars: r.chars || 0
+  }));
+}
+
+function noteVersionGet(id) {
+  return db.prepare('SELECT * FROM note_versions WHERE id=?').get(Number(id)) || null;
+}
+
 // ========== N-GRAM (legacy: now FTS5-backed; index funcs are no-ops) ==========
 
 function hasNgramIndex(bookId) {
@@ -1586,6 +1695,8 @@ module.exports = {
   migrationStripBasmalaAyah1,
   // Notes (documents)
   notesGetAll, notesGet, notesCreate, notesUpdate, notesDelete,
+  // Note versions (W1)
+  NOTE_VERSION_REASONS, noteVersionKeep, noteVersionList, noteVersionGet,
   // Ngram
   hasNgramIndex, ngramIndexBook, ngramRemoveBook, ngramFindWord,
   // Quran ngram (virtual books)

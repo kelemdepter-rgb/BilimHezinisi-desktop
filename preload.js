@@ -87,6 +87,10 @@ contextBridge.exposeInMainWorld('electron', {
   notesCreate: (title) => ipcRenderer.invoke('notes-create', title),
   notesUpdate: (id, title, html, text) => ipcRenderer.invoke('notes-update', id, title, html, text),
   notesDelete: (id) => ipcRenderer.invoke('notes-delete', id),
+  // Earlier versions of a note (W1): kept in the background, listed, read back.
+  notesVersionKeep: (noteId, reason, title, html, text) => ipcRenderer.invoke('notes-version-keep', noteId, reason, title, html, text),
+  notesVersionList: (noteId) => ipcRenderer.invoke('notes-version-list', noteId),
+  notesVersionGet: (id) => ipcRenderer.invoke('notes-version-get', id),
   // Whether the notebook holds anything unsaved, and the handshake that lets
   // closing the window wait for the save — see mainWindow.on('close').
   notesDirty: (dirty) => ipcRenderer.send('notes-dirty', !!dirty),

@@ -756,6 +756,26 @@ ipcMain.handle('backup-restore', async () => {
   }
 });
 
+// ========== NOTE VERSIONS (W1) ==========
+// Written in the background by the renderer; a failure here must never touch
+// a save, so every handler answers instead of throwing.
+ipcMain.handle('notes-version-keep', (event, noteId, reason, title, html, text) => {
+  try { return { success: true, outcome: database.noteVersionKeep(noteId, reason, title, html, text) }; }
+  catch (e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle('notes-version-list', (event, noteId) => {
+  try { return { success: true, versions: database.noteVersionList(noteId) }; }
+  catch (e) { return { success: false, error: e.message, versions: [] }; }
+});
+
+ipcMain.handle('notes-version-get', (event, id) => {
+  try {
+    const version = database.noteVersionGet(id);
+    return version ? { success: true, version: version } : { success: false, error: 'not found' };
+  } catch (e) { return { success: false, error: e.message }; }
+});
+
 // Save book content (legacy)
 ipcMain.handle('save-book-content', (event, id, content) => {
   try {
