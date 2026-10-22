@@ -195,6 +195,68 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+
+  // Closing with unsaved writing in the notebook (K3d).
+  //
+  // The renderer used to fire a save off from beforeunload and hope: the
+  // window can be gone before the message is handled. So the close stops
+  // here, the renderer is asked to flush, and the window goes when the
+  // database has confirmed it. Three seconds without an answer, or a flush
+  // that failed, is the one case worth a question — the alternative is losing
+  // what was typed. The database is closed in before-quit, which is only
+  // reached once the window really closes.
+  mainWindow.on('close', (e) => {
+    if (forceClose || !notebookDirty) return;
+    e.preventDefault();
+    askRendererToFlush(mainWindow).then((ok) => {
+      if (ok === true) {
+        forceClose = true;
+        mainWindow.close();
+        return;
+      }
+      const answer = dialog.showMessageBoxSync(mainWindow, {
+        type: 'warning',
+        title: 'بىلىم خەزىنىسى',
+        message: 'ساقلانمىغان خاتىرە بار. يەنىلا تاقامسىز؟',
+        buttons: ['ھەئە، تاقاڭ', 'ياق'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true
+      });
+      if (answer === 0) {
+        forceClose = true;
+        mainWindow.close();
+      }
+    });
+  });
+}
+
+// ========== UNSAVED WRITING IN THE NOTEBOOK ==========
+// The renderer reports its dirty state whenever it changes, so the close
+// handler above knows whether it has to wait for anything at all.
+let notebookDirty = false;
+let flushAnswer = null;      // resolves the flush we are waiting for
+let forceClose = false;      // the second close(), after the flush
+
+ipcMain.on('notes-dirty', (event, dirty) => { notebookDirty = !!dirty; });
+
+ipcMain.on('app-flush-done', (event, ok) => {
+  if (flushAnswer) flushAnswer(!!ok);
+});
+
+/** true saved, false the database refused, null no answer in three seconds. */
+function askRendererToFlush(win) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { flushAnswer = null; resolve(null); }, 3000);
+    flushAnswer = (ok) => { clearTimeout(timer); flushAnswer = null; resolve(ok); };
+    try {
+      win.webContents.send('app-flush-request');
+    } catch (err) {
+      clearTimeout(timer);
+      flushAnswer = null;
+      resolve(null);
+    }
+  });
 }
 
 app.whenReady().then(async () => {

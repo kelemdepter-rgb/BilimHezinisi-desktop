@@ -1255,6 +1255,12 @@ function setMode(mode) {
   // collapse state (Phase 2) and the persisted drag width (Phase 5) only apply
   // inside the notebook.
   if (mode !== 'notes') {
+    // Nothing typed may be left behind. notesFlush() takes its snapshot and
+    // starts the write synchronously, so it is already on its way before
+    // #main is replaced below; a note typed into and left within the
+    // three-second autosave window used to be lost from the screen and from
+    // the database both (K3a).
+    if (typeof window.notesFlush === 'function') window.notesFlush();
     const side = document.getElementById('side');
     if (side) { side.classList.remove('side-collapsed'); side.style.width = ''; }
     // Also disarm the format painter (Phase 3) and abort any in-flight
@@ -3418,7 +3424,10 @@ function naiSetEditorBlocks(ed, arr) {
       ? '<div>' + sanitize(t) + '</div>'
       : '<div><br></div>';
   }).join('');
-  ed.innerHTML = html || '<div><br></div>';
+  // Through the notebook's one document writer (putDocument in notes.js):
+  // it sanitizes, strips the transient markup older notes saved, and
+  // re-reads the counts, the spelling and the references.
+  window.notesPutDocument(html || '<div><br></div>');
 }
 function naiProofread() {
   naiGate(() => {
@@ -5049,33 +5058,23 @@ function setupKeyboardShortcuts() {
   });
 }
 
-// Flush any pending Notes save before the window closes
+// The last resort before the window goes.
+//
+// The guarantee is in the main process: it stops the close, asks the renderer
+// to flush and waits for the answer (app-flush-request). This stays because a
+// reload, a crash of the main window or a close that skipped that path would
+// otherwise write nothing at all. notesFlush() takes its snapshot — the clean
+// one, without the transient markup — and dispatches the write synchronously;
+// beforeunload cannot wait for the answer, which is exactly why it is not the
+// guarantee.
 window.addEventListener('beforeunload', () => {
   try {
-    if (window.S && window.S.notes && window.S.notes.dirty && window.S.notes.curDoc) {
-      // Use sync IPC via a synchronous-looking pattern:
-      // We can't actually await here, but we can fire-and-forget.
-      // The main process auto-save is no longer necessary, but ensure
-      // the most recent state is at least dispatched.
-      const editorEl = document.getElementById('notes-editor');
-      if (editorEl && window.electron && window.electron.notesUpdate) {
-        const rawHtml = editorEl.innerHTML;
-        const html = (window.SafeHTML && window.SafeHTML.sanitize)
-          ? window.SafeHTML.sanitize(rawHtml)
-          : rawHtml;
-        const text = editorEl.innerText || '';
-        // Don't await — beforeunload can't reliably wait, but the IPC
-        // is queued and the main process will process it.
-        window.electron.notesUpdate(
-          window.S.notes.curDoc.id,
-          window.S.notes.curDoc.title,
-          html,
-          text
-        );
-      }
+    if (window.S && window.S.notes && window.S.notes.dirty && window.S.notes.curDoc &&
+        typeof window.notesFlush === 'function') {
+      window.notesFlush();
     }
   } catch (e) {
-    // Ignore — best effort save
+    // Ignore — best effort
   }
 });
 

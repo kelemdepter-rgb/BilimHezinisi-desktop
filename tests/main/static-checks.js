@@ -45,4 +45,30 @@ module.exports = function (suite, assert, ctx) {
     assert.equal(hits.length, 0,
       'showToast() does not exist in this app, so these messages are never shown: ' + hits.join(', '));
   });
+
+  // One writer of the whole document: putDocument() in src/notes.js. Everything
+  // else edits over Ranges with the editing commands. Writing the editor's
+  // innerHTML anywhere else skips the sanitizer, leaves the transient markup
+  // older notes carry, loses the counts and the spelling, and - the reason the
+  // rule exists - rebuilding a selection as HTML destroyed paragraphs, line
+  // breaks, links and inline formatting (the owner's bug 1, K1, K9).
+  suite.test('one-document-writer', function () {
+    const files = walk(path.join(ctx.root, 'src'), ['.js', '.html']);
+    const writes = grep(files, /\b(editorEl|editor|ed|naiEd)\.innerHTML\s*=[^=]/, ctx.root)
+      .concat(grep(files, /notes-editor['"]\s*\)\s*\.innerHTML\s*=[^=]/, ctx.root));
+    assert.equal(writes.length, 1,
+      'only putDocument() may assign the editor\'s innerHTML — found ' +
+      writes.length + ': ' + writes.join(', '));
+    assert.includes(writes[0], 'src/notes.js:',
+      'the one assignment is not in src/notes.js: ' + writes[0]);
+
+    // ...and that one line is the one inside putDocument.
+    const lines = fs.readFileSync(path.join(ctx.root, 'src', 'notes.js'), 'utf8').split(/\r?\n/);
+    const opens = lines.findIndex(function (line) { return /function putDocument\(/.test(line); });
+    assert.ok(opens >= 0, 'putDocument() is gone');
+    const at = parseInt(writes[0].split(':')[1], 10) - 1;
+    assert.ok(at > opens && at - opens < 12,
+      'the one innerHTML assignment is not inside putDocument() (putDocument at line ' +
+      (opens + 1) + ', assignment at line ' + (at + 1) + ')');
+  });
 };

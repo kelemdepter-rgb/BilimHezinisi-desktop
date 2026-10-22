@@ -8,15 +8,29 @@
 
   function _s() { return window.S.notes; }
 
-  let saveTimer = null;
+  let saveTimer = null;        // the three-second debounce after a keystroke
   let editorEl = null;
 
-  // Save coordination: prevents data loss when user edits during in-flight save.
-  // Each markDirty() bumps saveVersion. saveNow() snapshots the version when it
-  // starts; only clears the dirty flag if no newer edits happened during await.
-  let saveVersion = 0;
-  let saveInFlight = false;
-  let pendingSaveAfterFlight = false;
+  // ========== SAVING (K3) ==========
+  // What may never happen: something typed is not in the database and nobody
+  // says so. Four rules follow, and this state serves them:
+  //
+  //   1. every edit bumps saveVersion; a write that finishes while the number
+  //      has moved on has not saved what is on screen, so the note stays dirty;
+  //   2. the newest text goes into curDoc the moment a write STARTS, so
+  //      re-mounting the editor - leaving the notebook and coming back - always
+  //      shows what is on screen, in flight or not;
+  //   3. a failed write is retried (5 s, 15 s, 45 s, then every minute while
+  //      the note is dirty) and «ساقلاندى» is never shown in the meantime;
+  //   4. anything that replaces or leaves the editor flushes first and stops if
+  //      the flush failed - see notesFlush().
+  let saveVersion = 0;         // bumped by every edit
+  let inFlight = null;         // the promise of the write that is running
+  let lastSaveError = '';      // shown in the status line
+  let retryTimer = null;
+  let retryStep = 0;
+  const RETRY_DELAYS = [5000, 15000, 45000];
+  const RETRY_EVERY = 60000;
 
   // ========== SIDEBAR ==========
 
@@ -510,8 +524,7 @@
   // ========== DOCUMENT CRUD ==========
 
   window.notesCreate = async function() {
-    // Save current first if dirty
-    if (_s().dirty && _s().curDoc) await saveNow();
+    if (!await flushOrWarn()) return;
 
     const r = await window.electron.notesCreate('يېڭى خاتىرە');
     if (!r.success) {
@@ -523,7 +536,7 @@
   };
 
   window.notesOpen = async function(id) {
-    if (_s().dirty && _s().curDoc) await saveNow();
+    if (!await flushOrWarn()) return;
 
     const r = await window.electron.notesGet(id);
     if (!r.success || !r.doc) {
@@ -543,8 +556,10 @@
 
     // Reset save coordination
     saveVersion = 0;
-    pendingSaveAfterFlight = false;
+    lastSaveError = '';
+    stopRetrying();
     if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    reportDirty(false);
 
     await window.renderNotesView();
     await refreshNotesList();
@@ -552,6 +567,8 @@
 
   window.notesDelete = async function(id, ev) {
     if (ev) ev.stopPropagation();
+    // Deleting the note that is open must not take unsaved writing with it.
+    if (_s().curDoc && _s().curDoc.id === id && !await flushOrWarn()) return;
     const doc = _s().docs.find(d => d.id === id);
     const title = doc ? doc.title : '';
     if (!confirm(`«${title}» دېگەن خاتىرىنى ئۆچۈرەمسىز؟\nبۇ ئىش قايتۇرۇپ بولمايدۇ.`)) return;
@@ -577,6 +594,49 @@
   };
 
   // ========== EDITOR ==========
+
+  /**
+   * Replace the whole document in the editor — and the ONLY place in the app
+   * that assigns the editor's innerHTML.
+   *
+   * Mounting a note, restoring an earlier version and applying an AI
+   * correction all come through here, so sanitizing, unwrapping the transient
+   * markup older versions saved, and re-reading the counts, the spelling and
+   * the references happen in exactly one place and cannot be forgotten.
+   * tests/main/static-checks.js fails if anything else writes innerHTML on the
+   * editor.
+   */
+  function putDocument(html) {
+    if (!editorEl) return;
+    const safe = (window.SafeHTML && window.SafeHTML.sanitize)
+      ? window.SafeHTML.sanitize(html || '')
+      : (html || '');
+    editorEl.innerHTML = safe || '<p><br></p>';
+    unwrapLegacyMarkup();
+    editorEl.normalize();
+    updateWordCount();
+    if (_s().spellCheckEnabled && typeof window.notesRunSpellCheck === 'function') {
+      window.notesRunSpellCheck();
+    }
+    if (typeof window.notesScanReferences === 'function') window.notesScanReferences();
+  }
+  window.notesPutDocument = putDocument;
+
+  /**
+   * Markup that was never the writer's: spell-check underlines (v3.1.0 and
+   * earlier), find hits and reference matches. All three used to be written
+   * into the note as elements and saved with it, and came back on the next open
+   * as dead markup the writer could not remove. They are painted on the
+   * highlight layer now; this cleans up what the old versions stored, and the
+   * next save writes the note back clean.
+   */
+  function unwrapLegacyMarkup() {
+    if (!editorEl) return;
+    editorEl.querySelectorAll('span.spell-error, span.ref-match')
+      .forEach(el => el.replaceWith(...el.childNodes));
+    editorEl.querySelectorAll('mark.notes-find-hit')
+      .forEach(el => el.replaceWith(...el.childNodes));
+  }
 
   async function mountEditor() {
     // Load toggle preferences (default: ref-scan ON, spell-check OFF)
@@ -608,16 +668,7 @@
 
     editorEl = document.getElementById('notes-editor');
     if (!editorEl) return;
-    const safeHtml = (window.SafeHTML && window.SafeHTML.sanitize)
-      ? window.SafeHTML.sanitize(_s().curDoc.content_html || '')
-      : (_s().curDoc.content_html || '');
-    editorEl.innerHTML = safeHtml || '<p><br></p>';
-    // Notes saved by v3.1.0 and earlier carry the old spell-check spans in
-    // their stored HTML — the checker used to wrap misspellings in elements,
-    // which sanitize.js allowed through and saveNow() then persisted. Unwrap
-    // them on open; the next save writes the note back clean.
-    editorEl.querySelectorAll('span.spell-error').forEach(s => s.replaceWith(...s.childNodes));
-    editorEl.normalize();
+    putDocument(_s().curDoc.content_html || '');
 
     editorEl.addEventListener('input', () => {
       markDirty();
@@ -829,7 +880,9 @@
     markDirty();
   };
 
-  window.notesSaveNow = function() { saveNow(); };
+  // «ساقلاش» / Ctrl+S: write now, which also retries a failed save at once
+  // instead of waiting for the next step of the ladder.
+  window.notesSaveNow = function() { return saveNow(); };
 
   // ========== FORMAT PAINTER (Phase 3) — Word's «سۈپۈرگە» ==========
   // Capture the formatting at the caret/selection, then paint it onto the next
@@ -1003,78 +1056,145 @@
     _s().dirty = true;
     saveVersion++;
     setStatus('saving', 'ساقلىنىۋاتىدۇ...');
+    reportDirty(true);
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(saveNow, 3000);
+    saveTimer = setTimeout(() => { saveTimer = null; saveNow(); }, 3000);
   }
 
-  async function saveNow() {
-    if (!_s().curDoc || !editorEl) return;
+  /** Tell the main process, so closing the window can wait for us. */
+  function reportDirty(dirty) {
+    try {
+      if (window.electron && typeof window.electron.notesDirty === 'function') {
+        window.electron.notesDirty(!!dirty);
+      }
+    } catch (e) { /* the window is going away anyway */ }
+  }
 
-    // If a save is already in flight, mark that another one is needed
-    // and return — saveNow will be re-invoked when the current one finishes.
-    if (saveInFlight) {
-      pendingSaveAfterFlight = true;
-      return;
+  /**
+   * Write the editor to the database.
+   *
+   * Resolves TRUE only when the database has confirmed the newest edit on
+   * screen — which is what the callers below rely on before they replace the
+   * editor. While a write is in flight a second call waits for it and then,
+   * if anything was typed meanwhile, writes again.
+   */
+  function saveNow() {
+    if (inFlight) {
+      return inFlight.then(() => (_s().dirty ? saveNow() : true), () => false);
     }
+    if (!_s().curDoc || !editorEl) return Promise.resolve(true);
+    if (!_s().dirty) return Promise.resolve(true);
+    inFlight = writeOnce();
+    return inFlight;
+  }
 
-    saveInFlight = true;
+  async function writeOnce() {
+    const doc = _s().curDoc;
+    const docId = doc.id;
     const versionAtStart = saveVersion;
-    const docId = _s().curDoc.id;
+    clearTimeout(saveTimer); saveTimer = null;
+    clearTimeout(retryTimer); retryTimer = null;   // this IS the retry
 
-    // Snapshot editor content. Sanitize before sending to backend.
+    // Snapshot and sanitize BEFORE the await, so what goes to the database is
+    // the text that was on screen when the save started...
     const rawHtml = snapshotHtml();
     const html = (window.SafeHTML && window.SafeHTML.sanitize)
       ? window.SafeHTML.sanitize(rawHtml)
       : rawHtml;
     const text = editorEl.innerText || '';
 
-    // Update local state. Will roll back if save fails.
-    _s().curDoc.content_html = html;
-    _s().curDoc.content_text = text;
+    // ...and the same snapshot goes into curDoc at once. Re-mounting the editor
+    // reads curDoc, so leaving the notebook and coming back during the write
+    // shows the newest text rather than the text of the last confirmed save.
+    doc.content_html = html;
+    doc.content_text = text;
 
     let result = null;
     try {
-      result = await window.electron.notesUpdate(docId, _s().curDoc.title, html, text);
+      result = await window.electron.notesUpdate(docId, doc.title, html, text);
     } catch (e) {
       console.error('[notes] save failed:', e);
-      result = { success: false, error: e.message };
+      result = { success: false, error: (e && e.message) || 'IPC failed' };
     } finally {
-      saveInFlight = false;
+      inFlight = null;
     }
 
-    // If the document was switched/closed while saving, don't update UI for it
-    if (!_s().curDoc || _s().curDoc.id !== docId) {
-      if (pendingSaveAfterFlight) {
-        pendingSaveAfterFlight = false;
-        // The user navigated away; nothing to do.
-      }
-      return;
-    }
+    const ok = !!(result && result.success);
 
-    if (result && result.success) {
-      // Only clear dirty if no edits happened during the save.
+    // The writer moved to another note, or closed this one, while the write was
+    // running: the answer still matters to whoever is waiting for it, but there
+    // is no status line of this note's to update any more.
+    if (!_s().curDoc || _s().curDoc.id !== docId) return ok;
+
+    if (ok) {
+      lastSaveError = '';
+      retryStep = 0;
       if (saveVersion === versionAtStart) {
         _s().dirty = false;
+        reportDirty(false);
         setStatus('saved', 'ساقلاندى');
-      } else {
-        // User edited during save — keep dirty, schedule another save soon
-        setStatus('saving', 'ساقلىنىۋاتىدۇ...');
+        return true;
       }
-    } else {
-      setStatus('error', 'ساقلاش خاتالىقى');
+      // Typed while the write was running: still dirty, so write again rather
+      // than wait three seconds and call it saved in the meantime.
+      setStatus('saving', 'ساقلىنىۋاتىدۇ...');
+      return saveNow();
     }
 
-    // If a save was requested while one was in flight, run it now
-    if (pendingSaveAfterFlight) {
-      pendingSaveAfterFlight = false;
-      // Small delay so we don't hammer the backend
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(saveNow, 500);
-    } else if (_s().dirty) {
-      // Still dirty (user edited during save) — schedule another save
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(saveNow, 1500);
+    lastSaveError = (result && result.error) || '';
+    setStatus('error', 'ساقلاش خاتالىقى' + (lastSaveError ? ' — ' + lastSaveError : ''));
+    scheduleRetry();
+    return false;
+  }
+
+  /** 5 s, 15 s, 45 s, then every minute while the note is dirty. */
+  function scheduleRetry() {
+    clearTimeout(retryTimer);
+    const delay = (retryStep < RETRY_DELAYS.length) ? RETRY_DELAYS[retryStep] : RETRY_EVERY;
+    retryStep++;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (_s().dirty && _s().curDoc) saveNow();
+    }, delay);
+  }
+
+  function stopRetrying() {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    retryStep = 0;
+  }
+
+  /**
+   * Everything written is in the database — or it is not, and the caller must
+   * not go ahead. Cancels the debounce, waits for a write in flight, writes if
+   * anything is dirty, and resolves what the database said.
+   *
+   * setMode() calls this before it replaces #main: a note typed into and left
+   * within the three-second debounce used to be lost from the screen and from
+   * the database both (K3a).
+   */
+  window.notesFlush = async function notesFlush() {
+    if (!_s().curDoc || !editorEl) return true;
+    clearTimeout(saveTimer); saveTimer = null;
+    clearTimeout(retryTimer); retryTimer = null;
+    const ok = await saveNow();
+    return ok;
+  };
+
+  /**
+   * Flush before leaving the note, and say so when it did not work.
+   *
+   * Returning false means: stay where you are. Opening another note while the
+   * save had failed used to drop what was written silently, with «ساقلاندى»
+   * still on the screen (K3b).
+   */
+  async function flushOrWarn() {
+    const ok = await window.notesFlush();
+    if (!ok) {
+      setStatus('error', 'ساقلاش خاتالىقى' + (lastSaveError ? ' — ' + lastSaveError : ''));
+      toast('خاتىرە ساقلانمىدى — قايتا سىناڭ', 'e');
     }
+    return ok;
   }
 
   function setStatus(cls, text) {
@@ -1484,9 +1604,7 @@
   };
 
   window.notesGoToBook = async function (bookId, encodedHighlight) {
-    if (window.S && window.S.notes && window.S.notes.dirty && window.S.notes.curDoc) {
-      try { await saveNow(); } catch(e) {}
-    }
+    if (!await flushOrWarn()) return;
     let highlight = '';
     try { highlight = decodeURIComponent(encodedHighlight || ''); } catch(e) {}
     if (typeof window.openReader === 'function') {
@@ -1499,10 +1617,7 @@
   };
 
   window.notesGoToQuranAya = async function (sura, aya) {
-    // Save current note if dirty
-    if (window.S && window.S.notes && window.S.notes.dirty && window.S.notes.curDoc) {
-      try { await saveNow(); } catch(e) {}
-    }
+    if (!await flushOrWarn()) return;
     // Update Quran state so the view opens at the requested aya
     if (window.S && window.S.quran) {
       window.S.quran.curSura = sura;
@@ -1758,6 +1873,21 @@
     const btn = document.getElementById('notes-ocr-cleanup-btn'); if (btn) btn.style.display = 'none';
   }
   window.notesResetEditorTools = resetEditorTools;
+
+  // ========== CLOSING THE WINDOW ==========
+  // The main process asks before it closes: it prevented the close, so the
+  // answer decides whether the window goes. Saving with fire-and-forget IPC
+  // from beforeunload was never a guarantee — the renderer can be gone before
+  // the message is handled (K3d).
+  try {
+    if (window.electron && typeof window.electron.onAppFlushRequest === 'function') {
+      window.electron.onAppFlushRequest(async () => {
+        let ok = true;
+        try { ok = await window.notesFlush(); } catch (e) { ok = false; }
+        try { window.electron.appFlushDone(!!ok); } catch (e) { /* closing */ }
+      });
+    }
+  } catch (e) { /* older preload: beforeunload is still the last resort */ }
 
   // Expose internals for Prompt 6
   window.NotesInternal = {

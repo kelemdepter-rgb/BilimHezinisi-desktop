@@ -48,6 +48,41 @@
     t.assert.equal(window.S.notes.dirty, false, 'the note is still dirty after the flush');
   });
 
+  // K3d. The main process stops the close and asks; the window goes only on a
+  // true answer. Here the test plays the main process.
+  test('close-waits-for-save', async function (t) {
+    const NEW = ' ئاخىرقى جۈملە';
+    const ed = await t.fresh({ html: '<p>كونا مەزمۇن</p>' });
+
+    t.assert.ok(typeof window.FAKE.flushRequest === 'function',
+      'the renderer never registered for app-flush-request');
+
+    caretAtEndOfFirstBlock(t, ed);
+    t.type(NEW);
+    t.assert.ok(window.FAKE.dirtyReports.indexOf(true) !== -1,
+      'the main process was not told that the notebook has unsaved writing');
+
+    await window.FAKE.flushRequest();
+    await t.sleep(60);
+
+    t.assert.deepEqual(window.FAKE.flushAnswers, [true],
+      'the renderer did not answer the flush request with success');
+    const saved = window.FAKE.saves[window.FAKE.saves.length - 1];
+    t.assert.ok(saved && saved.text.indexOf('ئاخىرقى جۈملە') !== -1,
+      'the flush did not write what was on screen');
+    t.assert.equal(window.FAKE.dirtyReports[window.FAKE.dirtyReports.length - 1], false,
+      'the main process was not told that the notebook is clean again');
+
+    // Now with a database that refuses: the answer must be false, so the main
+    // process asks the writer instead of closing over unsaved work.
+    t.type(' يەنە بىر سۆز');
+    window.FAKE.failSave = true;
+    await window.FAKE.flushRequest();
+    await t.sleep(60);
+    t.assert.equal(window.FAKE.flushAnswers[window.FAKE.flushAnswers.length - 1], false,
+      'a failed flush was reported as success — the window would close over it');
+  });
+
   test('failed-save-switch', async function (t) {
     const NEW = ' يېڭى جۈملە';
     const ed = await t.fresh({ html: '<p>كونا مەزمۇن</p>' });

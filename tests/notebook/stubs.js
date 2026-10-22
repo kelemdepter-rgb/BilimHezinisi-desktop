@@ -19,6 +19,9 @@
     notes: {},              // id -> { id, title, content_html, content_text }
     settings: {},           // the settings table
     saves: [],              // every accepted notesUpdate, in order
+    dirtyReports: [],       // what the renderer told main about unsaved writing
+    flushAnswers: [],       // what it answered to an app-flush-request
+    flushRequest: null,     // the listener the renderer registered for one
     personal: [],           // the words handed to spellPersonal
     exports: [],            // export calls
     good: new Set(),        // words the fake engine accepts
@@ -118,6 +121,13 @@
     },
     notesDelete: async function (id) { delete FAKE.notes[id]; return { success: true }; },
 
+    // The close-the-window handshake. FAKE.dirtyReports records what the
+    // renderer told the main process; FAKE.flushRequest fires the request the
+    // main process would send on close.
+    notesDirty: function (dirty) { FAKE.dirtyReports.push(!!dirty); },
+    onAppFlushRequest: function (callback) { FAKE.flushRequest = callback; },
+    appFlushDone: function (ok) { FAKE.flushAnswers.push(!!ok); },
+
     spellInit: async function (words) {
       FAKE.personal = (words || []).slice();
       return { ready: true, words: FAKE.good.size, loadMs: 1 };
@@ -216,6 +226,8 @@
       notes_ref_scan: opts.refscan ? 'on' : 'off'
     };
     FAKE.saves = [];
+    FAKE.dirtyReports = [];
+    FAKE.flushAnswers = [];
     FAKE.personal = [];
     FAKE.exports = [];
     FAKE.good = new Set(opts.good || []);

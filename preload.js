@@ -82,6 +82,11 @@ contextBridge.exposeInMainWorld('electron', {
   notesCreate: (title) => ipcRenderer.invoke('notes-create', title),
   notesUpdate: (id, title, html, text) => ipcRenderer.invoke('notes-update', id, title, html, text),
   notesDelete: (id) => ipcRenderer.invoke('notes-delete', id),
+  // Whether the notebook holds anything unsaved, and the handshake that lets
+  // closing the window wait for the save — see mainWindow.on('close').
+  notesDirty: (dirty) => ipcRenderer.send('notes-dirty', !!dirty),
+  onAppFlushRequest: (callback) => ipcRenderer.on('app-flush-request', () => callback()),
+  appFlushDone: (ok) => ipcRenderer.send('app-flush-done', !!ok),
   // Ngram API
   ngramFindWord: (word) => ipcRenderer.invoke('ngram-find-word', word),
   bookContentSnippet: (bookId, needle, max, ctx) => ipcRenderer.invoke('book-content-snippet', bookId, needle, max, ctx),
