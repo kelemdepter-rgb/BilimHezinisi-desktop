@@ -364,7 +364,7 @@
     const a = parseInt(aEl ? aEl.value : '', 10);
 
     if (!s || s < 1 || s > 114) {
-      if (typeof showToast === 'function') showToast('1-114 ئارىلىقىدىكى سۈرە نومۇرى كىرگۈزۈڭ', 'e');
+      toast('1-114 ئارىلىقىدىكى سۈرە نومۇرى كىرگۈزۈڭ', 'e');
       return;
     }
     const sura = _s().suras.find(x => x.number === s);
@@ -493,17 +493,15 @@
 
     const r = await window.electron.quranGetAya(sura, aya);
     if (!r.success || !r.aya) {
-      if (typeof showToast === 'function') showToast('ئايەت تېپىلمىدى', 'e');
+      toast('ئايەت تېپىلمىدى', 'e');
       return;
     }
 
     const ok = await copyAyaToClipboard([r.aya], withTranslation);
-    if (typeof showToast === 'function') {
-      showToast(
-        ok ? (withTranslation ? 'ئايەت تەرجىمىسى بىلەن كۆچۈرۈلدى' : 'ئايەت كۆچۈرۈلدى') : 'كۆچۈرۈش مۇۋەپپەقىيەتسىز بولدى',
-        ok ? 's' : 'e'
-      );
-    }
+    toast(
+      ok ? (withTranslation ? 'ئايەت تەرجىمىسى بىلەن كۆچۈرۈلدى' : 'ئايەت كۆچۈرۈلدى') : 'كۆچۈرۈش مۇۋەپپەقىيەتسىز بولدى',
+      ok ? 's' : 'e'
+    );
   };
 
   async function copyAyaToClipboard(ayas, withTranslation) {
@@ -610,12 +608,10 @@
 
     const withTr = _s().showTranslation !== false;
     const ok = await copyAyaToClipboard(ayas, withTr);
-    if (typeof showToast === 'function') {
-      showToast(
-        ok ? `${ayas.length} ئايەت كۆچۈرۈلدى` : 'كۆچۈرۈش مۇۋەپپەقىيەتسىز بولدى',
-        ok ? 's' : 'e'
-      );
-    }
+    toast(
+      ok ? `${ayas.length} ئايەت كۆچۈرۈلدى` : 'كۆچۈرۈش مۇۋەپپەقىيەتسىز بولدى',
+      ok ? 's' : 'e'
+    );
   });
 
   window.QuranCopy = { copyAyaToClipboard, FONT_STACK_AR, FONT_STACK_UG };

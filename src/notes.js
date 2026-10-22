@@ -515,7 +515,7 @@
 
     const r = await window.electron.notesCreate('يېڭى خاتىرە');
     if (!r.success) {
-      if (typeof showToast === 'function') showToast('ياساش مۇۋەپپەقىيەتسىز بولدى', 'e');
+      toast('ياساش مۇۋەپپەقىيەتسىز بولدى', 'e');
       return;
     }
     await refreshNotesList();
@@ -527,7 +527,7 @@
 
     const r = await window.electron.notesGet(id);
     if (!r.success || !r.doc) {
-      if (typeof showToast === 'function') showToast('خاتىرە تېپىلمىدى', 'e');
+      toast('خاتىرە تېپىلمىدى', 'e');
       return;
     }
 
@@ -558,7 +558,7 @@
 
     const r = await window.electron.notesDelete(id);
     if (!r.success) {
-      if (typeof showToast === 'function') showToast('ئۆچۈرۈش مۇۋەپپەقىيەتسىز', 'e');
+      toast('ئۆچۈرۈش مۇۋەپپەقىيەتسىز', 'e');
       return;
     }
     if (_s().curDoc && _s().curDoc.id === id) {
@@ -567,7 +567,7 @@
     }
     await refreshNotesList();
     if (!_s().curDoc) await window.renderNotesView();
-    if (typeof showToast === 'function') showToast('ئۆچۈرۈلدى', 's');
+    toast('ئۆچۈرۈلدى', 's');
   };
 
   window.notesOnTitleInput = function(val) {
@@ -1095,7 +1095,7 @@
     const withTr = trEl ? trEl.checked : true;
 
     if (!sura || sura < 1 || sura > 114 || !aya || aya < 1) {
-      if (typeof showToast === 'function') showToast('توغرا سۈرە/ئايەت نومۇرى كىرگۈزۈڭ', 'e');
+      toast('توغرا سۈرە/ئايەت نومۇرى كىرگۈزۈڭ', 'e');
       return;
     }
     _s().quickSura = sura;
@@ -1124,7 +1124,7 @@
 
   window.notesInsertAya = async function(sura, aya, withTr) {
     if (!editorEl) {
-      if (typeof showToast === 'function') showToast('تەھرىرلىگۈچ ئېچىلمىغان', 'e');
+      toast('تەھرىرلىگۈچ ئېچىلمىغان', 'e');
       return;
     }
     const r = await window.electron.quranGetAya(sura, aya);
@@ -1153,20 +1153,18 @@
       : insertHtml;
     document.execCommand('insertHTML', false, safeInsert);
     markDirty();
-    if (typeof showToast === 'function') showToast('ئايەت قىستۇرۇلدى', 's');
+    toast('ئايەت قىستۇرۇلدى', 's');
   };
 
   window.notesCopyAya = async function(sura, aya, withTr) {
     if (!window.QuranCopy || typeof window.QuranCopy.copyAyaToClipboard !== 'function') {
-      if (typeof showToast === 'function') showToast('كۆچۈرۈش مودۇلى تېپىلمىدى', 'e');
+      toast('كۆچۈرۈش مودۇلى تېپىلمىدى', 'e');
       return;
     }
     const r = await window.electron.quranGetAya(sura, aya);
     if (!r.success || !r.aya) return;
     const ok = await window.QuranCopy.copyAyaToClipboard([r.aya], withTr);
-    if (typeof showToast === 'function') {
-      showToast(ok ? 'كۆچۈرۈلدى' : 'كۆچۈرۈش مۇۋەپپەقىيەتسىز', ok ? 's' : 'e');
-    }
+    toast(ok ? 'كۆچۈرۈلدى' : 'كۆچۈرۈش مۇۋەپپەقىيەتسىز', ok ? 's' : 'e');
   };
 
   // ========== HELPERS ==========
@@ -1212,9 +1210,7 @@
       // still slow: a cold disk cache on a spinning drive.
       const sc = window.SpellCheck;
       const ready = sc && typeof sc.isReady === 'function' && sc.isReady();
-      if (!ready && typeof showToast === 'function') {
-        showToast('ئىملا لۇغىتى يۈكلىنىۋاتىدۇ...', 'i');
-      }
+      if (!ready) toast('ئىملا لۇغىتى يۈكلىنىۋاتىدۇ...', 'i');
       window.notesRunSpellCheck();
     } else if (!checked && typeof window.notesClearSpellCheck === 'function') {
       window.notesClearSpellCheck();
@@ -1562,7 +1558,7 @@
       : insertHtml;
     document.execCommand('insertHTML', false, safeInsert);
     markDirty();
-    if (typeof showToast === 'function') showToast('مەنبە قىستۇرۇلدى', 's');
+    toast('مەنبە قىستۇرۇلدى', 's');
   };
 
   // ========== QUALITY EXTRAS (Phase 5) ==========
