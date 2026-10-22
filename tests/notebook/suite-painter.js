@@ -67,4 +67,52 @@
     // --- the source is not a target ---
     t.assert.equal(ed.children[0].textContent, textsBefore[0], 'the source paragraph changed');
   });
+
+  // Quoted material is not the writer's text: a verse keeps the Uthmani face it
+  // was inserted with, and an inserted passage keeps the markers that say it is
+  // one. The writer's own paragraphs around them are painted as usual.
+  test('painter-skips-quoted', async function (t) {
+    const ed = await t.fresh({
+      html: SOURCE +
+        '<p>ئالدىدىكى تېكىست</p>' +
+        '<p><span style="font-family:\'UthmanicHafs\',serif;font-size:20pt">ئايەتنىڭ تېكىستى</span></p>' +
+        '<blockquote class="notes-inserted-ref" data-ref-insert="1"><span>نەقىل تېكىستى</span></blockquote>' +
+        '<p>كەينىدىكى تېكىست</p>'
+    });
+    t.assert.deepEqual(t.blockTags(), ['P', 'P', 'P', 'BLOCKQUOTE', 'P'],
+      'the fixture did not survive the sanitizer');
+
+    const verse = ed.children[2].querySelector('span');
+    const quote = ed.children[3];
+    const verseBefore = window.getComputedStyle(verse).fontFamily;
+
+    t.caretIn(t.firstText(ed.children[0]), 2);
+    document.getElementById('notes-fp-btn')
+      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    await t.sleep(320);
+
+    t.select(t.firstText(ed.children[1]), 0,
+             t.lastText(ed.children[4]), t.lastText(ed.children[4]).data.length);
+    ed.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    await t.sleep(120);
+
+    // The quotations are untouched.
+    t.assert.includes(window.getComputedStyle(verse).fontFamily, 'UthmanicHafs',
+      'the painter restyled an inserted verse');
+    t.assert.equal(window.getComputedStyle(verse).fontFamily, verseBefore,
+      'the verse\'s font changed');
+    t.assert.ok(ed.querySelector('.notes-inserted-ref'),
+      'the inserted passage lost the class that marks it as quoted');
+    t.assert.excludes(window.getComputedStyle(t.firstText(quote).parentElement).fontFamily,
+      'UKIJ Tuz Tom', 'the painter painted an inserted passage');
+
+    // The writer's own paragraphs on both sides are painted.
+    for (const index of [1, 4]) {
+      const run = t.firstText(ed.children[index]).parentElement;
+      t.assert.includes(window.getComputedStyle(run).fontFamily, 'UKIJ Tuz Tom',
+        'paragraph ' + index + ' was not painted');
+    }
+    t.assert.deepEqual(t.blockTags(), ['P', 'P', 'P', 'BLOCKQUOTE', 'P'],
+      'painting across a quotation changed the structure');
+  });
 })();

@@ -671,20 +671,7 @@
     if (!editorEl) return;
     putDocument(_s().curDoc.content_html || '');
 
-    editorEl.addEventListener('input', () => {
-      markDirty();
-      // Hook for Prompt 6 — n-gram reference scanner
-      if (typeof window.notesScanReferences === 'function') {
-        window.notesScanReferences();
-      }
-      // Spell check (debounced)
-      if (_s().spellCheckEnabled && typeof window.notesRunSpellCheck === 'function') {
-        clearTimeout(_s()._spellTimer);
-        _s()._spellTimer = setTimeout(() => window.notesRunSpellCheck(), 800);
-      }
-      // Word/char count (debounced)
-      scheduleWordCount();
-    });
+    editorEl.addEventListener('input', () => { if (!inputSuspended) onEditorInput(); });
     // Initial word count for the loaded document.
     updateWordCount();
 
@@ -776,6 +763,33 @@
 
     // Focus at end of content
     placeCaretAtEnd(editorEl);
+  }
+
+  // Everything that follows an edit: the save, the references, the spelling,
+  // the counts. A batch of editing commands - the format painter is one -
+  // suspends it and runs it ONCE at the end, instead of once per command.
+  let inputSuspended = false;
+
+  function onEditorInput() {
+    markDirty();
+    if (typeof window.notesScanReferences === 'function') {
+      window.notesScanReferences();
+    }
+    if (_s().spellCheckEnabled && typeof window.notesRunSpellCheck === 'function') {
+      clearTimeout(_s()._spellTimer);
+      _s()._spellTimer = setTimeout(() => window.notesRunSpellCheck(), 800);
+    }
+    scheduleWordCount();
+  }
+
+  /** Run a batch of editing commands as one edit. */
+  function asOneEdit(run) {
+    inputSuspended = true;
+    try { run(); }
+    finally {
+      inputSuspended = false;
+      onEditorInput();
+    }
   }
 
   function placeCaretAtEnd(el) {
@@ -895,57 +909,111 @@
   let fpFormat = null;     // captured format descriptor
   let fpPressTimer = null; // single- vs double-click discrimination
 
+  // The toolbar's size levels, in the pixel sizes the engine gives them
+  // (measured in Electron 28 — tests/notebook/suite-engine.js). A source size
+  // in pixels is painted as the nearest level, because <font size> is what the
+  // size control writes and two ways of saying a size would fight each other.
+  const SIZE_LEVEL_PX = [10, 13, 16, 18, 24, 32, 48];
+  const BLOCK_TAG = /^(P|DIV|H[1-6]|LI|BLOCKQUOTE|PRE|TD|TH)$/;
+
   function fpIsTransparent(c) {
     const s = String(c || '').replace(/\s/g, '');
     return !s || s === 'transparent' || /rgba\(\d+,\d+,\d+,0(\.0+)?\)/.test(s);
   }
 
-  // Read the computed format at the current selection's anchor element.
+  function fpIsBoldWeight(weight) {
+    if (!weight) return false;
+    if (weight === 'bold' || weight === 'bolder') return true;
+    const n = parseInt(weight, 10);
+    return Number.isFinite(n) && n >= 600;
+  }
+
+  /** The first family of a font-family list, without its quotes. */
+  function fpFirstFamily(list) {
+    return String(list || '').split(',')[0].replace(/^["\']|["\']$/g, '').trim();
+  }
+
+  function fpLevelForPx(px) {
+    if (!Number.isFinite(px) || px <= 0) return 0;
+    let best = 0;
+    let bestGap = Infinity;
+    for (let i = 0; i < SIZE_LEVEL_PX.length; i++) {
+      const gap = Math.abs(SIZE_LEVEL_PX[i] - px);
+      if (gap < bestGap) { bestGap = gap; best = i + 1; }
+    }
+    return best;
+  }
+
+  /**
+   * The format at the caret — the formatting that is actually SET there.
+   *
+   * It used to be read from the computed style, which cannot tell formatting
+   * from inheritance: the theme's own ink was captured as a text colour, so
+   * text painted in the dark theme came out near-invisible on the light
+   * theme's paper (audit §2). This walks from the source text node up to the
+   * editor root instead - never into it - and takes the first element that
+   * actually sets each property. Nothing set by the editor, the theme or the
+   * stylesheet is picked up at all.
+   */
   function fpCaptureFormat() {
     if (!editorEl) return null;
     const sel = window.getSelection();
-    let node = (sel && sel.rangeCount) ? sel.getRangeAt(0).startContainer : null;
-    let el = node && node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-    if (!el || !editorEl.contains(el)) el = editorEl;
-    const cs = window.getComputedStyle(el);
-    // Nearest block ancestor for text-align + blockquote.
-    let block = el;
-    while (block && block !== editorEl && !/^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/.test(block.tagName || '')) {
-      block = block.parentElement;
-    }
-    const bcs = block && block !== editorEl ? window.getComputedStyle(block) : cs;
-    const td = (cs.textDecorationLine || cs.textDecoration || '');
-    // Background (highlight): the anchor's own background-color is often
-    // transparent when the selection starts at a text boundary OUTSIDE the
-    // highlighted span. Walk UP to the first non-transparent background, stopping
-    // before the editor root so the paper surface isn't captured as a highlight.
-    let bg = '';
-    for (let p = el; p && p !== editorEl; p = p.parentElement) {
-      const c = window.getComputedStyle(p).backgroundColor;
-      if (!fpIsTransparent(c)) { bg = c; break; }
-    }
-    return {
-      bold: parseInt(cs.fontWeight, 10) >= 600,
-      italic: cs.fontStyle === 'italic' || cs.fontStyle === 'oblique',
-      underline: /underline/.test(td),
-      strike: /line-through/.test(td),
-      fontFamily: (cs.fontFamily || '').split(',')[0].replace(/^["']|["']$/g, '').trim(),
-      fontSizePx: parseFloat(cs.fontSize) || 0,
-      color: cs.color,
-      background: bg,
-      align: bcs.textAlign,
-      blockquote: !!(block && block.tagName === 'BLOCKQUOTE'),
-      // Block-level paragraph metrics (Word parity): copied from the containing
-      // block's computed style and re-applied to every target block on paste.
-      lineHeight: bcs.lineHeight,
-      textIndent: bcs.textIndent,
-      marginTop: bcs.marginTop,
-      marginBottom: bcs.marginBottom
+    const node = (sel && sel.rangeCount) ? sel.getRangeAt(0).startContainer : null;
+    let el = (node && node.nodeType === Node.TEXT_NODE) ? node.parentElement : node;
+    if (!el || !editorEl.contains(el)) return null;
+
+    const f = {
+      bold: false, italic: false, underline: false, strike: false,
+      fontFamily: '', sizeLevel: 0, color: '', background: '',
+      align: '', lineHeight: '', textIndent: ''
     };
+
+    for (let p = el; p && p !== editorEl; p = p.parentElement) {
+      const tag = p.tagName || '';
+      const st = p.style || {};
+      const deco = st.textDecorationLine || st.textDecoration || '';
+
+      // A heading is bold, which is why painting one makes the target bold.
+      if (!f.bold && (tag === 'B' || tag === 'STRONG' || /^H[1-6]$/.test(tag) ||
+                      fpIsBoldWeight(st.fontWeight))) f.bold = true;
+      if (!f.italic && (tag === 'I' || tag === 'EM' ||
+                        st.fontStyle === 'italic' || st.fontStyle === 'oblique')) f.italic = true;
+      if (!f.underline && (tag === 'U' || /underline/.test(deco))) f.underline = true;
+      if (!f.strike && (tag === 'S' || tag === 'STRIKE' || tag === 'DEL' ||
+                        /line-through/.test(deco))) f.strike = true;
+
+      if (!f.fontFamily) {
+        const family = (tag === 'FONT' && p.getAttribute('face')) || st.fontFamily || '';
+        if (family) f.fontFamily = fpFirstFamily(family);
+      }
+      if (!f.sizeLevel) {
+        const level = (tag === 'FONT') ? parseInt(p.getAttribute('size'), 10) : NaN;
+        if (Number.isFinite(level) && level >= 1 && level <= 7) f.sizeLevel = level;
+        else if (st.fontSize) f.sizeLevel = fpLevelForPx(parseFloat(window.getComputedStyle(p).fontSize));
+      }
+      if (!f.color) {
+        const color = (tag === 'FONT' && p.getAttribute('color')) || st.color || '';
+        if (color) f.color = color;
+      }
+      if (!f.background) {
+        const bg = st.backgroundColor || '';
+        if (bg && !fpIsTransparent(bg)) f.background = bg;
+      }
+
+      // Paragraph metrics belong to the source's own block, and only when they
+      // are set on it. Margins are no longer copied at all: they were the
+      // visible half of «the painter moves my paragraphs around».
+      if (BLOCK_TAG.test(tag)) {
+        if (!f.align && st.textAlign) f.align = st.textAlign;
+        if (!f.lineHeight && st.lineHeight) f.lineHeight = st.lineHeight;
+        if (!f.textIndent && st.textIndent) f.textIndent = st.textIndent;
+      }
+    }
+    return f;
   }
 
   // Collect every block element that intersects the current selection. Used by
-  // the format painter's block-level paste and the paragraph controls (Task 4).
+  // the paragraph controls (Task 4).
   // Falls back to the caret's containing block when nothing intersects.
   function selectedBlocks() {
     if (!editorEl) return [];
@@ -965,49 +1033,154 @@
     return (el && el !== editorEl) ? [el] : [];
   }
 
-  // Apply the captured format to the current (non-collapsed) selection.
-  // Character formatting is written as ONE inline-styled span via insertHTML:
-  // deterministic, undoable in a single Ctrl+Z, and — unlike hiliteColor — the
-  // background color reliably sticks. Block-level metrics are then set directly
-  // on every block the selection touched.
+  /** The blocks a range covers ENTIRELY — the only ones that get its metrics. */
+  function blocksFullyInside(range) {
+    if (!editorEl) return [];
+    const SEL = 'p,div,h1,h2,h3,h4,h5,h6,li,blockquote,pre,td,th';
+    return Array.from(editorEl.querySelectorAll(SEL)).filter(b => {
+      try {
+        if (!range.intersectsNode(b)) return false;
+        const whole = document.createRange();
+        whole.selectNodeContents(b);
+        return range.compareBoundaryPoints(Range.START_TO_START, whole) <= 0 &&
+               range.compareBoundaryPoints(Range.END_TO_END, whole) >= 0;
+      } catch (_) { return false; }
+    });
+  }
+
+  /**
+   * The parts of a range that are the writer's own text: the range minus every
+   * stretch of quoted material in it (QUOTED_SELECTOR — verses, citation links,
+   * inserted passages). Painting a verse would restyle the Qur'an, and
+   * removeFormat strips the very attribute that says a passage is quoted
+   * (measured: tests/notebook/suite-engine.js).
+   */
+  function fpWritablePieces(target) {
+    const TM = window.TextMap;
+    if (!TM || !editorEl) return [];
+    const map = TM.readTextMap(editorEl);
+    const start = TM.offsetAtPoint(map, target.startContainer, target.startOffset);
+    const end = TM.offsetAtPoint(map, target.endContainer, target.endOffset);
+    if (!(end > start)) return [];
+
+    const runs = [];
+    let cursor = start;
+    for (const span of TM.quotedSpans(map, editorEl)) {
+      if (span[1] <= cursor) continue;
+      if (span[0] >= end) break;
+      if (span[0] > cursor) runs.push([cursor, span[0]]);
+      cursor = Math.max(cursor, span[1]);
+    }
+    if (cursor < end) runs.push([cursor, end]);
+
+    return runs
+      .map(run => TM.rangeFor(map, run[0], run[1]))
+      .filter(range => range && range.toString().trim());
+  }
+
+  /** Run a toggle only when the range does not already have it. */
+  function fpToggle(command, wanted) {
+    if (!wanted) return;        // removeFormat has already cleared it
+    let state = false;
+    try { state = document.queryCommandState(command); } catch (_) {}
+    // A heading is bold through its own tag; queryCommandState says so, and
+    // skipping the toggle is what keeps the command from UN-bolding it.
+    if (!state) document.execCommand(command);
+  }
+
+  /** Give one range the captured character format, with editing commands only. */
+  function fpPaintRange(range, f) {
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    // Word's override semantics: the painted text takes the source's format,
+    // so whatever it had goes first. Measured in Electron 28: removeFormat
+    // keeps blocks, <br>, links and classes.
+    document.execCommand('removeFormat');
+
+    if (f.fontFamily) document.execCommand('fontName', false, f.fontFamily);
+    if (f.sizeLevel) document.execCommand('fontSize', false, String(f.sizeLevel));
+    fpToggle('bold', f.bold);
+    fpToggle('italic', f.italic);
+    fpToggle('underline', f.underline);
+    fpToggle('strikeThrough', f.strike);
+    if (f.color) {
+      document.execCommand('styleWithCSS', false, true);
+      document.execCommand('foreColor', false, f.color);
+      document.execCommand('styleWithCSS', false, false);
+    }
+    if (f.background && !fpIsTransparent(f.background)) {
+      document.execCommand('styleWithCSS', false, true);
+      document.execCommand('hiliteColor', false, f.background);
+      document.execCommand('styleWithCSS', false, false);
+    }
+  }
+
+  /** Alignment, line height and first-line indent, per whole block. */
+  function fpPaintBlocks(blocks, f) {
+    if (!blocks.length) return;
+    const command = !f.align ? ''
+      : (f.align === 'center' ? 'justifyCenter'
+      : (f.align === 'justify' ? 'justifyFull'
+      : ((f.align === 'left' || f.align === 'end') ? 'justifyLeft' : 'justifyRight')));
+    const sel = window.getSelection();
+    for (const b of blocks) {
+      if (command) {
+        // Through the command, so Ctrl+Z takes it back. Per block, because the
+        // selection has moved on by now.
+        try {
+          const range = document.createRange();
+          range.selectNodeContents(b);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          document.execCommand(command);
+        } catch (_) {}
+      }
+      // There is no command for these two, so they are set directly and are
+      // not part of the browser's undo history (recorded in CLAUDE.md).
+      if (f.lineHeight && f.lineHeight !== 'normal') b.style.lineHeight = f.lineHeight;
+      if (f.textIndent) b.style.textIndent = f.textIndent;
+    }
+  }
+
+  /**
+   * Paint the captured format onto the current selection.
+   *
+   * The owner's bug 1. This used to take the selection as plain text
+   * (sel.toString()) and write it back inside ONE span: three painted
+   * paragraphs became one, every line break turned into a space, and the bold,
+   * the links and the inline formatting inside them were gone. Four paragraphs
+   * came back as two, and Ctrl+Z restored the paragraphs but not the line
+   * spacing the painter had set.
+   *
+   * Now nothing is rebuilt: the selection is split into the parts that are the
+   * writer's own text, and each part is given the format with editing commands
+   * over its own Range. The structure is never addressed at all, so it cannot
+   * be damaged.
+   */
   function fpApplyFormat() {
     if (!editorEl || !fpFormat) return;
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.anchorNode || !editorEl.contains(sel.anchorNode)) return;
-    editorEl.focus();
-    const f = fpFormat;
-    const blocks = selectedBlocks();            // capture BEFORE insertHTML collapses the selection
-    const text = sel.toString();
-    if (!text) return;
-    const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // Build one inline style string carrying the full character format. Painting
-    // OVERRIDES the target (Word parity), so weight/style/decoration are always
-    // written explicitly rather than toggled against the target's current state.
-    const st = [];
-    if (f.fontFamily) st.push("font-family:'" + f.fontFamily + "'");
-    if (f.fontSizePx) st.push('font-size:' + Math.round(f.fontSizePx) + 'px');
-    if (f.color) st.push('color:' + f.color);
-    if (f.background && !fpIsTransparent(f.background)) st.push('background-color:' + f.background);
-    st.push('font-weight:' + (f.bold ? '700' : '400'));
-    st.push('font-style:' + (f.italic ? 'italic' : 'normal'));
-    const deco = [f.underline ? 'underline' : '', f.strike ? 'line-through' : ''].filter(Boolean).join(' ') || 'none';
-    st.push('text-decoration:' + deco);
-    document.execCommand('styleWithCSS', false, true);
-    document.execCommand('insertHTML', false, '<span style="' + st.join(';') + '">' + esc(text) + '</span>');
-    // Block-level metrics: execCommand has no command for these, so set them
-    // directly on every block the (original) selection intersected.
-    for (const b of blocks) {
-      if (f.align === 'center') b.style.textAlign = 'center';
-      else if (f.align === 'left') b.style.textAlign = 'left';
-      else if (f.align === 'right' || f.align === 'start') b.style.textAlign = 'right';
-      if (f.lineHeight && f.lineHeight !== 'normal') b.style.lineHeight = f.lineHeight;
-      if (f.textIndent) b.style.textIndent = f.textIndent;
-      if (f.marginTop) b.style.marginTop = f.marginTop;
-      if (f.marginBottom) b.style.marginBottom = f.marginBottom;
-    }
-    markDirty();
-  }
 
+    const target = sel.getRangeAt(0).cloneRange();
+    const blocks = blocksFullyInside(target);
+    const pieces = fpWritablePieces(target);
+    if (!pieces.length) {
+      toast('ئايەت ۋە نەقىلگە سۈپۈرگە ئىشلىمەيدۇ', 'i');
+      return;
+    }
+
+    const f = fpFormat;
+    editorEl.focus();
+    // One edit: the autosave, the counts, the spelling and the reference scan
+    // run once at the end rather than after every command.
+    asOneEdit(() => {
+      for (const piece of pieces) fpPaintRange(piece, f);
+      fpPaintBlocks(blocks, f);
+    });
+  }
   function fpArm(sticky) {
     if (!editorEl || !fpFormat) return;
     fpArmed = true;
