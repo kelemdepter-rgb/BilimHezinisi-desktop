@@ -17,7 +17,7 @@ Read prompts/3.5/PROMPT-3.5.md in full, then prompts/3.5/PROGRESS.md, and contin
 | 0 | Groundwork: branch, `npm test`, CLAUDE.md rules | **done** | `1809615` docs: add the 3.5 audit and work order · `c51ac2f` test: an Electron test runner for the notebook and the database · `1589d4f` docs(claude): record the 3.5 notebook and data rules · docs(progress): this file | 12 added, 10 failing on purpose (see below) |
 | 1 | Notebook: nothing written may be damaged or lost (owner's bugs 1–2, K1, K2, K3, K7) | **done** — waiting for the owner's check | `56f4548` fix(notes): show the messages that were thrown away (K7) · `f79fc17` fix(spellcheck): one text map, where a line end is a word boundary · `6a900fe` fix(notes): nothing typed may be lost (K3) · `7be9db0` fix(notes): replace each hit where it stands (K1) · `38fa3ba` fix(notes): the format painter paints, it does not rebuild · `a935fff` fix(notes): the reference scan paints its matches (K2) · docs(progress) ×2 | 20 green; `sanitize-keeps-markers` stayed red until Phase 2.3 |
 | 2 | Library safety: K4, K6, K18 + backup/restore | **done** — waiting for the owner's check | `5aef0a4` fix(library): a book is deleted only when the writer deletes it (K4) · `1203572` feat(library): backup, restore and a migrations framework · `71cdcdf` fix(sanitize): the allow lists are the lists that are applied (K6) · `d7552b9` docs: correct the removeFormat measurement; repair CLAUDE.md · `9f91645` fix(window): the window stays in the app; only http(s) goes outside (K18) · `87de2d6` build: drop sql.js, which nothing uses (K18) · docs(progress) | 37 in all (with the syntax gate), every one green |
-| 3 | Versions and document structure: W1, W4, W5, W14, K11 | not started | — | — |
+| 3 | Versions and document structure: W1, W4, W5, W14, K11 | **done** — waiting for the owner's check | `171cf60` feat(notes): keep earlier versions of a note - storage (W1) · `d7667bb` feat(notes): history, block style, outline, undo and redo (W1, W4, W5, W14, K11) · docs(progress) | 48 in all (with the syntax gate), every one green |
 | 4 | Export: W6, K8 | not started | — | — |
 | 5 | List, trash, spelling: W2, W3, W7–W10, K12, K13 | not started | — | — |
 | 6 | Citations, sources, AI that keeps formatting: W11–W13, K9 | not started | — | — |
@@ -174,6 +174,37 @@ Findings on the way:
 6. قۇرئاندا بىر سۈرە ئېچىپ، ئاستىدىكى «Tanzil Project» ئۇلىنىشىنى بېسىڭ → توركۆرگۈچتە ئېچىلىدۇ.
 7. بىر كىتابنى ئوقۇپ بىرنەچچە بەت ۋاراقلاڭ، تاقاپ قايتا ئېچىڭ → ئوقۇغان يېرىڭىزدىن داۋاملىشىدۇ.
 
+## Phase 3 — done
+
+| Item | What changed | Tests (red before → green after) |
+|---|---|---|
+| 3.1 | Migration step 1: `note_versions` (cascade on note delete, AUTOINCREMENT id). `noteVersionKeep/List/Get` in `database.js` with the web's rules — no duplicate of the newest, `before-*` relabels an identical `open`/`auto`, `auto` at most every 5 min, 30 per note (oldest `auto` first, never the newest). Kept before replace-all, a paint over more than one paragraph, AI apply, restore; on open; after a confirmed save. «نەشر تارىخى» button → list → sanitized read-only preview → «بۇ نۇسخىنى ئەسلىگە قايتۇرۇش». | main: `versions-migration`, `versions-dedupe-relabel`, `versions-auto-every-5-min`, `versions-eviction`, `versions-list-get-cascade`; notebook: `versions-kept-at-the-right-moments`, `versions-before-paint`, `versions-restore` |
+| 3.2 | One menu — «ئادەتتىكى تېكىست» / «چوڭ ماۋزۇ» (h2) / «كىچىك ماۋزۇ» (h3) / «نەقىل» — instead of the quote button; shows where the caret is. | `block-style-transitions` (every transition, one undo step each, redo) |
+| 3.3 | «مۇندەرىجە»: h1–h4, empty left out, indented from the highest, re-read 300 ms after a change; click scrolls to just below the toolbar, caret at the start. | `outline` |
+| 3.4 | «يېنىۋېلىش» / «قايتىلاش» on the toolbar. The limitation (line height and indent are outside the undo history) was already in CLAUDE.md. | `undo-redo-buttons` |
+
+**One deliberate difference from the work order:** a heading or a quote turned
+back into normal text becomes a `<p>`, not the web edition's `<div>`. The web
+chose `div` because that is what Enter makes in its editor; in this one Enter
+makes `<p>`, and `.notes-editor p` carries the paragraph spacing — a `div`
+would sit flush against the next paragraph. The measured behaviour is the same
+for both tags (one undo step, the quote's lines kept).
+
+Checked by hand in `npm run dev`: on the first start the DEV library was backed
+up to `backups\library-before-3.2.0.db` and then migrated to schema 1 —
+`[migration] 1 note_versions applied`. On the owner's real library the same
+happens on the first start of 3.5.0, as `library-before-3.5.0.db`. Not checked
+by hand: the panes and the menu — the owner's checklist below.
+
+### Phase 3 checklist for the owner (`npm run dev`)
+
+1. بىر ئابزاستا تۇرۇپ، قورال بالدىقىدىكى «ئادەتتىكى تېكىست» تىزىملىكىدىن «چوڭ ماۋزۇ» نى تاللاڭ ← ئابزاس ماۋزۇغا ئايلىنىدۇ. «ئادەتتىكى تېكىست» نى تاللىسىڭىز ← قايتىدىن ئادەتتىكى ئابزاس بولىدۇ. ھەر بىرىدىن كېيىن Ctrl+Z بىر قېتىم باسسىڭىز، ئالدىنقى ھالىتىگە قايتىدۇ.
+2. بىر ئابزاسنى «نەقىل» قىلىڭ، ئاندىن «ئادەتتىكى تېكىست» قىلىڭ ← نەقىل يوقىلىپ ئادەتتىكى ئابزاس بولىدۇ (بۇرۇن قايتۇرغىلى بولمايتتى).
+3. نۇر بەلگىنى ماۋزۇغا، نەقىلگە، ئادەتتىكى ئابزاسقا قويۇڭ ← تىزىملىك ھەر قېتىم نۇر بەلگە تۇرغان يەرنى كۆرسىتىدۇ.
+4. ئۇزۇن بىر خاتىرىگە ئۈچ-تۆت ماۋزۇ قوشۇپ، يۇقىرىدىكى «مۇندەرىجە» نى بېسىڭ ← ماۋزۇلار تىزىلىدۇ. بىرىنى بېسىڭ ← شۇ ماۋزۇ قورال بالدىقىنىڭ ئاستىغا كېلىدۇ.
+5. بىر سۆزنى «ھەممىنى ئالماشتۇرۇش» قىلىڭ، ئاندىن «نەشر تارىخى» نى بېسىڭ ← «ئالماشتۇرۇشتىن بۇرۇن» دېگەن نۇسخا بار. ئۇنى بېسىپ قاراڭ، «بۇ نۇسخىنى ئەسلىگە قايتۇرۇش» نى بېسىڭ ← خاتىرە ئالماشتۇرۇشتىن بۇرۇنقى ھالىتىگە قايتىدۇ، تىزىملىككە «ئەسلىگە قايتۇرۇشتىن بۇرۇن» قوشۇلىدۇ.
+6. قورال بالدىقىنىڭ ئەڭ بېشىدىكى يېنىۋېلىش / قايتىلاش كۇنۇپكىلىرىنى سىناڭ ← Ctrl+Z / Ctrl+Y بىلەن ئوخشاش ئىشلەيدۇ.
+
 ## Measurements
 
 Anything the audit or the web edition measured in another engine has to be
@@ -189,7 +220,7 @@ confirmed here goes into `CLAUDE.md`.
 | `removeFormat` keeps `data-*` attributes? | **yes.** Corrected in Phase 2.3: Phase 1 recorded «no», but the old sanitizer had already stripped `data-ref-insert` when the fixture was opened (K6), so the command was never measured. The test now checks the attribute is there first. The painter still skips quoted material — a verse or citation is not the writer's to restyle — just not for this reason | `engine-removeformat`, Phases 1.2 / 2.3 |
 | The toolbar's font-size levels 1–7, in pixels | 10, 13, 16, 18, 24, 32, 48 — a source size is painted as the nearest level | `engine-font-sizes`, Phase 1.2 |
 | `PRAGMA integrity_check` on a whole library | **fails**: "SQL logic error" — FTS5 is checked too, and `book_fts` has `content_rowid` without external content. Table by table works | `backup-copy`, Phase 2.2 |
-| `formatBlock div` / `outdent` to leave a quote | **not yet measured** — Phase 3.2 | — |
+| Leaving a heading or a quote | `formatBlock <p>` turns a heading, or a quote of text lines, into normal text; a quote of blocks needs `outdent` over its whole content (formatBlock leaves it); each is ONE undo step and comes back with redo. Matches the web's Chromium 151 findings | `block-style-transitions`, Phase 3.2 |
 
 ## Deferred
 
