@@ -78,6 +78,7 @@
       "database.js",
       "library-sync.js",
       "backup.js",
+      "navigation.js",
       "ocr-postprocess.js",
       "src/**/*",
       "assets/ukijekran.ttf",

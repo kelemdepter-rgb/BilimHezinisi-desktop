@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const database = require('./database');
 const librarySync = require('./library-sync');
 const backup = require('./backup');
+const navigation = require('./navigation');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
 // The word rules themselves (WORD_PATTERN, isCheckable, tokenize) — used by
@@ -214,9 +215,22 @@ function createWindow() {
     mainWindow.show();
   });
 
+  // A link that asks for a new window: only a real http(s) address goes to
+  // the system browser — the sura footer's Tanzil and QuranEnc links, the
+  // pricing link in the AI settings. Anything else (file:, javascript:, a
+  // custom scheme) used to be handed to Windows as well, and is dropped (K18).
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    const external = navigation.externalUrl(url);
+    if (external) shell.openExternal(external);
     return { action: 'deny' };
+  });
+
+  // The window itself never leaves the app: a dropped file, a link in a note,
+  // anything that would navigate it is stopped. Its own page (a reload) is
+  // the one exception.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (navigation.isAppPage(url, path.join(__dirname, 'src', 'index.html'))) return;
+    event.preventDefault();
   });
 
   // Closing with unsaved writing in the notebook (K3d).
@@ -1095,13 +1109,14 @@ ipcMain.handle('export-as-docx', async (event, title, author, content) => {
 });
 
 ipcMain.handle('export-as-pdf', async (event, title, author, content) => {
+  let pdfWin = null;
   try {
     const result = await dialog.showSaveDialog(mainWindow, {
       defaultPath: title + '.pdf',
       filters: [{ name: 'PDF ھۆججىتى', extensions: ['pdf'] }]
     });
     if (result.canceled) return { success: false };
-    const pdfWin = new BrowserWindow({ show: false, width: 800, height: 600 });
+    pdfWin = new BrowserWindow({ show: false, width: 800, height: 600 });
     const escapedTitle = title.replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const escapedAuthor = (author||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const escapedContent = content.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
@@ -1120,10 +1135,13 @@ ipcMain.handle('export-as-pdf', async (event, title, author, content) => {
       margins: { top: 0.6, bottom: 0.6, left: 0.6, right: 0.6 }
     });
     fs.writeFileSync(result.filePath, pdfData);
-    pdfWin.close();
     return { success: true };
   } catch(e) {
     return { success: false, error: e.message };
+  } finally {
+    // A failed print used to leave this hidden window alive until the app
+    // closed (K18).
+    if (pdfWin && !pdfWin.isDestroyed()) pdfWin.destroy();
   }
 });
 
