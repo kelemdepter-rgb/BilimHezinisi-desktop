@@ -325,6 +325,21 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_note_deleted ON note_documents(deleted_at);
       `);
     }
+  },
+  {
+    // K5, W16 — a bookmark, an in-book note and the reading position keep
+    // their PLACE: the character offset where their paragraph begins in the
+    // book's text (src/reader-places.js). Rows from before stay NULL — the
+    // reader lists them as old ones whose place was never kept.
+    version: 3,
+    name: 'annotation_offsets',
+    up(db) {
+      db.exec(`
+        ALTER TABLE bookmarks ADD COLUMN char_offset INTEGER;
+        ALTER TABLE notes ADD COLUMN char_offset INTEGER;
+        ALTER TABLE reading_progress ADD COLUMN char_offset INTEGER;
+      `);
+    }
   }
 ];
 
@@ -1470,11 +1485,33 @@ function getReadingProgress(bookId) {
   return row || { position: 0, page: 1 };
 }
 
-function saveReadingProgress(bookId, position, page) {
+/** A place (K5): a whole, non-negative character offset — anything else is none. */
+function placeOrNull(value) {
+  return (typeof value === 'number' && Number.isInteger(value) && value >= 0) ? value : null;
+}
+
+/**
+ * Does this library keep places yet (migration step 3)? It always does once
+ * the app has started — unless the backup before the step failed, and then
+ * the step did not run. Bookmarks and the reading position must still save in
+ * that library, the way they did before.
+ */
+function keepsPlaces() {
+  return db.prepare('PRAGMA table_info(reading_progress)').all().some(c => c.name === 'char_offset');
+}
+
+function saveReadingProgress(bookId, position, page, charOffset) {
+  if (!keepsPlaces()) {
+    db.prepare(`
+      INSERT OR REPLACE INTO reading_progress (book_id, position, page, updated_at)
+      VALUES (?, ?, ?, datetime('now'))
+    `).run(bookId, position, page || 1);
+    return;
+  }
   db.prepare(`
-    INSERT OR REPLACE INTO reading_progress (book_id, position, page, updated_at)
-    VALUES (?, ?, ?, datetime('now'))
-  `).run(bookId, position, page || 1);
+    INSERT OR REPLACE INTO reading_progress (book_id, position, page, char_offset, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+  `).run(bookId, position, page || 1, placeOrNull(charOffset));
 }
 
 function addRecentRead(bookId) {
@@ -1685,11 +1722,16 @@ function syncBookmarks(bookmarksObj) {
   if (!bookmarksObj || typeof bookmarksObj !== 'object') return;
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM bookmarks').run();
-    const stmt = db.prepare('INSERT INTO bookmarks (book_id, name, position, created_at) VALUES (?, ?, ?, ?)');
+    const places = keepsPlaces();
+    const stmt = places
+      ? db.prepare('INSERT INTO bookmarks (book_id, name, position, created_at, char_offset) VALUES (?, ?, ?, ?, ?)')
+      : db.prepare('INSERT INTO bookmarks (book_id, name, position, created_at) VALUES (?, ?, ?, ?)');
     for (const bookIdStr of Object.keys(bookmarksObj)) {
       const bookId = parseInt(bookIdStr);
       for (const bm of (bookmarksObj[bookIdStr] || [])) {
-        stmt.run(bookId, bm.name || '', bm.pos || 0, bm.date || new Date().toISOString());
+        const row = [bookId, bm.name || '', bm.pos || 0, bm.date || new Date().toISOString()];
+        if (places) row.push(placeOrNull(bm.off));
+        stmt.run(...row);
       }
     }
   });
@@ -1700,22 +1742,46 @@ function syncNotes(notesObj) {
   if (!notesObj || typeof notesObj !== 'object') return;
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM notes').run();
-    const stmt = db.prepare('INSERT INTO notes (book_id, text, position, created_at) VALUES (?, ?, ?, ?)');
+    const places = keepsPlaces();
+    const stmt = places
+      ? db.prepare('INSERT INTO notes (book_id, text, position, created_at, char_offset) VALUES (?, ?, ?, ?, ?)')
+      : db.prepare('INSERT INTO notes (book_id, text, position, created_at) VALUES (?, ?, ?, ?)');
     for (const bookIdStr of Object.keys(notesObj)) {
       const bookId = parseInt(bookIdStr);
       for (const note of (notesObj[bookIdStr] || [])) {
-        stmt.run(bookId, note.text || '', note.pos || 0, note.date || new Date().toISOString());
+        const row = [bookId, note.text || '', note.pos || 0, note.date || new Date().toISOString()];
+        if (places) row.push(placeOrNull(note.off));
+        stmt.run(...row);
       }
     }
   });
   tx();
 }
 
+// The percentages saveData() sends with the whole library. A book whose
+// percentage is unchanged keeps its page and its exact place (K5) — this used
+// INSERT OR REPLACE, which reset both on every theme change. A changed one
+// makes the old place stale.
 function syncReadingProgress(readPos) {
   if (!readPos || typeof readPos !== 'object') return;
+  if (!keepsPlaces()) {
+    const tx = db.transaction(() => {
+      for (const bookIdStr of Object.keys(readPos)) saveReadingProgress(parseInt(bookIdStr), readPos[bookIdStr], 1);
+    });
+    tx();
+    return;
+  }
+  const stmt = db.prepare(`
+    INSERT INTO reading_progress (book_id, position, page, char_offset, updated_at)
+    VALUES (?, ?, 1, NULL, datetime('now'))
+    ON CONFLICT(book_id) DO UPDATE SET
+      char_offset = CASE WHEN reading_progress.position = excluded.position THEN reading_progress.char_offset ELSE NULL END,
+      updated_at = CASE WHEN reading_progress.position = excluded.position THEN reading_progress.updated_at ELSE excluded.updated_at END,
+      position = excluded.position
+  `);
   const tx = db.transaction(() => {
     for (const bookIdStr of Object.keys(readPos)) {
-      saveReadingProgress(parseInt(bookIdStr), readPos[bookIdStr], 1);
+      stmt.run(parseInt(bookIdStr), readPos[bookIdStr]);
     }
   });
   tx();
@@ -1740,7 +1806,8 @@ function getAllBookmarksGrouped() {
     if (!grouped[row.book_id]) grouped[row.book_id] = [];
     grouped[row.book_id].push({
       id: String(row.id), name: row.name || '',
-      pos: row.position || 0, date: row.created_at || new Date().toISOString()
+      pos: row.position || 0, off: placeOrNull(row.char_offset),
+      date: row.created_at || new Date().toISOString()
     });
   }
   return grouped;
@@ -1753,7 +1820,8 @@ function getAllNotesGrouped() {
     if (!grouped[row.book_id]) grouped[row.book_id] = [];
     grouped[row.book_id].push({
       id: String(row.id), text: row.text || '',
-      pos: row.position || 0, date: row.created_at || new Date().toISOString()
+      pos: row.position || 0, off: placeOrNull(row.char_offset),
+      date: row.created_at || new Date().toISOString()
     });
   }
   return grouped;

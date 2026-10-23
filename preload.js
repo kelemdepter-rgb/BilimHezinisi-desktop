@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('electron', {
   dbAddNote: (bookId, text, position) => ipcRenderer.invoke('db-add-note', bookId, text, position),
   dbDeleteNote: (id) => ipcRenderer.invoke('db-delete-note', id),
   dbGetProgress: (bookId) => ipcRenderer.invoke('db-get-progress', bookId),
-  dbSaveProgress: (bookId, position, page) => ipcRenderer.invoke('db-save-progress', bookId, position, page),
+  dbSaveProgress: (bookId, position, page, charOffset) => ipcRenderer.invoke('db-save-progress', bookId, position, page, charOffset),
   dbAddRecent: (bookId) => ipcRenderer.invoke('db-add-recent', bookId),
   dbGetRecent: () => ipcRenderer.invoke('db-get-recent'),
   dbGetSetting: (key, defaultVal) => ipcRenderer.invoke('db-get-setting', key, defaultVal),

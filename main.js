@@ -583,9 +583,10 @@ ipcMain.handle('db-get-progress', (event, bookId) => {
   }
 });
 
-ipcMain.handle('db-save-progress', (event, bookId, position, page) => {
+// charOffset: the exact paragraph (K5) — where it begins in the book's text.
+ipcMain.handle('db-save-progress', (event, bookId, position, page, charOffset) => {
   try {
-    database.saveReadingProgress(bookId, position, page);
+    database.saveReadingProgress(bookId, position, page, charOffset);
     return { success: true };
   } catch(e) {
     return { success: false };
