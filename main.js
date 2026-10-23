@@ -443,12 +443,15 @@ ipcMain.handle('db-save-content', (event, bookId, content) => {
 });
 
 // Search books with FTS5
-ipcMain.handle('db-search', (event, query, category) => {
+ipcMain.handle('db-search', (event, query, category, opts) => {
   try {
     const results = database.searchBooks(query, category);
-    // Save search history
-    database.addSearchHistory(query, results.length);
-    database.saveDB(DATA_DIR);
+    // Save search history — the reader's. The notebook's «مەنبە» search
+    // (src/notes.js, notesSourceSearch) asks to stay out of it.
+    if (!(opts && opts.history === false)) {
+      database.addSearchHistory(query, results.length);
+      database.saveDB(DATA_DIR);
+    }
     return { success: true, results };
   } catch(e) {
     return { success: false, error: e.message, results: [] };

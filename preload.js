@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld('electron', {
   dbDeleteBook: (id) => ipcRenderer.invoke('db-delete-book', id),
   dbGetContent: (bookId) => ipcRenderer.invoke('db-get-content', bookId),
   dbSaveContent: (bookId, content) => ipcRenderer.invoke('db-save-content', bookId, content),
-  dbSearch: (query, category) => ipcRenderer.invoke('db-search', query, category),
+  dbSearch: (query, category, opts) => ipcRenderer.invoke('db-search', query, category, opts),
   dbGetAllSnippets: (bookId, query) => ipcRenderer.invoke('db-get-all-snippets', bookId, query),
   dbSearchHistory: () => ipcRenderer.invoke('db-search-history'),
   dbGetCategories: () => ipcRenderer.invoke('db-get-categories'),

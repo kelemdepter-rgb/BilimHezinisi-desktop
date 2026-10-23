@@ -691,7 +691,7 @@
       </div>
       <div class="notes-right-panel-content" id="notes-right-content">
         <div class="notes-right-pane" data-pane="quran" style="${vis('quran')}">${renderQuranPicker()}</div>
-        <div class="notes-right-pane" data-pane="refs" style="${vis('refs')}">${renderRefsEmpty()}</div>
+        <div class="notes-right-pane" data-pane="refs" style="${vis('refs')}">${renderSourceSearch()}${renderRefsEmpty()}</div>
         <div class="notes-right-pane" data-pane="ai" style="${vis('ai')}">${renderAiTab()}</div>
         <div class="notes-right-pane" data-pane="history" style="${vis('history')}">${renderHistoryPane()}</div>
         <div class="notes-right-pane" data-pane="outline" style="${vis('outline')}">${renderOutlinePane()}</div>
@@ -724,7 +724,7 @@
   function renderQuranPicker() {
     const sura = _s().quickSura || '';
     const aya = _s().quickAya || '';
-    const withTr = _s().quickWithTr !== false;
+    const mode = ayaMode(_s().ayaMode);
     return `<div>
       <div class="notes-quran-picker">
         <input type="number" id="notes-q-sura" min="1" max="114" placeholder="سۈرە" value="${sura}"
@@ -734,11 +734,24 @@
           onkeydown="if(event.key==='Enter')window.notesQuranPreview()">
         <button onclick="window.notesQuranPreview()">كۆرۈش</button>
       </div>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-bottom:12px;cursor:pointer">
-        <input type="checkbox" id="notes-q-tr" ${withTr?'checked':''} onchange="window.notesToggleQuickTr(this.checked)">
-        <span>تەرجىمىسى بىلەن</span>
-      </label>
+      <div class="notes-aya-mode" role="radiogroup" aria-label="ئايەتنى قانداق قىستۇرۇش">
+        ${AYA_MODES.map(m => `<label><input type="radio" name="notes-aya-mode" value="${m}" ${m === mode ? 'checked' : ''}
+          onchange="window.notesSetAyaMode(this.value)"><span>${AYA_MODE_LABELS[m]}</span></label>`).join('')}
+      </div>
       <div id="notes-q-preview"></div>
+    </div>`;
+  }
+
+  // The search box at the top of «مەنبە» (W12); the automatic references
+  // (renderRefsEmpty, then renderRefsPanel) stay below it.
+  function renderSourceSearch() {
+    return `<div class="notes-src">
+      <div class="notes-src-box">
+        <input type="search" id="notes-src-q" dir="rtl" placeholder="كىتابلار ۋە قۇرئاندىن ئىزدەش"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();window.notesSourceSearch();}">
+        <button type="button" onclick="window.notesSourceSearch()" title="ئىزدەش" aria-label="ئىزدەش">${icon('search')}</button>
+      </div>
+      <div id="notes-src-results"></div>
     </div>`;
   }
 
@@ -779,8 +792,14 @@
     window.notesSetTab('ai');
   };
 
-  window.notesToggleQuickTr = function(checked) {
-    _s().quickWithTr = !!checked;
+  // «ئەرەبچە / تەرجىمىسى / ئىككىلىسى», remembered in the settings (W12).
+  window.notesSetAyaMode = async function(mode) {
+    _s().ayaMode = ayaMode(mode);
+    document.querySelectorAll('input[name="notes-aya-mode"]').forEach(r => { r.checked = (r.value === _s().ayaMode); });
+    try { await window.electron.dbSetSetting('notes_aya_mode', _s().ayaMode); } catch(e) {}
+    // A verse on show is shown again the way it would now be inserted.
+    const preview = document.getElementById('notes-q-preview');
+    if (preview && preview.firstElementChild && _s().quickSura && _s().quickAya) window.notesQuranPreview();
   };
 
   // ========== DOCUMENT CRUD ==========
@@ -920,9 +939,14 @@
       const spRes = await window.electron.dbGetSetting('notes_spell_check', 'off');
       const spVal = (spRes && typeof spRes === 'object' && 'value' in spRes) ? spRes.value : spRes;
       _s().spellCheckEnabled = (spVal === 'on');
+
+      const amRes = await window.electron.dbGetSetting('notes_aya_mode', 'both');
+      const amVal = (amRes && typeof amRes === 'object' && 'value' in amRes) ? amRes.value : amRes;
+      _s().ayaMode = ayaMode(amVal);
     } catch (e) {
       _s().refScanEnabled = true;
       _s().spellCheckEnabled = false;
+      _s().ayaMode = 'both';
     }
 
     // Reflect loaded prefs into the toggle-bar checkboxes (rendered with the main column)
@@ -930,6 +954,7 @@
     if (refCb) refCb.checked = !!_s().refScanEnabled;
     const spCb = document.getElementById('notes-toggle-spellcheck');
     if (spCb) spCb.checked = !!_s().spellCheckEnabled;
+    document.querySelectorAll('input[name="notes-aya-mode"]').forEach(r => { r.checked = (r.value === _s().ayaMode); });
 
     // Switching documents (re-mounting the editor) always disarms the format
     // painter (its captured format belonged to the previous editor) and aborts
@@ -1687,10 +1712,9 @@
   window.notesQuranPreview = async function() {
     const suraEl = document.getElementById('notes-q-sura');
     const ayaEl = document.getElementById('notes-q-aya');
-    const trEl = document.getElementById('notes-q-tr');
     const sura = parseInt(suraEl ? suraEl.value : '', 10);
     const aya = parseInt(ayaEl ? ayaEl.value : '', 10);
-    const withTr = trEl ? trEl.checked : true;
+    const mode = ayaMode(_s().ayaMode);
 
     if (!sura || sura < 1 || sura > 114 || !aya || aya < 1) {
       toast('توغرا سۈرە/ئايەت نومۇرى كىرگۈزۈڭ', 'e');
@@ -1698,7 +1722,6 @@
     }
     _s().quickSura = sura;
     _s().quickAya = aya;
-    _s().quickWithTr = withTr;
 
     const r = await window.electron.quranGetAya(sura, aya);
     const preview = document.getElementById('notes-q-preview');
@@ -1709,13 +1732,16 @@
       return;
     }
     const a = r.aya;
+    // What is shown is what «قىستۇرۇش» inserts (notesInsertAya).
+    const showAr = mode !== 'ug' || !a.text_ug;
+    const showUg = mode !== 'ar' && a.text_ug;
     preview.innerHTML = `
       <div class="notes-quran-preview">
-        <div class="notes-quran-preview-ar">${escHtml(a.text_ar)}</div>
-        ${a.text_ug && withTr ? `<div class="notes-quran-preview-ug">${escHtml(a.text_ug)}</div>` : ''}
+        ${showAr ? `<div class="notes-quran-preview-ar">${escHtml(a.text_ar)}</div>` : ''}
+        ${showUg ? `<div class="notes-quran-preview-ug">${escHtml(a.text_ug)}</div>` : ''}
         <div class="notes-quran-preview-actions">
-          <button onclick="window.notesInsertAya(${sura}, ${aya}, ${withTr})">${icon('plus')} قىستۇرۇش</button>
-          <button onclick="window.notesCopyAya(${sura}, ${aya}, ${withTr})">${icon('copy')} كۆچۈرۈش</button>
+          <button data-action="insert" onclick="window.notesInsertAya(${sura}, ${aya}, '${mode}')">${icon('plus')} قىستۇرۇش</button>
+          <button data-action="copy" onclick="window.notesCopyAya(${sura}, ${aya}, '${mode}')">${icon('copy')} كۆچۈرۈش</button>
         </div>
       </div>`;
   };
@@ -1726,6 +1752,7 @@
    * means what it meant.
    */
   const AYA_MODES = ['ar', 'ug', 'both'];
+  const AYA_MODE_LABELS = { ar: 'ئەرەبچە', ug: 'تەرجىمىسى', both: 'ئىككىلىسى' };
   function ayaMode(mode) {
     if (mode === true) return 'both';
     if (mode === false) return 'ar';
@@ -1769,14 +1796,24 @@
     toast('ئايەت قىستۇرۇلدى', 's');
   };
 
-  window.notesCopyAya = async function(sura, aya, withTr) {
-    if (!window.QuranCopy || typeof window.QuranCopy.copyAyaToClipboard !== 'function') {
-      toast('كۆچۈرۈش مودۇلى تېپىلمىدى', 'e');
-      return;
-    }
+  window.notesCopyAya = async function(sura, aya, mode) {
+    mode = ayaMode(mode);
     const r = await window.electron.quranGetAya(sura, aya);
     if (!r.success || !r.aya) return;
-    const ok = await window.QuranCopy.copyAyaToClipboard([r.aya], withTr);
+    let ok = false;
+    if (mode === 'ug' && r.aya.text_ug) {
+      // The translation alone, with the verse it translates.
+      try {
+        await navigator.clipboard.writeText('«' + r.aya.text_ug + '» (' + Number(sura) + ':' + Number(aya) + ')');
+        ok = true;
+      } catch(e) { ok = false; }
+    } else {
+      if (!window.QuranCopy || typeof window.QuranCopy.copyAyaToClipboard !== 'function') {
+        toast('كۆچۈرۈش مودۇلى تېپىلمىدى', 'e');
+        return;
+      }
+      ok = await window.QuranCopy.copyAyaToClipboard([r.aya], mode === 'both');
+    }
     toast(ok ? 'كۆچۈرۈلدى' : 'كۆچۈرۈش مۇۋەپپەقىيەتسىز', ok ? 's' : 'e');
   };
 
@@ -2491,6 +2528,149 @@
     quranHref: quranHref,
     open: openLink,
     closeCard: closeLinkCard
+  };
+
+  // ========== MANUAL SOURCE SEARCH (W12) ==========
+  // The writer can look for a source instead of waiting for the scanner to
+  // find one. The library goes through the reader's own search (db-search,
+  // kept out of the search history, which is the reader's), then through each
+  // book's own occurrences with their offsets (db-get-all-snippets), so a
+  // citation opens at that very place; the Qur'an through quran-search. A
+  // book found by its title alone has no passage to quote and is left out.
+
+  const SRC_BOOKS = 10;        // books looked into
+  const SRC_PLACES = 3;        // places a book shows before «يەنە»
+  const SRC_MAX_PLACES = 20;   // places a book can show at all
+  const SRC_AYAS = 10;
+  let srcSeq = 0;              // a newer search makes an older answer stale
+  let srcHits = [];            // what the result buttons act on, by index
+  let srcMore = new Map();     // bookId -> the places not shown yet
+
+  /** FTS5's snippet() marks a hit with <mark>; the snippet IPC with §MARK_…§. */
+  function ftsMarks(s) {
+    return String(s || '').replace(/<mark>/g, '§MARK_OPEN§').replace(/<\/mark>/g, '§MARK_CLOSE§');
+  }
+
+  /** Book text as text: escaped first, and only then the marks made real. */
+  function markedSnippet(s) {
+    return escHtml(s).replace(/§MARK_OPEN§/g, '<mark>').replace(/§MARK_CLOSE§/g, '</mark>');
+  }
+
+  function srcMessage(box, text) {
+    box.innerHTML = `<div class="notes-src-msg">${escHtml(text)}</div>`;
+  }
+
+  function srcHitHtml(hit) {
+    const index = srcHits.push(hit) - 1;
+    const title = hit.kind === 'book'
+      ? escHtml(hit.title)
+      : 'قۇرئان كەرىم، ' + (hit.sura | 0) + ':' + (hit.aya | 0);
+    return `<div class="notes-src-hit" data-kind="${hit.kind}">
+      <div class="notes-src-title">${icon('book-open')}${title}</div>
+      <div class="notes-src-snippet"${hit.arabic ? ' lang="ar"' : ''}>${markedSnippet(hit.snip)}</div>
+      <div class="notes-ref-actions">
+        <button type="button" class="notes-ref-act" data-action="open" data-index="${index}">${icon('book-open')} ئېچىش</button>
+        <button type="button" class="notes-ref-act" data-action="insert" data-index="${index}">${icon('plus')} قىستۇرۇش</button>
+      </div>
+    </div>`;
+  }
+
+  function bindSourceButtons(root) {
+    root.querySelectorAll('button[data-action]:not([data-bound])').forEach(b => {
+      b.setAttribute('data-bound', '1');
+      b.addEventListener('click', onSourceAction);
+    });
+  }
+
+  function onSourceAction(e) {
+    const btn = e.currentTarget;
+    const action = btn.dataset.action;
+    if (action === 'more') {
+      const rest = srcMore.get(Number(btn.dataset.book)) || [];
+      srcMore.delete(Number(btn.dataset.book));
+      btn.insertAdjacentHTML('beforebegin', rest.map(srcHitHtml).join(''));
+      const parent = btn.parentElement;
+      btn.remove();
+      if (parent) bindSourceButtons(parent);
+      return;
+    }
+    const hit = srcHits[Number(btn.dataset.index)];
+    if (!hit) return;
+    if (hit.kind === 'book') {
+      if (action === 'insert') window.notesInsertRef(hit.bookId, encodeURIComponent(hit.snip), hit.pos, encodeURIComponent(hit.word));
+      else window.notesGoToBook(hit.bookId, encodeURIComponent(hit.word), hit.pos);
+    } else if (action === 'insert') {
+      window.notesInsertAya(hit.sura, hit.aya, _s().ayaMode);
+    } else {
+      window.notesGoToQuranAya(hit.sura, hit.aya);
+    }
+  }
+
+  window.notesSourceSearch = async function () {
+    const input = document.getElementById('notes-src-q');
+    const box = document.getElementById('notes-src-results');
+    if (!input || !box) return;
+    const q = input.value.replace(/\s+/g, ' ').trim();
+    const seq = ++srcSeq;
+    srcHits = [];
+    srcMore = new Map();
+    if (q.length < 2) { srcMessage(box, 'كەم دېگەندە ئىككى ھەرپ يېزىڭ'); return; }
+    srcMessage(box, 'ئىزدەۋاتىدۇ...');
+
+    const answers = await Promise.all([
+      Promise.resolve().then(() => window.electron.dbSearch(q, 'all', { history: false })).catch(() => null),
+      Promise.resolve().then(() => window.electron.quranSearch(q, { limit: SRC_AYAS })).catch(() => null)
+    ]);
+    if (seq !== srcSeq) return;
+    const lib = answers[0];
+    const quran = answers[1];
+    if ((!lib || !lib.success) && (!quran || !quran.success)) { srcMessage(box, 'ئىزدەش مەغلۇپ بولدى'); return; }
+
+    const found = ((lib && lib.success && lib.results) || [])
+      .filter(r => r && r.inC && r.book && r.book.id != null)
+      .slice(0, SRC_BOOKS);
+    const places = await Promise.all(found.map(r =>
+      Promise.resolve().then(() => window.electron.dbGetAllSnippets(r.book.id, q))
+        .then(res => (res && res.success && Array.isArray(res.snippets)) ? res.snippets : [], () => [])));
+    if (seq !== srcSeq) return;
+
+    let html = '';
+    let books = '';
+    found.forEach((r, i) => {
+      let list = places[i].slice(0, SRC_MAX_PLACES).map(s => ({
+        kind: 'book', bookId: r.book.id, title: r.book.title || '', snip: s.snip || '',
+        pos: (typeof s.pos === 'number' && s.pos >= 0) ? s.pos : null, word: q
+      }));
+      // Every word was found, but not side by side: the search's own snippet,
+      // citing the book alone.
+      if (!list.length && r.snip) {
+        list = [{ kind: 'book', bookId: r.book.id, title: r.book.title || '', snip: ftsMarks(r.snip), pos: null, word: '' }];
+      }
+      if (!list.length) return;
+      books += list.slice(0, SRC_PLACES).map(srcHitHtml).join('');
+      if (list.length > SRC_PLACES) {
+        srcMore.set(r.book.id, list.slice(SRC_PLACES));
+        books += `<button type="button" class="notes-src-more" data-action="more" data-book="${r.book.id}">يەنە ${list.length - SRC_PLACES} ئورۇن</button>`;
+      }
+    });
+    if (books) html += `<div class="notes-src-head">كىتابلار</div>${books}`;
+
+    const ayas = ((quran && quran.success && quran.results) || []).slice(0, SRC_AYAS);
+    if (ayas.length) {
+      html += '<div class="notes-src-head">قۇرئان</div>';
+      html += ayas.map(a => {
+        // The column the words were found in — FTS5 snippets the other one too.
+        const inUg = !!a.snip_ug && a.snip_ug.indexOf('<mark>') !== -1;
+        const inAr = !!a.snip_ar && a.snip_ar.indexOf('<mark>') !== -1;
+        const snip = inUg ? a.snip_ug : inAr ? a.snip_ar : (a.text_ug || a.text_ar || '');
+        const arabic = !inUg && (inAr || !a.text_ug);
+        return srcHitHtml({ kind: 'aya', sura: a.sura, aya: a.aya, snip: ftsMarks(snip), arabic: arabic });
+      }).join('');
+    }
+
+    if (!html) { srcMessage(box, 'ھېچنېمە تېپىلمىدى'); return; }
+    box.innerHTML = html;
+    bindSourceButtons(box);
   };
 
   // ========== QUALITY EXTRAS (Phase 5) ==========

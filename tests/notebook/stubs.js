@@ -35,6 +35,7 @@
     forceMarks: null,       // see spellCheck below
     validateWord: null,     // override the one-word check
     ngramWords: [],         // the words the fake n-gram matcher "finds"
+    search: null,           // what dbSearch / dbGetAllSnippets / quranSearch answer
     nextId: 3
   };
   window.FAKE = FAKE;
@@ -47,7 +48,7 @@
   function freshNotesState() {
     return {
       docs: [], curDoc: null, dirty: false, matches: new Map(),
-      rightTab: 'quran', quickSura: null, quickAya: null, quickWithTr: true,
+      rightTab: 'quran', quickSura: null, quickAya: null, ayaMode: 'both',
       refsFilter: null
     };
   }
@@ -280,6 +281,20 @@
         aya: { sura: sura, aya: aya, text_ar: 'بِسْمِ ٱللَّهِ', text_ug: 'ئاللاھنىڭ ئىسمى بىلەن' }
       };
     },
+    // The «مەنبە» search box (W12): FAKE.search holds what the library and
+    // the Qur'an "find"; every call is recorded.
+    dbSearch: async function (query, category, opts) {
+      FAKE.calls.push(['dbSearch', query, category, opts || null]);
+      return { success: true, results: FAKE.search.books.slice() };
+    },
+    dbGetAllSnippets: async function (bookId, query) {
+      FAKE.calls.push(['dbGetAllSnippets', bookId, query]);
+      return { success: true, snippets: (FAKE.search.snippets[bookId] || []).slice() };
+    },
+    quranSearch: async function (query, opts) {
+      FAKE.calls.push(['quranSearch', query, opts || null]);
+      return { success: true, results: FAKE.search.ayas.slice() };
+    },
     exportNote: async function (format, payload) {
       FAKE.noteExports.push({ format: format, payload: payload });
       return { success: true, name: 'خاتىرە.' + format };
@@ -350,6 +365,7 @@
     FAKE.forceMarks = opts.forceMarks || null;
     FAKE.validateWord = opts.validateWord || null;
     FAKE.ngramWords = opts.ngramWords || [];
+    FAKE.search = opts.search || { books: [], snippets: {}, ayas: [] };
     window.TOASTS = [];
 
     window.S.notes = freshNotesState();
