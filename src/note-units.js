@@ -319,8 +319,132 @@
     return { applied: applied, skipped: skipped };
   }
 
+  // ----------------------------------------------------------- OCR cleanup
+  // OCR cleanup rejoins a paragraph's broken lines and words, so it cannot go
+  // line by line: it replaces what it was given, as one editing command —
+  // insertText, whose newlines the editor makes into paragraphs, so one
+  // Ctrl+Z takes it all back (measured, Electron 28). It works on the
+  // selection, or on the whole note only when the note is plain paragraphs:
+  // replacing a heading, a list, a table, a quotation or a verse with plain
+  // paragraphs would destroy them.
+
+  const STRUCTURE = 'h1, h2, h3, h4, h5, h6, ul, ol, li, table, blockquote';
+
+  function intersectsQuoted(editor, range) {
+    return Array.from(editor.querySelectorAll(TM().QUOTED_SELECTOR)).some(el => {
+      try { return range.intersectsNode(el); } catch (e) { return true; }
+    });
+  }
+
+  function wholeRange(editor) {
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    return range;
+  }
+
+  /**
+   * The paragraphs between two map offsets: one per block (a list of lines
+   * broken by <br> is one paragraph, rejoined), in order, empty ones left out.
+   */
+  function paragraphsIn(editor, map, start, end) {
+    const out = [];
+    let current = null;
+    let unit;
+    for (let i = 0; i < map.nodes.length; i++) {
+      const s = map.starts[i];
+      const e = s + map.nodes[i].data.length;
+      if (e <= start || s >= end) continue;
+      const u = unitOf(editor, map.nodes[i]);
+      if (current === null || u !== unit) {
+        if (current !== null) out.push(current);
+        current = '';
+        unit = u;
+      } else if (!followsOn(map, i)) {
+        current += ' ';
+      }
+      current += map.text.slice(Math.max(s, start), Math.min(e, end));
+    }
+    if (current !== null) out.push(current);
+    return out.map(p => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  }
+
+  /**
+   * What OCR cleanup may work on: the selection, when there is one in the
+   * editor, or else the whole note.
+   *
+   * @returns {{ok: true, whole, range, text, paragraphs} | {ok: false, reason: 'structure' | 'quoted'}}
+   *   `range` is live, `text` is what the map read in it — together they say
+   *   later whether the writer changed it meanwhile.
+   */
+  function ocrScope(editor, selection) {
+    const tm = TM();
+    let range = null;
+    if (selection && selection.rangeCount && !selection.isCollapsed) {
+      const r = selection.getRangeAt(0);
+      if (editor.contains(r.commonAncestorContainer)) range = r.cloneRange();
+    }
+    const whole = !range;
+    if (whole) {
+      if (editor.querySelector(tm.QUOTED_SELECTOR) || editor.querySelector(STRUCTURE)) return { ok: false, reason: 'structure' };
+      range = wholeRange(editor);
+    } else if (intersectsQuoted(editor, range)) {
+      return { ok: false, reason: 'quoted' };
+    }
+    const map = tm.readTextMap(editor);
+    const start = whole ? 0 : tm.offsetAtPoint(map, range.startContainer, range.startOffset);
+    const end = whole ? map.text.length : tm.offsetAtPoint(map, range.endContainer, range.endOffset);
+    return {
+      ok: true,
+      whole: whole,
+      range: range,
+      text: map.text.slice(start, end),
+      paragraphs: paragraphsIn(editor, map, start, end)
+    };
+  }
+
+  /** The scope's Range now — or null when what it holds is no longer what was sent. */
+  function intactRange(editor, scope) {
+    const tm = TM();
+    if (!scope || !scope.ok) return null;
+    const map = tm.readTextMap(editor);
+    if (scope.whole) {
+      if (map.text !== scope.text || editor.querySelector(STRUCTURE) || editor.querySelector(tm.QUOTED_SELECTOR)) return null;
+      return wholeRange(editor);
+    }
+    const range = scope.range;
+    if (!range || !editor.contains(range.commonAncestorContainer)) return null;
+    const start = tm.offsetAtPoint(map, range.startContainer, range.startOffset);
+    const end = tm.offsetAtPoint(map, range.endContainer, range.endOffset);
+    if (map.text.slice(start, end) !== scope.text || intersectsQuoted(editor, range)) return null;
+    return range;
+  }
+
+  function scopeIntact(editor, scope) {
+    return intactRange(editor, scope) !== null;
+  }
+
+  /**
+   * Put the cleaned paragraphs in place of the scope — unless what it holds
+   * is no longer what was sent. Then nothing is written, and false says so.
+   */
+  function replaceScope(editor, scope, paragraphs) {
+    const range = intactRange(editor, scope);
+    if (!range) return false;
+    const text = (paragraphs || []).map(p => String(p).replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+    if (!text) return false;
+    editor.focus();
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.execCommand('insertText', false, text);
+    return true;
+  }
+
   window.NoteUnits = {
     BATCH_CHARS: BATCH_CHARS,
+    ocrScope: ocrScope,
+    scopeIntact: scopeIntact,
+    replaceScope: replaceScope,
     collect: collect,
     buildBatches: buildBatches,
     formatBatch: formatBatch,

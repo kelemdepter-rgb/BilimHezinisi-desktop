@@ -3525,33 +3525,6 @@ function naiParseSegments(text) {
   }
   return map;
 }
-// Serialize the editor into VISUAL lines: every block boundary AND every <br>
-// becomes an array entry, blank lines kept as ''. innerText reflects exactly
-// what the user sees, so a proofread/cleanup round-trip can preserve every
-// paragraph and line break (the old block+textContent path merged everything
-// when the content had no block elements).
-function naiEditorLines(ed) {
-  let s = String((ed && ed.innerText) || '').replace(/\r/g, '');
-  s = s.replace(/\n+$/, '');           // drop trailing blank lines (no accumulation)
-  return s.length ? s.split('\n') : [];
-}
-// Rebuild the editor as one <div> per entry (blank entry → an empty line). This
-// is how the AI applies corrected text back WITHOUT collapsing the paragraph /
-// line structure. Inline character formatting is intentionally flattened.
-function naiSetEditorBlocks(ed, arr) {
-  if (!ed) return;
-  const html = (arr || []).map(function (t) {
-    return String(t == null ? '' : t).trim()
-      ? '<div>' + sanitize(t) + '</div>'
-      : '<div><br></div>';
-  }).join('');
-  // The note as it was, first — «AI تۈزىتىشتىن بۇرۇن» in «نەشر تارىخى» (W1).
-  if (typeof window.notesKeepVersion === 'function') window.notesKeepVersion('before-ai');
-  // Through the notebook's one document writer (putDocument in notes.js):
-  // it sanitizes, strips the transient markup older notes saved, and
-  // re-reads the counts, the spelling and the references.
-  window.notesPutDocument(html || '<div><br></div>');
-}
 function naiCurrentNoteId() { return (S.notes && S.notes.curDoc) ? S.notes.curDoc.id : null; }
 // A message in the AI tab, as text.
 function naiMessage(text) {
@@ -3905,20 +3878,29 @@ async function naiOcrCleanupCore(text, opts) {
 window.naiOfferOcrCleanup = function () {
   naiAvailable().then(ok => { const b = document.getElementById('notes-ocr-cleanup-btn'); if (b) b.style.display = ok ? '' : 'none'; });
 };
-// Notebook context: clean the note's blocks, preview, then apply (reuses the
-// proofread block-apply path).
+// Notebook context: clean the OCR text, preview, then apply. It works on the
+// selection; on the whole note only when the note is plain paragraphs (no
+// quoted material, headings, lists, tables) — replacing those with plain
+// paragraphs would destroy them. src/note-units.js (ocrScope, replaceScope)
+// keeps quoted material out and writes the answer back as one editing
+// command, so Ctrl+Z takes it back; «يېنىۋېلىش» puts the whole note back.
 window.naiOcrCleanupNote = function () {
   naiGate(async () => {
-    const ed = naiEditor(); if (!ed) return;
-    // Paragraphs = blank-line-separated visual blocks. OCR cleanup reflows the
-    // lines WITHIN a paragraph (rejoins broken lines) but keeps paragraph breaks.
-    const paras = naiEditorLines(ed).join('\n').split(/\n{2,}/)
-      .map(p => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
-    if (!paras.length) { toast('تۈزىتىدىغان تېكىست يوق', 'e'); return; }
+    const ed = naiEditor(); const NU = window.NoteUnits;
+    if (!ed || !NU) return;
+    if (!ed.isContentEditable) { toast('بۇ خاتىرە ئەخلەت ساندۇقىدا — پەقەت ئوقۇشقا بولىدۇ.', 'e'); return; }
+    const scope = NU.ocrScope(ed, window.getSelection());
+    if (!scope.ok) {
+      toast(scope.reason === 'quoted'
+        ? 'تاللانغان قىسىمدا نەقىل، ئايەت ياكى ئۇلىنىش بار — پەقەت OCR تېكىستىنى تاللاڭ'
+        : 'OCR تېكىستىنى تاللاپ ئاندىن تۈزىتىڭ', 'e');
+      return;
+    }
+    if (!scope.paragraphs.length) { toast('تۈزىتىدىغان تېكىست يوق', 'e'); return; }
     _naiOcrAbort = false;
     naiOpenPanel('OCR تۈزىتىش'); naiActions(); naiExtra(null); naiChatbar(false); naiResult('');
     naiBusy(() => { _naiOcrAbort = true; naiStatus('توختىتىلدى'); });
-    const cleaned = await naiOcrCleanupCore(paras.join('\n\n'), {
+    const cleaned = await naiOcrCleanupCore(scope.paragraphs.join('\n\n'), {
       onProgress: (x, y) => naiStatus('AI تۈزىتىۋاتىدۇ: بۆلەك ' + x + ' / ' + y),
       shouldAbort: () => _naiOcrAbort,
       onError: (res) => naiRenderError(res || {})
@@ -3927,26 +3909,36 @@ window.naiOcrCleanupNote = function () {
     if (cleaned == null) return;
     const parts = cleaned.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
     if (!parts.length) {
-      naiResult('<p style="color:var(--text2);font-size:12px">جاۋاب فورماتى خاتا — قايتا سىناڭ</p>');
+      naiMessage('جاۋاب فورماتى خاتا — قايتا سىناڭ');
       const a = naiActions(); if (a) { a.style.display = 'flex'; a.appendChild(naiBtn('قايتا سىناش', () => window.naiOcrCleanupNote())); }
       return;
     }
-    NAI.ocrParts = parts;
+    NAI.ocr = { scope: scope, parts: parts, noteId: naiCurrentNoteId() };
     naiStatus('');
-    naiResult('<div style="font-size:11px;color:var(--text3);margin-bottom:6px">تۈزىتىلگەن نۇسخا (كۆرۈنۈش):</div>' + parts.map(p => '<p>' + sanitize(p) + '</p>').join(''));
+    naiResult('<div style="font-size:11px;color:var(--text3);margin-bottom:6px">' +
+      (scope.whole ? 'پۈتۈن خاتىرە' : 'تاللانغان قىسىم') + ' — تۈزىتىلگەن نۇسخا (كۆرۈنۈش):</div>' +
+      parts.map(p => '<p>' + sanitize(p) + '</p>').join(''));
     const a = naiActions(); if (a) { a.style.display = 'flex'; a.appendChild(naiBtn('قوللىنىش', naiOcrApply)); a.appendChild(naiBtn('ۋاز كېچىش', naiClose)); }
     const b = document.getElementById('notes-ocr-cleanup-btn'); if (b) b.style.display = 'none';
   });
 };
-// Apply OCR-cleaned paragraphs back to the note as one block per paragraph, so
-// paragraph breaks are preserved (its own apply — proofread's is line-based).
 function naiOcrApply() {
-  const ed = naiEditor(); const parts = NAI.ocrParts;
-  if (!ed || !parts || !parts.length) return;
-  naiSetEditorBlocks(ed, parts);
+  const ed = naiEditor(); const st = NAI.ocr;
+  if (!ed || !st) return;
+  if (naiCurrentNoteId() !== st.noteId) {
+    toast('باشقا خاتىرە ئېچىلغان — تۈزىتىش قوللىنىلمىدى', 'e');
+    NAI.ocr = null; naiClose(); return;
+  }
+  if (!window.NoteUnits.scopeIntact(ed, st.scope)) {
+    toast('تېكىست ئارىدا ئۆزگەرتىلگەن — قايتا تاللاپ تۈزىتىڭ', 'e');
+    return;
+  }
+  // The note as it is, first: «AI تۈزىتىشتىن بۇرۇن» in «نەشر تارىخى», and «يېنىۋېلىش».
+  if (!window.notesBeforeAi || !window.notesBeforeAi()) return;
+  if (!window.NoteUnits.replaceScope(ed, st.scope, st.parts)) return;
+  NAI.ocr = null;
   naiMarkDirty();
-  toast('تۈزىتىش قوللىنىلدى', 's');
-  naiClose();
+  naiAfterAiApply('OCR تۈزىتىشى قوللىنىلدى.');
 }
 // PDF-import context: clean the staged S.tempContent, confirm preview, apply.
 window.naiOcrCleanupStaged = async function () {

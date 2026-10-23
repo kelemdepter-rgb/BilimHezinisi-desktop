@@ -85,4 +85,31 @@ module.exports = function (suite, assert, ctx) {
     assert.deepEqual(rebuilds, [],
       'the note, or a selection, is being rewritten as HTML in src/notes.js: ' + rebuilds.join(', '));
   });
+
+  // K9: the AI's answer was applied by rebuilding the whole note as one <div>
+  // per line, after a confirm() warning that it would. Corrections now go
+  // back line by line (src/note-units.js), and the rebuild is gone for good.
+  suite.test('ai-keeps-the-note', function () {
+    const files = walk(path.join(ctx.root, 'src'), ['.js', '.html']);
+    const hits = codeOnly(grep(files, /naiSetEditorBlocks/, ctx.root), ctx.root);
+    assert.deepEqual(hits, [], 'the whole-note rebuild is back: ' + hits.join(', '));
+  });
+
+  // No new renderer confirm() (CLAUDE.md): an irreversible step asks with an
+  // inline second click, a change that can be taken back says so in a toast.
+  // These are the ones left from before that rule; the list only shrinks.
+  suite.test('no-new-confirm', function () {
+    const files = walk(path.join(ctx.root, 'src'), ['.js', '.html']);
+    const hits = codeOnly(grep(files, /(^|[^.\w])confirm\(/, ctx.root), ctx.root);
+    assert.ok(hits.length <= 8, 'a new confirm() in the renderer (' + hits.length + ', at most 8): ' + hits.join(', '));
+  });
 };
+
+/** Hits on lines that are code, not a comment saying what the code used to do. */
+function codeOnly(hits, root) {
+  return hits.filter(function (hit) {
+    const parts = hit.split(':');
+    const line = fs.readFileSync(path.join(root, parts[0]), 'utf8').split(/\r?\n/)[Number(parts[1]) - 1].trim();
+    return !/^(\/\/|\*|\/\*)/.test(line);
+  });
+}

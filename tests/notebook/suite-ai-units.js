@@ -193,4 +193,86 @@
     t.assert.equal(window.notesCanUndoAi(), false, 'another note offers to undo this one\'s AI change');
     t.assert.equal(window.notesUndoAi(), false, 'another note was overwritten');
   });
+
+  // ---------------------------------------------------------------- OCR cleanup
+  // OCR cleanup rejoins broken lines, so it cannot go line by line like the
+  // proofreading: it replaces what it was given. It works on the selection,
+  // or on the whole note when the note is nothing but plain paragraphs.
+
+  test('ocr-scope-selection', async function (t) {
+    const NU = window.NoteUnits;
+    const ed = await t.fresh({ html: '<p>بىرىنچى</p><p>سە ككىز<br>قۇر</p><p>ئۈچىنچى</p>' });
+    const original = ed.innerHTML;
+    const first = t.firstText(ed.children[0]);
+    const third = t.firstText(ed.children[2]);
+
+    t.select(t.firstText(ed.children[1]), 0, t.lastText(ed.children[1]), 3);
+    const scope = NU.ocrScope(ed, window.getSelection());
+    t.assert.ok(scope.ok, 'a plain selection was refused');
+    t.assert.equal(scope.whole, false);
+    t.assert.deepEqual(scope.paragraphs, ['سە ككىز قۇر'], 'a paragraph\'s broken lines were not sent as one');
+
+    t.caretToEnd();   // the AI tab took the focus meanwhile
+    t.assert.ok(NU.replaceScope(ed, scope, ['سەككىز قۇر']), 'the cleaned text was not applied');
+    t.assert.equal(ed.children[1].textContent, 'سەككىز قۇر');
+    t.assert.ok(first.isConnected && third.isConnected, 'text outside the selection was rewritten');
+    t.assert.equal(ed.children.length, 3);
+
+    document.execCommand('undo');
+    t.assert.equal(ed.innerHTML, original, 'the cleanup is not one undo step');
+
+    // Across paragraphs: each comes back as its own paragraph.
+    t.select(first, 0, third, third.data.length);
+    const across = NU.ocrScope(ed, window.getSelection());
+    t.assert.deepEqual(across.paragraphs, ['بىرىنچى', 'سە ككىز قۇر', 'ئۈچىنچى']);
+    NU.replaceScope(ed, across, ['بىر', 'ئىككى', 'ئۈچ']);
+    t.assert.deepEqual(Array.from(ed.children).map(function (p) { return p.textContent; }), ['بىر', 'ئىككى', 'ئۈچ']);
+    t.assert.deepEqual(t.blockTags(), ['P', 'P', 'P']);
+  });
+
+  test('ocr-scope-refusals', async function (t) {
+    const NU = window.NoteUnits;
+    const collapsed = function () { t.caretToEnd(); return NU.ocrScope(t.editor(), window.getSelection()); };
+
+    // The whole note only when it is plain paragraphs.
+    let ed = await t.fresh({ html: '<p>بىر</p><p>ئىككى<br>قۇر</p>' });
+    let scope = collapsed();
+    t.assert.ok(scope.ok && scope.whole, 'a plain note could not be cleaned whole');
+    t.assert.deepEqual(scope.paragraphs, ['بىر', 'ئىككى قۇر']);
+    t.assert.ok(NU.replaceScope(ed, scope, ['بىرىنچى', 'ئىككىنچى']));
+    t.assert.deepEqual(Array.from(ed.children).map(function (p) { return p.textContent; }), ['بىرىنچى', 'ئىككىنچى']);
+
+    const kinds = {
+      heading: '<h2>ماۋزۇ</h2><p>تېكىست</p>',
+      list: '<ul><li>نۇقتا</li></ul><p>تېكىست</p>',
+      verse: '<p><span style="font-family:\'UthmanicHafs\',serif">ئايەت</span></p><p>تېكىست</p>',
+      passage: '<blockquote class="notes-inserted-ref" data-ref-insert="1">نەقىل</blockquote><p>تېكىست</p>',
+      link: '<p>تېكىست <a href="https://example.com/">ئۇلىنىش</a></p>'
+    };
+    for (const kind of Object.keys(kinds)) {
+      await t.fresh({ html: kinds[kind] });
+      scope = collapsed();
+      t.assert.equal(scope.ok, false, 'a note with a ' + kind + ' would be cleaned whole');
+      t.assert.equal(scope.reason, 'structure');
+    }
+
+    // A selection that takes in quoted material is not sent.
+    ed = await t.fresh({ html: '<p>تېكىست</p><p><span style="font-family:\'UthmanicHafs\',serif">ئايەت</span></p>' });
+    t.select(t.firstText(ed.children[0]), 0, t.lastText(ed.children[1]), 2);
+    scope = NU.ocrScope(ed, window.getSelection());
+    t.assert.equal(scope.ok, false, 'a selected verse would be sent');
+    t.assert.equal(scope.reason, 'quoted');
+
+    // What changed while the model worked is not overwritten.
+    ed = await t.fresh({ html: '<p>بىرىنچى</p><p>ئىككىنچى</p>' });
+    t.select(t.firstText(ed.children[0]), 0, t.lastText(ed.children[0]), 7);
+    scope = NU.ocrScope(ed, window.getSelection());
+    t.assert.ok(NU.scopeIntact(ed, scope), 'an untouched selection reads as changed');
+    t.caretIn(t.firstText(ed.children[0]), 3);
+    t.type('ـ');
+    t.assert.equal(NU.scopeIntact(ed, scope), false, 'a changed selection reads as untouched');
+    const before = ed.innerHTML;
+    t.assert.equal(NU.replaceScope(ed, scope, ['يېڭى']), false, 'a changed selection was overwritten');
+    t.assert.equal(ed.innerHTML, before);
+  });
 })();
