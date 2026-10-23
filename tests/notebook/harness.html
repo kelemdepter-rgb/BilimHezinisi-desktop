@@ -1,0 +1,75 @@
+<!doctype html>
+<!-- ==========================================================================
+     The notebook test page.
+
+     It loads the app's REAL renderer files, unchanged, from ../../src. The only
+     things added around them are stubs.js (what index.html provides),
+     framework.js (the test helpers) and the suites. If a test fails here, the
+     shipped code is what failed.
+
+     tests/run.js opens this file in a hidden BrowserWindow inside Electron 28 —
+     Chromium 120, the engine the app ships with — and calls window.BH.run().
+     ========================================================================== -->
+<html lang="ug" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>Bilim Hezinisi — notebook tests</title>
+<link rel="stylesheet" href="../../src/notes.css">
+<style>
+  /* The handful of index.html variables notes.css reads. Values do not matter
+     to any assertion; having them keeps the layout realistic. */
+  :root {
+    --paper: #FFFDF8; --bg: #F4EFE6; --bg2: #EDE6D9;
+    --text: #1A1208; --text2: #4A3F2E; --text3: #7A6A52;
+    --border: #D8CDB8; --border2: #C9BBA1;
+    --am: #BA7517; --ab2: #FFE9B8;
+    --radius: 8px; --radius2: 5px;
+    --jf: system-ui, sans-serif;
+  }
+  html, body { margin: 0; height: 100%; }
+  body { display: flex; font-family: var(--jf); font-size: 14px; background: var(--bg); }
+  #side { width: 280px; flex: 0 0 280px; overflow: auto; background: var(--bg2); }
+  #main { flex: 1; min-width: 0; display: flex; }
+  #main > .notes-layout { flex: 1; }
+  #toast { position: fixed; bottom: 8px; left: 8px; }
+</style>
+</head>
+<body>
+<div id="side"></div>
+<div id="main"></div>
+<div id="toast"></div>
+
+<!-- What index.html provides: icon(), toast(), S, window.electron, NGram. -->
+<script src="stubs.js"></script>
+<script src="framework.js"></script>
+
+<!-- The app's own files, exactly as they ship. -->
+<script src="../../assets/vendor/purify.min.js"></script>
+<script src="../../assets/vendor/turndown.js"></script>
+<script src="../../src/sanitize.js"></script>
+<script src="../../src/textmap.js"></script>
+<script src="../../src/spellcheck.js"></script>
+<script src="../../src/notes-export.js"></script>
+<script src="../../src/note-units.js"></script>
+<script src="../../src/notes.js"></script>
+
+<!-- The suites. -->
+<script src="suite-engine.js"></script>
+<script src="suite-spell.js"></script>
+<script src="suite-painter.js"></script>
+<script src="suite-find.js"></script>
+<script src="suite-refscan.js"></script>
+<script src="suite-save.js"></script>
+<script src="suite-sanitize.js"></script>
+<script src="suite-versions.js"></script>
+<script src="suite-structure.js"></script>
+<script src="suite-export.js"></script>
+<script src="suite-list.js"></script>
+<script src="suite-dictionary.js"></script>
+<script src="suite-cite.js"></script>
+<script src="suite-source.js"></script>
+<script src="suite-ai-units.js"></script>
+
+<script>window.BH.boot();</script>
+</body>
+</html>

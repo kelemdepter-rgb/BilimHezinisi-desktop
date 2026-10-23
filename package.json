@@ -1,6 +1,6 @@
 {
   "name": "bilim-hezinisi",
-  "version": "3.2.0",
+  "version": "3.5.0",
   "description": "بىلىم خەزىنىسى - Uyghur Digital Library",
   "main": "main.js",
   "scripts": {
@@ -16,6 +16,8 @@
     "dist-linux": "electron-builder --linux",
     "dist": "electron-builder --win --x64",
     "dist-store": "electron-builder --win appx --x64",
+    "test": "electron tests/run.js",
+    "check-syntax": "node tests/syntax-gate.js",
     "test-spelldict": "node scripts/test-spelldict.mjs"
   },
   "build": {
@@ -74,7 +76,12 @@
       "ai.js",
       "preload.js",
       "database.js",
+      "library-sync.js",
+      "backup.js",
+      "navigation.js",
+      "note-export.js",
       "ocr-postprocess.js",
+      "text-normalize.js",
       "src/**/*",
       "assets/ukijekran.ttf",
       "assets/icon.*",
@@ -147,7 +154,6 @@
     "electron-window-state": "^5.0.3",
     "mammoth": "^1.6.0",
     "node-html-parser": "^6.1.13",
-    "sql.js": "^1.10.0",
     "tesseract.js": "^5.0.0",
     "turndown": "^7.2.4",
     "word-extractor": "^1.0.4"

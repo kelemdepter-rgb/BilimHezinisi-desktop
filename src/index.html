@@ -216,7 +216,11 @@ mark.reader-hit-flash { animation: readerHitFlash 1.5s ease-out 1; }
 /* Search history dropdown */
 #search-history { position: absolute; top: 100%; right: 0; left: 0; background: var(--bg); border: 0.5px solid var(--border2); border-radius: var(--radius2); max-height: 260px; overflow-y: auto; z-index: 100; display: none; box-shadow: 0 6px 16px rgba(0,0,0,0.12); margin-top: 6px; padding: 4px 0; }
 #search-history.on { display: block; }
-.sh-header { padding: 6px 14px 4px 14px; font-size: 10px; color: var(--text3); font-family: sans-serif; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 0.5px solid var(--border); margin-bottom: 4px; }
+.sh-header { padding: 6px 14px 4px 14px; font-size: 10px; color: var(--text3); font-family: sans-serif; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 0.5px solid var(--border); margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sh-clear { background: none; border: none; padding: 2px 6px; font-family: var(--jf); font-size: 11px; color: var(--text3); cursor: pointer; border-radius: var(--radius2); text-transform: none; letter-spacing: 0; }
+.sh-clear:hover { color: var(--am); background: var(--bg2); }
+.sh-clear.armed { color: #fff; background: #A32D2D; }
+#formsFixBtn.armed { color: #fff; background: #A32D2D; border-color: #A32D2D; }
 .sh-item { padding: 8px 14px; font-size: 12px; color: var(--text2); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: background .1s; font-family: var(--jf); direction: rtl; gap: 10px; }
 .sh-item:hover { background: var(--bg2); color: var(--text); }
 .sh-item .sh-query { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -304,6 +308,17 @@ mark.reader-hit-flash { animation: readerHitFlash 1.5s ease-out 1; }
 .rnote-date { font-size: 10px; color: var(--text3); margin-bottom: 6px; }
 .rnote-del { background: none; border: none; color: var(--text3); font-size: 12px; cursor: pointer; padding: 2px; float: left; }
 .rnote-del:hover { color: var(--am); }
+.rnote-edit { background: none; border: none; color: var(--text3); cursor: pointer; padding: 2px; float: left; margin-left: 4px; display: inline-flex; }
+.rnote-edit:hover { color: var(--am); }
+.rnote-name-input { width: 100%; padding: 3px 6px; font-family: var(--jf); font-size: 12px; color: var(--text); background: var(--bg2); border: 1px solid var(--am); border-radius: var(--radius2); direction: rtl; outline: none; }
+.rnote-legacy-head { font-size: 11px; color: var(--text3); margin: 12px 2px 6px; padding-top: 8px; border-top: 0.5px dashed var(--border2); }
+.rnote.legacy { opacity: .8; }
+/* A bookmark or a note found its paragraph (K5): a moment of colour on it. */
+#rt p.reader-place-flash { animation: readerPlaceFlash 1.6s ease-out 1; border-radius: 4px; }
+@keyframes readerPlaceFlash {
+  0%, 45% { background: var(--ab2); box-shadow: 0 0 0 6px var(--ab2); }
+  100%    { background: transparent; box-shadow: 0 0 0 6px transparent; }
+}
 #rnotes-input-area { padding: 8px; border-top: 0.5px solid var(--border); }
 #rnotes-input-area textarea { width: 100%; padding: 8px; border: 0.5px solid var(--border); border-radius: var(--radius2); font-family: var(--jf); font-size: 12px; color: var(--text); background: var(--bg); direction: rtl; resize: vertical; min-height: 60px; }
 #rnotes-input-area button { width: 100%; margin-top: 6px; padding: 6px; background: var(--am); color: #fff; border: none; border-radius: var(--radius2); cursor: pointer; font-size: 12px; font-family: var(--jf); }
@@ -327,6 +342,8 @@ mark.reader-hit-flash { animation: readerHitFlash 1.5s ease-out 1; }
 .tk.s { border-color: #3B6D11; color: #3B6D11; }
 .tk.e { border-color: #A32D2D; color: #A32D2D; }
 .tk.i { border-color: var(--am); color: var(--am); }
+.tk-act { margin-inline-start: 10px; padding: 3px 10px; border-radius: 6px; border: 1px solid currentColor; background: none; color: inherit; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.tk-act:hover { background: rgba(128,128,128,.12); }
 @keyframes tin { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 /* About panel */
 #about { position: fixed; inset: 0; z-index: 200; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); }
@@ -747,6 +764,29 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
       <p style="font-size:11px;color:var(--text3);margin:0 0 10px">«ھەقسىز» مودېللار Google نىڭ ھەقسىز ھەققى بىلەن ئىشلەيدۇ. «پۇللۇق» مودېل ئۈچۈن Google ھېساباتىڭىزدا billing ئوچۇق بولۇشى شەرت. باھالار ئۆزگىرىپ تۇرىدۇ — <a href="https://ai.google.dev/pricing" target="_blank" rel="noopener" style="color:var(--acc)">Google نىڭ باھا بېتى ↗</a></p>
       <div id="aiUsage" style="font-size:11px;color:var(--text3);margin-bottom:12px">بۈگۈن ئىشلىتىلگەن: 0</div>
 
+      <!-- Backup and restore. All local: the automatic backups live in
+           JamiyKutupxana\backups, next to the library. -->
+      <div style="border-top:1px solid rgba(128,128,128,.25);margin:6px 0 12px"></div>
+      <h3 style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:6px">زاپاسلاش ۋە ئەسلىگە كەلتۈرۈش</h3>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 8px">كۇتۇپخانا (كىتابلار، خەتكۈچلەر، خاتىرىلەر) ھەپتىدە بىر قېتىم ئۆزلۈكىدىن زاپاسلىنىدۇ؛ ئەڭ يېڭى 3 زاپاس ساقلىنىدۇ. زاپاسنى USB ياكى باشقا دىسكىغا كۆچۈرۈپ قويسىڭىز تېخىمۇ بىخەتەر.</p>
+      <div id="bkInfo" style="font-size:11px;color:var(--text3);min-height:15px;margin-bottom:8px"></div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button onclick="bkBackupNow()" class="hbtn p" id="bkNowBtn">ھازىر زاپاسلاش</button>
+        <button onclick="bkOpenFolder()" class="hbtn">زاپاس قىسقۇچىنى ئېچىش</button>
+        <button onclick="bkRestore()" class="hbtn">زاپاستىن ئەسلىگە كەلتۈرۈش</button>
+      </div>
+
+      <!-- Books stored as glyph codepoints (W18, K15): a read-only check, then
+           a repair that backs the library up first. -->
+      <div style="border-top:1px solid rgba(128,128,128,.25);margin:6px 0 12px"></div>
+      <h3 style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:6px">كىتابلارنى تەكشۈرۈش</h3>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 8px">بەزى Word ھۆججەتلىرى ئۇيغۇرچىنى ھەرپ ئەمەس، «ھەرپ شەكلى» قىلىپ ساقلايدۇ: بەتتە توغرا كۆرۈنىدۇ، ئەمما ئىزدەشتە تېپىلمايدۇ. تەكشۈرۈش ھېچنېمىنى ئۆزگەرتمەيدۇ؛ ئوڭشاشتىن بۇرۇن كۇتۇپخانا زاپاسلىنىدۇ.</p>
+      <div id="formsResult" style="font-size:11.5px;color:var(--text2);margin-bottom:8px;line-height:1.8"></div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button onclick="formsScan()" class="hbtn" id="formsScanBtn">تەكشۈرۈش</button>
+        <button onclick="formsFix(this)" class="hbtn p" id="formsFixBtn" style="display:none">ئوڭشاش</button>
+      </div>
+
       <div class="fa">
         <button onclick="hideSettings()" class="hbtn">تاقاش</button>
       </div>
@@ -816,7 +856,7 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
       <input type="text" id="rsi" placeholder="كىتاب ئىچىدىن ئىزدەش..." oninput="debounceSearchInBook(this.value)">
     </div>
     <span id="matchcount" style="font-size:11px;color:var(--text3);font-family:sans-serif;white-space:nowrap"></span>
-    <button onclick="toggleBookmarks()" class="hbtn icob" title="خەتكۈش"><svg class="ic"><use href="#i-bookmark"></use></svg></button>
+    <button onclick="toggleBookmarks()" class="hbtn icob" title="خەتكۈچلەر"><svg class="ic"><use href="#i-bookmark"></use></svg></button>
     <button onclick="toggleNotes()" class="hbtn icob" title="ئىزاھات"><svg class="ic"><use href="#i-notebook-pen"></use></svg></button>
     <button onclick="toggleAiPanel()" class="hbtn" id="aiReaderBtn" style="display:none" title="سۈنئىي ئىدراك ياردەمچىسى"><svg class="ic"><use href="#i-sparkles"></use></svg> AI</button>
     <button onclick="downloadBook('txt')" class="hbtn" title="TXT ھالىتىدە چۈشۈرۈش"><svg class="ic"><use href="#i-download"></use></svg> TXT</button>
@@ -1063,7 +1103,10 @@ const S = {
   readerFont:'auto',
   mode: 'library',
   quran: { suras:[], curSura:1, curAya:1, searchResults:null, searchQuery:'', searchLang:'auto', sidebarFilter:'', showTranslation:true },
-  notes: { docs:[], curDoc:null, dirty:false, matches:new Map(), rightTab:'quran', quickSura:null, quickAya:null, quickWithTr:true, refsFilter:null }
+  notes: { docs:[], curDoc:null, dirty:false, matches:new Map(), rightTab:'quran', quickSura:null, quickAya:null, ayaMode:'both', refsFilter:null },
+  // The library parts that have loaded at least once. saveData() sends only
+  // these: for any other, what S holds is a fallback, not the user's data (K4).
+  loadedParts: new Set()
 };
 
 // Cache of the library's main-area DOM. Captured once after first render so
@@ -1090,15 +1133,8 @@ async function init() {
   } catch(e) {}
 
   const data = await window.electron.loadLibrary();
-  S.books = data.books || [];
-  S.cats = data.cats || defaultCats();
-  S.nid = data.nid || 1;
+  applyLibraryData(data, true);
   S.darkMode = data.darkMode !== undefined ? data.darkMode : null;
-  S.theme = data.theme || null;
-  S.recent = data.recent || [];
-  S.readPos = data.readPos || {};
-  S.bookmarks = data.bookmarks || {};
-  S.bookNotes = data.notes || {};
 
   // Apply dark mode
   migrateTheme();
@@ -1109,8 +1145,9 @@ async function init() {
   setupFileZone();
   setupKeyboardShortcuts();
 
-  // Show welcome screen for first-time users
-  if (S.books.length === 0) showWelcome();
+  // Show welcome screen for first-time users — not when the book list merely
+  // failed to load; the banner says so instead.
+  if (S.books.length === 0 && S.loadedParts.has('books')) showWelcome();
 
   // Cache the library main-area HTML so we can restore it after mode switches
   // overwrote `#main`. Capture happens AFTER renderBooks() so #bd is populated.
@@ -1152,18 +1189,118 @@ function showWelcome() {
     </div>`;
 }
 
+// Take what load-library read. A part that failed to load keeps the fallback
+// on the first load (and its current value on a later one), and is not marked
+// as loaded — so saveData() never sends it back. Sending an empty list for a
+// part the app merely failed to read is how a whole library could be erased
+// (K4). `only` limits a later reload to the parts it is about.
+function applyLibraryData(data, first, only) {
+  const failed = new Set((data && data.loadErrors) || []);
+  const take = (part, assign, fallback) => {
+    if (only && only.indexOf(part) === -1) return;
+    const value = data ? data[part] : undefined;
+    if (!failed.has(part) && value !== undefined && value !== null) {
+      assign(value);
+      S.loadedParts.add(part);
+    } else if (first) {
+      assign(fallback);
+    }
+  };
+  take('books', v => { S.books = v; }, []);
+  take('cats', v => { S.cats = v; }, defaultCats());
+  take('nid', v => { S.nid = v || 1; }, 1);
+  take('theme', v => { S.theme = v || null; }, null);
+  take('recent', v => { S.recent = v; }, []);
+  take('readPos', v => { S.readPos = v; }, {});
+  take('bookmarks', v => { S.bookmarks = v; }, {});
+  take('notes', v => { S.bookNotes = v; }, {});
+  if (!S.loadedParts.has('books')) showLibraryLoadBanner();
+}
+
+// Stays until the app is restarted: nothing was changed, and nothing will be.
+function showLibraryLoadBanner() {
+  if (document.getElementById('lib-load-banner')) return;
+  const b = document.createElement('div');
+  b.id = 'lib-load-banner';
+  b.setAttribute('role', 'alert');
+  b.textContent = 'كىتاب تىزىملىكى ئوقۇلمىدى — ھېچنېمە ئۆزگەرتىلمىدى. دېتالنى قايتا قوزغىتىڭ.';
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:10000;padding:10px 16px;' +
+    'background:#A32D2D;color:#fff;font-size:13px;font-weight:600;text-align:center;direction:rtl';
+  document.body.appendChild(b);
+}
+
+// Send the library state back — the parts that loaded, and only those.
+// save-library applies the same rule on its side.
 async function saveData() {
-  await window.electron.saveLibrary({
+  const parts = {
     books: S.books,
     cats: S.cats,
     nid: S.nid,
-    darkMode: S.darkMode,
     theme: S.theme,
     recent: S.recent,
     readPos: S.readPos,
     bookmarks: S.bookmarks,
     notes: S.bookNotes
-  });
+  };
+  const payload = { darkMode: S.darkMode };
+  for (const part of Object.keys(parts)) {
+    if (S.loadedParts.has(part)) payload[part] = parts[part];
+  }
+  await window.electron.saveLibrary(payload);
+}
+
+// A page turn is not a library change. It writes one row through its own IPC
+// instead of sending the whole library — which it used to do on every page,
+// each time one more chance for the delete-by-omission bug (K4).
+// The place is the paragraph at the top of the reader (K5) — its offset in
+// the book. The percentage stays for the library's progress bars.
+function saveReadingPosition() {
+  if (!S.curB || !S.readerPages || !S.readerPages.length) return;
+  const off = readerVisibleOffset();
+  const page = (off !== null && S.readerSearchMode && S.readerPageStarts)
+    ? window.ReaderPlaces.pageOf(S.readerPageStarts, off)
+    : S.readerPage;
+  const pct = S.readerPages.length > 1 ? Math.round(((page - 1) / (S.readerPages.length - 1)) * 100) : 0;
+  S.readPos[S.curB.id] = pct;
+  try {
+    const p = window.electron.dbSaveProgress(S.curB.id, pct, page, off);
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) { /* the position is also in S.readPos */ }
+}
+
+// The offset of the first paragraph whose bottom is below the top of the
+// reader — the one being read. Before the reader is on screen nothing can
+// be measured, and the page's first paragraph is the answer.
+function readerVisibleOffset() {
+  const rc = document.getElementById('rc');
+  const rt = document.getElementById('rt');
+  if (!rc || !rt) return null;
+  const paras = rt.querySelectorAll('p[data-off]');
+  if (!paras.length) return null;
+  const rdr = document.getElementById('rdr');
+  if (!rdr || !rdr.classList.contains('on')) return Number(paras[0].dataset.off);
+  const top = rc.getBoundingClientRect().top + 4;
+  // Paragraphs stand in order down the page: the first one still in view is
+  // found by halving, which matters for a whole book shown in search mode.
+  let low = 0;
+  let high = paras.length - 1;
+  let found = paras.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (paras[mid].getBoundingClientRect().bottom > top) { found = mid; high = mid - 1; }
+    else low = mid + 1;
+  }
+  return Number(paras[found].dataset.off);
+}
+
+// A long page read by scrolling keeps its place too — once the scrolling stops.
+let _readerPlaceTimer = null;
+function readerScrolled() {
+  clearTimeout(_readerPlaceTimer);
+  _readerPlaceTimer = setTimeout(() => {
+    const rdr = document.getElementById('rdr');
+    if (S.curB && rdr && rdr.classList.contains('on')) saveReadingPosition();
+  }, 1500);
 }
 
 function applyTheme() {
@@ -1255,6 +1392,14 @@ function setMode(mode) {
   // collapse state (Phase 2) and the persisted drag width (Phase 5) only apply
   // inside the notebook.
   if (mode !== 'notes') {
+    // Nothing typed may be left behind. notesFlush() takes its snapshot and
+    // starts the write synchronously, so it is already on its way before
+    // #main is replaced below; a note typed into and left within the
+    // three-second autosave window used to be lost from the screen and from
+    // the database both (K3a).
+    if (typeof window.notesFlush === 'function') window.notesFlush();
+    // A new note opened and left untouched does not stay in the list (W3).
+    if (typeof window.notesDiscardUntouched === 'function') window.notesDiscardUntouched();
     const side = document.getElementById('side');
     if (side) { side.classList.remove('side-collapsed'); side.style.width = ''; }
     // Also disarm the format painter (Phase 3) and abort any in-flight
@@ -1626,42 +1771,38 @@ async function openReader(id, hl='', targetPos=null) {
   const content = (cr && cr.success) ? cr.content : '(مەزمۇن يوق)';
   S.readerContent = content;
 
-  // Split content into pages for large books
-  const CHARS_PER_PAGE = 3000;
-  S.readerPages = [];
-  if (content.length > CHARS_PER_PAGE) {
-    // Split at paragraph boundaries
-    const paragraphs = content.split('\n');
-    let currentPage = '';
-    for (const para of paragraphs) {
-      if (currentPage.length + para.length + 1 > CHARS_PER_PAGE && currentPage.length > 0) {
-        S.readerPages.push(currentPage);
-        currentPage = para;
-      } else {
-        currentPage += (currentPage ? '\n' : '') + para;
-      }
-    }
-    if (currentPage) S.readerPages.push(currentPage);
-  } else {
-    S.readerPages = [content];
-  }
+  // The pages the reader has always cut, and where each begins in the book:
+  // a bookmark, a note and the reading position are offsets into the whole
+  // text (src/reader-places.js, K5).
+  const paged = window.ReaderPlaces.paginate(content, window.ReaderPlaces.PER_PAGE);
+  S.readerPages = paged.pages;
+  S.readerPageStarts = paged.starts;
 
-  // Restore saved page or start from beginning
+  // The exact paragraph when the position has one; the saved percentage otherwise.
+  let restoreOff = null;
+  if (!hl) {
+    try {
+      const prog = await window.electron.dbGetProgress(b.id);
+      if (prog && prog.success && window.ReaderPlaces.isPlace(prog.char_offset) && prog.char_offset < content.length) {
+        restoreOff = prog.char_offset;
+      }
+    } catch (e) { /* the percentage below still works */ }
+  }
   const savedPos = S.readPos[b.id] || 0;
-  S.readerPage = Math.max(1, Math.min(S.readerPages.length, Math.round((savedPos / 100) * S.readerPages.length) || 1));
+  S.readerPage = restoreOff !== null
+    ? window.ReaderPlaces.pageOf(S.readerPageStarts, restoreOff)
+    : Math.max(1, Math.min(S.readerPages.length, Math.round((savedPos / 100) * S.readerPages.length) || 1));
 
   if (hl) {
     // When searching, show all content with highlights (paragraph formatted)
     const re = new RegExp(esc(hl),'gi');
-    const highlighted = textToParagraphs(content, false).replace(re,m=>`<mark>${m}</mark>`);
-    rt.innerHTML = highlighted;
+    rt.innerHTML = highlightInHtml(textToParagraphs(content, false, 0), re);
     S.readerSearchMode = true;
   } else {
+    // Not in search mode before the page is drawn: drawing it saves the place.
+    S.readerSearchMode = false;
     renderReaderPage();
     hideMatchNav();
-    S.readerSearchMode = false;
-    const rc = document.getElementById('rc');
-    rc.scrollTop = 0;
   }
 
   S.activeNotesTab = 'notes';
@@ -1670,11 +1811,18 @@ async function openReader(id, hl='', targetPos=null) {
   // on elements inside display:none ancestors, so the navigation must happen
   // after the reader is visible AND the browser has laid out its contents.
   document.getElementById('rdr').classList.add('on');
+  // A book opens at its own place, not at the last book's scroll: the reset
+  // while the reader was hidden could not take.
+  if (!hl && restoreOff === null) document.getElementById('rc').scrollTop = 0;
   raiOnReaderOpen();
   if (hl) {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => updateMatchNav(hl, targetPos));
     });
+  } else if (restoreOff !== null) {
+    // At once: the reader is on screen now, and scrollIntoView lays it out
+    // itself. A frame may never come while the window is behind another one.
+    readerShowOffset(restoreOff, false);
   }
 }
 
@@ -1684,23 +1832,21 @@ function renderReaderPage() {
   if (!S.readerPages || S.readerPages.length === 0) return;
 
   const page = S.readerPages[S.readerPage - 1] || '';
+  const base = (S.readerPageStarts && S.readerPageStarts[S.readerPage - 1]) || 0;
   if (S.readerFont === 'auto') {
     // Smart font rendering: detect Arabic vs Uyghur per line
-    rt.innerHTML = textToParagraphs(page, true);
+    rt.innerHTML = textToParagraphs(page, true, base);
   } else {
-    rt.innerHTML = textToParagraphs(page, false);
+    rt.innerHTML = textToParagraphs(page, false, base);
   }
 
-  // Save reading position as percentage
-  if (S.curB) {
-    const pct = S.readerPages.length > 1 ? Math.round(((S.readerPage - 1) / (S.readerPages.length - 1)) * 100) : 0;
-    S.readPos[S.curB.id] = pct;
-    saveData();
-  }
+  // The page starts at its top — before the position is saved, which reads
+  // the first paragraph in view.
+  rc.scrollTop = 0;
+  saveReadingPosition();
 
   // Render page navigation
   renderReaderPagination();
-  rc.scrollTop = 0;
 }
 
 function renderReaderPagination() {
@@ -1758,13 +1904,12 @@ function readerJumpToPage() {
 }
 
 function closeReader() {
+  // While the page can still be measured: the paragraph in view is the place.
+  saveReadingPosition();
   document.getElementById('rdr').classList.remove('on');
   document.getElementById('rnotes-panel').classList.remove('on');
   raiOnReaderClose();
   readerUpdateSplitter();
-  if (S.curB) {
-    saveData();
-  }
   S.curB=null;
 }
 
@@ -1813,9 +1958,15 @@ function searchInBook(q) {
   // Show all content with highlights (exit pagination mode for search)
   S.readerSearchMode = true;
   const re=new RegExp(esc(q),'gi');
-  rt.innerHTML=textToParagraphs(content, false).replace(re,m=>`<mark>${m}</mark>`);
+  rt.innerHTML=highlightInHtml(textToParagraphs(content, false, 0), re);
   updateMatchNav(q);
   renderReaderPagination();
+}
+
+// Mark the matches in the TEXT of rendered paragraphs, never inside a tag: a
+// search for a number used to land in data-off="…" and break the page.
+function highlightInHtml(html, re) {
+  return html.replace(/(^|>)([^<]+)/g, (all, gt, words) => gt + words.replace(re, m => `<mark>${m}</mark>`));
 }
 
 function updateMatchNav(q, targetPos) {
@@ -1901,26 +2052,24 @@ function isArabicLine(text) {
  * Convert plain text to <p> tags with proper spacing
  * Collapses multiple blank lines, applies smart font detection if smartFont=true
  */
-function textToParagraphs(text, smartFont) {
+function textToParagraphs(text, smartFont, base) {
   if (!text) return '<p></p>';
-  // Split on one or more newlines to form paragraphs
-  // This collapses multiple blank lines into a single paragraph break
-  const paragraphs = text.split(/\n{2,}/);
-  // Within each paragraph, single newlines become <br>
-  return paragraphs.map(para => {
-    const trimmed = para.trim();
-    if (!trimmed) return '';
-    // Split single newlines within paragraph
-    const lines = trimmed.split('\n');
-    const rendered = lines.map(line => {
+  // Paragraphs at blank lines, trimmed, empty ones dropped; within one,
+  // single newlines become <br>. The split is the map of places' own
+  // (src/reader-places.js), and with `base` — where this text begins in the
+  // book — each paragraph carries its offset (data-off): what a bookmark, a
+  // note and the reading position remember (K5).
+  const withOff = typeof base === 'number';
+  return window.ReaderPlaces.paragraphs(text, withOff ? base : 0).map(para => {
+    const rendered = para.text.split('\n').map(line => {
       const escaped = sanitize(line);
       if (smartFont && isArabicLine(line)) {
         return '<span class="arabic-text">' + escaped + '</span>';
       }
       return escaped;
     }).join('<br>');
-    return '<p>' + rendered + '</p>';
-  }).filter(p => p).join('');
+    return (withOff ? '<p data-off="' + para.off + '">' : '<p>') + rendered + '</p>';
+  }).join('');
 }
 
 /**
@@ -1977,7 +2126,7 @@ function renderReaderPagePlain() {
   const rt = document.getElementById('rt');
   if (!S.readerPages || S.readerPages.length === 0) return;
   const page = S.readerPages[S.readerPage - 1] || '';
-  rt.innerHTML = textToParagraphs(page, false);
+  rt.innerHTML = textToParagraphs(page, false, (S.readerPageStarts && S.readerPageStarts[S.readerPage - 1]) || 0);
   renderReaderPagination();
 }
 
@@ -1988,32 +2137,31 @@ function toggleBookmarks() {
   switchNotesTab('bookmarks');
 }
 
+// A bookmark is the paragraph at the top of the reader: its offset in the
+// book (K5). Named «<page>-بەت» to begin with; the name can be changed in
+// the panel. Two bookmarks on one paragraph are one too many.
 function addBookmark() {
   if (!S.curB) return;
   const bookId = S.curB.id;
   if (!S.bookmarks[bookId]) S.bookmarks[bookId] = [];
-  const rc = document.getElementById('rc');
-  const scrollHeight = rc.scrollHeight - rc.clientHeight;
-  const scrollTop = rc.scrollTop;
-  const pos = scrollHeight > 0 ? Math.round((scrollTop / scrollHeight) * 100) : 0;
-
-  // Check if bookmark already exists at similar position (within 2%)
-  const existing = S.bookmarks[bookId].find(bm => Math.abs(bm.pos - pos) < 2);
-  if (existing) {
-    toast('بۇ ئورۇندا خەتكۈش بار','i');
+  const off = readerVisibleOffset();
+  if (off === null) { toast('بۇ بەتتە خەتكۈچ قويغىلى بولمايدۇ', 'e'); return; }
+  if (S.bookmarks[bookId].some(bm => bm.off === off)) {
+    toast('بۇ ئابزاستا خەتكۈچ بار','i');
     return;
   }
-
-  const name = 'خەتكۈش ' + (S.bookmarks[bookId].length + 1);
+  const page = window.ReaderPlaces.pageOf(S.readerPageStarts, off);
+  const length = (S.readerContent || '').length;
   S.bookmarks[bookId].push({
     id: Date.now().toString(),
-    name: name,
-    pos: pos,
+    name: page + '-بەت',
+    pos: length ? Math.round((off / length) * 100) : 0,
+    off: off,
     date: new Date().toISOString()
   });
   renderNotesPanel();
   saveData();
-  toast('خەتكۈش قوشۇلدى','s');
+  toast('خەتكۈچ قوشۇلدى','s');
 }
 
 function deleteBookmark(bookId, bmId, e) {
@@ -2022,13 +2170,96 @@ function deleteBookmark(bookId, bmId, e) {
   S.bookmarks[bookId] = S.bookmarks[bookId].filter(bm => bm.id !== bmId);
   renderNotesPanel();
   saveData();
-  toast('خەتكۈش ئۆچۈرۈلدى','i');
+  toast('خەتكۈچ ئۆچۈرۈلدى','i');
 }
 
-function jumpToBookmark(pos) {
-  const rc = document.getElementById('rc');
-  const scrollHeight = rc.scrollHeight - rc.clientHeight;
-  rc.scrollTo({ top: (pos / 100) * scrollHeight, behavior: 'smooth' });
+// Go to a place: out of search mode, to the page that holds it, scrolled to
+// its paragraph. A row from before places were kept has none — page 1, and
+// the reader is told why.
+function readerGoToPlace(off, legacyMessage) {
+  if (!S.curB || !S.readerPages) return;
+  if (!window.ReaderPlaces.isPlace(off)) {
+    readerLeaveSearch();
+    S.readerPage = 1;
+    renderReaderPage();
+    toast(legacyMessage, 'i');
+    return;
+  }
+  const page = window.ReaderPlaces.pageOf(S.readerPageStarts, off);
+  const wasSearch = S.readerSearchMode;
+  readerLeaveSearch();
+  if (wasSearch || page !== S.readerPage) {
+    S.readerPage = page;
+    renderReaderPage();
+  }
+  readerShowOffset(off, true);
+}
+
+function readerLeaveSearch() {
+  if (!S.readerSearchMode) return;
+  S.readerSearchMode = false;
+  const box = document.getElementById('rsi'); if (box) box.value = '';
+  document.getElementById('matchcount').textContent = '';
+  hideMatchNav();
+}
+
+// Scroll the drawn page to the paragraph that holds `off` (and flash it).
+function readerShowOffset(off, flash) {
+  const rt = document.getElementById('rt');
+  if (!rt) return;
+  const paras = Array.from(rt.querySelectorAll('p[data-off]'));
+  if (!paras.length) return;
+  const el = paras[window.ReaderPlaces.paragraphAt(paras.map(p => Number(p.dataset.off)), off)];
+  el.scrollIntoView({ block: 'start' });
+  if (flash) {
+    el.classList.remove('reader-place-flash');
+    void el.offsetWidth;
+    el.classList.add('reader-place-flash');
+    setTimeout(() => el.classList.remove('reader-place-flash'), 1700);
+  }
+  saveReadingPosition();
+}
+
+function jumpToBookmark(bookId, bmId) {
+  const bm = (S.bookmarks[bookId] || []).find(x => x.id === bmId);
+  if (!bm) return;
+  readerGoToPlace(bm.off, 'بۇ كونا خەتكۈچنىڭ ئورنى ساقلانمىغان — بىرىنچى بەت ئېچىلدى');
+}
+
+// The name, changed in place: Enter or leaving the box keeps it, Escape does
+// not. An empty name goes back to «<page>-بەت».
+function renameBookmark(bookId, bmId, e) {
+  if (e) e.stopPropagation();
+  const bm = (S.bookmarks[bookId] || []).find(x => x.id === bmId);
+  const row = document.querySelector('.rnote[data-bm="' + CSS.escape(bmId) + '"] .rnote-text');
+  if (!bm || !row) return;
+  const input = document.createElement('input');
+  input.className = 'rnote-name-input';
+  input.value = bm.name || '';
+  input.maxLength = 100;
+  input.setAttribute('aria-label', 'خەتكۈچ ئىسمى');
+  row.innerHTML = '';
+  row.appendChild(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = (keep) => {
+    if (done) return;
+    done = true;
+    if (keep) {
+      const name = input.value.replace(/\s+/g, ' ').trim().slice(0, 100);
+      const fallback = window.ReaderPlaces.isPlace(bm.off) ? window.ReaderPlaces.pageOf(S.readerPageStarts, bm.off) + '-بەت' : bm.name;
+      const next = name || fallback;
+      if (next !== bm.name) { bm.name = next; saveData(); }
+    }
+    renderNotesPanel();
+  };
+  input.addEventListener('click', ev => ev.stopPropagation());
+  input.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
 }
 
 function switchNotesTab(tab) {
@@ -2051,43 +2282,56 @@ function renderNotesPanel() {
   const notes = S.bookNotes[bookId] || [];
   const bookmarks = S.bookmarks[bookId] || [];
   const tab = S.activeNotesTab || 'notes';
+  const RP = window.ReaderPlaces;
+  // In the order of the book; rows from before places were kept go last,
+  // under a heading that says so.
+  const placed = list => list.filter(x => RP.isPlace(x.off)).sort((a, b) => a.off - b.off);
+  const legacy = list => list.filter(x => !RP.isPlace(x.off));
+  const where = x => (RP.isPlace(x.off) && S.readerPageStarts) ? RP.pageOf(S.readerPageStarts, x.off) + '-بەت · ' : '';
+  const dateOf = x => new Date(x.date).toLocaleDateString('ug-CN');
 
   const header = document.getElementById('rnotes-header');
   header.innerHTML = `
     <div style="display:flex;gap:0;border-bottom:0.5px solid var(--border)">
       <button onclick="switchNotesTab('notes')" style="flex:1;padding:8px;border:none;background:${tab==='notes'?'var(--ab)':'none'};color:${tab==='notes'?'var(--at)':'var(--text2)'};cursor:pointer;font-family:var(--jf);font-size:12px;font-weight:${tab==='notes'?'600':'400'}">${icon('notebook-pen')} ئىزاھاتلار (${notes.length})</button>
-      <button onclick="switchNotesTab('bookmarks')" style="flex:1;padding:8px;border:none;background:${tab==='bookmarks'?'var(--ab)':'none'};color:${tab==='bookmarks'?'var(--at)':'var(--text2)'};cursor:pointer;font-family:var(--jf);font-size:12px;font-weight:${tab==='bookmarks'?'600':'400'}">${icon('bookmark')} خەتكۈشلەر (${bookmarks.length})</button>
+      <button onclick="switchNotesTab('bookmarks')" style="flex:1;padding:8px;border:none;background:${tab==='bookmarks'?'var(--ab)':'none'};color:${tab==='bookmarks'?'var(--at)':'var(--text2)'};cursor:pointer;font-family:var(--jf);font-size:12px;font-weight:${tab==='bookmarks'?'600':'400'}">${icon('bookmark')} خەتكۈچلەر (${bookmarks.length})</button>
     </div>`;
 
   const inputArea = document.getElementById('rnotes-input-area');
 
   if (tab === 'bookmarks') {
-    notesList.innerHTML = bookmarks.length === 0
-      ? '<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">خەتكۈش يوق<br>تۆۋەندىكى كۇنۇپكىنى بېسىپ خەتكۈش قوشۇڭ</div>'
-      : bookmarks.map(bm => `
-        <div class="rnote" onclick="jumpToBookmark(${bm.pos})">
+    const row = bm => `
+        <div class="rnote${RP.isPlace(bm.off) ? '' : ' legacy'}" data-bm="${sanitize(bm.id)}" onclick="jumpToBookmark(${bookId}, '${sanitize(bm.id)}')">
+          <button class="rnote-del" title="ئۆچۈرۈش" onclick="deleteBookmark(${bookId}, '${sanitize(bm.id)}', event)">${icon('x','ic-sm')}</button>
+          <button class="rnote-edit" title="ئىسمىنى ئۆزگەرتىش" onclick="renameBookmark(${bookId}, '${sanitize(bm.id)}', event)">${icon('pencil','ic-sm')}</button>
           <div class="rnote-text">${icon('bookmark')} ${sanitize(bm.name)}</div>
-          <div class="rnote-date">${bm.pos}% · ${new Date(bm.date).toLocaleDateString('ug-CN')}</div>
-          <button class="rnote-del" onclick="deleteBookmark(${bookId}, '${bm.id}', event)">${icon('x','ic-sm')}</button>
-        </div>
-      `).join('');
-    inputArea.innerHTML = `<button onclick="addBookmark()" style="width:100%;padding:8px;background:var(--am);color:#fff;border:none;border-radius:var(--radius2);cursor:pointer;font-size:12px;font-family:var(--jf);display:inline-flex;align-items:center;justify-content:center;gap:6px">${icon('bookmark')} بۇ يەرگە خەتكۈش قوشۇش</button>`;
+          <div class="rnote-date">${where(bm)}${dateOf(bm)}</div>
+        </div>`;
+    const old = legacy(bookmarks);
+    notesList.innerHTML = bookmarks.length === 0
+      ? '<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">خەتكۈچ يوق<br>تۆۋەندىكى كۇنۇپكىنى بېسىپ خەتكۈچ قوشۇڭ</div>'
+      : placed(bookmarks).map(row).join('') +
+        (old.length ? '<div class="rnote-legacy-head">كونا خەتكۈچلەر — ئورنى ساقلانمىغان</div>' + old.map(row).join('') : '');
+    inputArea.innerHTML = `<button onclick="addBookmark()" style="width:100%;padding:8px;background:var(--am);color:#fff;border:none;border-radius:var(--radius2);cursor:pointer;font-size:12px;font-family:var(--jf);display:inline-flex;align-items:center;justify-content:center;gap:6px">${icon('bookmark')} بۇ يەرگە خەتكۈچ قوشۇش</button>`;
   } else {
+    const row = note => `
+        <div class="rnote${RP.isPlace(note.off) ? '' : ' legacy'}" onclick="jumpToNote(${bookId}, '${sanitize(note.id)}')">
+          <button class="rnote-del" title="ئۆچۈرۈش" onclick="deleteNote(${bookId}, '${sanitize(note.id)}', event)">✕</button>
+          <div class="rnote-text">${sanitize(note.text)}</div>
+          <div class="rnote-date">${where(note)}${dateOf(note)}</div>
+        </div>`;
+    const old = legacy(notes);
     notesList.innerHTML = notes.length === 0
       ? '<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">ئىزاھات يوق</div>'
-      : notes.map(note => `
-        <div class="rnote" onclick="jumpToNote(${note.pos})">
-          <div class="rnote-text">${sanitize(note.text)}</div>
-          <div class="rnote-date">${Math.round(note.pos)}% · ${new Date(note.date).toLocaleDateString('ug-CN')}</div>
-          <button class="rnote-del" onclick="deleteNote(${bookId}, '${note.id}', event)">✕</button>
-        </div>
-      `).join('');
+      : placed(notes).map(row).join('') +
+        (old.length ? '<div class="rnote-legacy-head">كونا ئىزاھاتلار — ئورنى ساقلانمىغان</div>' + old.map(row).join('') : '');
     inputArea.innerHTML = `
       <textarea id="rnotes-textarea" placeholder="يېڭى ئىزاھات قوشۇش..." style="width:100%;padding:8px;border:0.5px solid var(--border);border-radius:var(--radius2);font-family:var(--jf);font-size:12px;color:var(--text);background:var(--bg);direction:rtl;resize:vertical;min-height:60px"></textarea>
       <button onclick="addNote()" style="width:100%;margin-top:6px;padding:6px;background:var(--am);color:#fff;border:none;border-radius:var(--radius2);cursor:pointer;font-size:12px;font-family:var(--jf)">+ قوشۇش</button>`;
   }
 }
 
+// A note is kept at the paragraph at the top of the reader (K5), like a bookmark.
 function addNote() {
   if (!S.curB) return;
   const textarea = document.getElementById('rnotes-textarea');
@@ -2097,18 +2341,16 @@ function addNote() {
     return;
   }
 
-  const rc = document.getElementById('rc');
-  const scrollHeight = rc.scrollHeight - rc.clientHeight;
-  const scrollTop = rc.scrollTop;
-  const pos = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0;
-
+  const off = readerVisibleOffset();
+  const length = (S.readerContent || '').length;
   const bookId = S.curB.id;
   if (!S.bookNotes[bookId]) S.bookNotes[bookId] = [];
 
   S.bookNotes[bookId].push({
     id: Date.now().toString(),
     text: text,
-    pos: pos,
+    pos: (off !== null && length) ? (off / length) * 100 : 0,
+    off: off,
     date: new Date().toISOString()
   });
 
@@ -2127,10 +2369,10 @@ function deleteNote(bookId, noteId, e) {
   toast('ئىزاھات ئۆچۈرۈلدى','i');
 }
 
-function jumpToNote(pos) {
-  const rc = document.getElementById('rc');
-  const scrollHeight = rc.scrollHeight - rc.clientHeight;
-  rc.scrollTop = (pos / 100) * scrollHeight;
+function jumpToNote(bookId, noteId) {
+  const note = (S.bookNotes[bookId] || []).find(x => x.id === noteId);
+  if (!note) return;
+  readerGoToPlace(note.off, 'بۇ كونا ئىزاھاتنىڭ ئورنى ساقلانمىغان — بىرىنچى بەت ئېچىلدى');
 }
 
 // ===== Web page / HTML article import =====
@@ -2361,6 +2603,7 @@ async function importWebPage() {
 // placeholder after save.
 
 async function showSettings() {
+  bkRefreshInfo();
   try {
     document.getElementById('aiEnabled').checked = await window.AI.isEnabled();
     const ki = document.getElementById('aiKey');
@@ -2426,6 +2669,137 @@ async function showSettings() {
     console.warn('[settings] load failed:', e);
   }
   document.getElementById('setov').classList.add('on');
+}
+
+// ===== Backup and restore (settings) =====
+
+function bkFormatSize(bytes) {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+// The backups hold every book's text, so the folder can grow large: its size
+// is shown where the writer decides about it.
+async function bkRefreshInfo() {
+  const el = document.getElementById('bkInfo');
+  if (!el) return;
+  try {
+    const info = await window.electron.backupInfo();
+    if (!info || !info.success) { el.textContent = ''; return; }
+    el.textContent = 'زاپاس قىسقۇچى: ' + info.count + ' ھۆججەت، ' + bkFormatSize(info.bytes) +
+      (info.newestAuto ? ' · ئاخىرقى ئۆزلۈكىدىن زاپاس: ' + info.newestAuto : '');
+  } catch (e) { el.textContent = ''; }
+}
+
+async function bkBackupNow() {
+  const btn = document.getElementById('bkNowBtn');
+  if (btn) btn.disabled = true;
+  try {
+    // The open note first, so the copy holds what is on screen.
+    if (typeof window.notesFlush === 'function') await window.notesFlush();
+    const r = await window.electron.backupNow();
+    if (r && r.success) toast('زاپاس ساقلاندى: ' + r.name, 's');
+    else if (r && !r.canceled) toast('زاپاسلاش مەغلۇپ بولدى' + (r.error ? ' — ' + r.error : ''), 'e');
+  } catch (e) {
+    toast('زاپاسلاش مەغلۇپ بولدى', 'e');
+  } finally {
+    if (btn) btn.disabled = false;
+    bkRefreshInfo();
+  }
+}
+
+async function bkOpenFolder() {
+  try {
+    const r = await window.electron.backupOpenFolder();
+    if (!r || !r.success) toast('قىسقۇچ ئېچىلمىدى', 'e');
+  } catch (e) { toast('قىسقۇچ ئېچىلمىدى', 'e'); }
+}
+
+// The main process checks the file, asks, backs up the current library and
+// restarts the app; nothing comes back here on success.
+async function bkRestore() {
+  try {
+    if (typeof window.notesFlush === 'function') await window.notesFlush();
+    const r = await window.electron.backupRestore();
+    if (r && !r.success && !r.canceled) toast('ئەسلىگە كەلتۈرۈلمىدى — ' + (r.error || ''), 'e');
+  } catch (e) { toast('ئەسلىگە كەلتۈرۈلمىدى', 'e'); }
+}
+
+// ===== «كىتابلارنى تەكشۈرۈش» (W18, K15) =====
+// The check changes nothing. «ئوڭشاش» asks with a second click, then the main
+// process backs the library up and folds each damaged book in its own
+// transaction, after the checks (database.js, presentationFormsFix). Book
+// titles are shown through textContent.
+function formsLine(box, text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  box.appendChild(d);
+  return d;
+}
+
+async function formsScan() {
+  const out = document.getElementById('formsResult');
+  const scanBtn = document.getElementById('formsScanBtn');
+  const fixBtn = document.getElementById('formsFixBtn');
+  out.textContent = 'تەكشۈرۈلۈۋاتىدۇ...';
+  fixBtn.style.display = 'none';
+  scanBtn.disabled = true;
+  let r = null;
+  try { r = await window.electron.booksFormsScan(); } catch (e) { r = null; }
+  scanBtn.disabled = false;
+  out.textContent = '';
+  if (!r || !r.success) { formsLine(out, 'تەكشۈرگىلى بولمىدى' + (r && r.error ? ' — ' + r.error : '')); return; }
+  if (!r.candidates.length) {
+    formsLine(out, 'ھەممە كىتاب ھەرپ بىلەن ساقلانغان — ئوڭشايدىغان كىتاب يوق.');
+  } else {
+    formsLine(out, r.candidates.length + ' كىتاب ھەرپ شەكلى بىلەن ساقلانغان:');
+    r.candidates.slice(0, 50).forEach(c => formsLine(out, '• «' + c.title + '» — ' + c.forms + ' ھەرپ شەكلى'));
+    if (r.candidates.length > 50) formsLine(out, '… يەنە ' + (r.candidates.length - 50) + ' كىتاب');
+    fixBtn.style.display = '';
+  }
+  if (r.nearMisses.length) {
+    formsLine(out, r.nearMisses.length + ' كىتابتا ئاز ساندا ھەرپ شەكلى بار — ئۇلار قەستەن ئىشلىتىلگەن بولۇشى مۇمكىن، ئۆز پېتى قالىدۇ.');
+  }
+}
+
+async function formsFix(btn) {
+  if (!btn.classList.contains('armed')) {
+    btn.classList.add('armed');
+    btn.textContent = 'يەنە بىر بېسىڭ — زاپاسلىنىپ ئوڭشىلىدۇ';
+    clearTimeout(btn._disarm);
+    btn._disarm = setTimeout(() => { btn.classList.remove('armed'); btn.textContent = 'ئوڭشاش'; }, 5000);
+    return;
+  }
+  clearTimeout(btn._disarm);
+  btn.classList.remove('armed');
+  btn.textContent = 'ئوڭشاش';
+  btn.disabled = true;
+  const out = document.getElementById('formsResult');
+  out.textContent = 'زاپاسلىنىۋاتىدۇ ۋە ئوڭشىلىۋاتىدۇ...';
+  let r = null;
+  try { r = await window.electron.booksFormsFix(); } catch (e) { r = null; }
+  btn.disabled = false;
+  out.textContent = '';
+  if (!r || !r.success) {
+    formsLine(out, 'ئوڭشالمىدى — كىتابلار ئۆزگەرتىلمىدى' + (r && r.error ? ' (' + r.error + ')' : ''));
+    toast('كىتابلار ئوڭشالمىدى', 'e');
+    return;
+  }
+  // The library in memory takes the repaired titles, so the next save writes them.
+  for (const f of r.fixed) {
+    const b = S.books.find(x => x.id === f.id);
+    if (b) { b.title = f.title; b.author = f.author; b.desc = f.description; if ('description' in b) b.description = f.description; }
+  }
+  if (r.fixed.length && typeof renderBooks === 'function') renderBooks();
+  formsLine(out, r.fixed.length + ' كىتاب ئوڭشالدى' + (r.backup ? '. زاپاس: ' + r.backup : '.'));
+  if (r.skipped.length) {
+    formsLine(out, r.skipped.length + ' كىتاب تەكشۈرۈشتىن ئۆتمىگەچكە ئۆزگەرتىلمىدى:');
+    r.skipped.forEach(s => formsLine(out, '• «' + s.title + '» — ' + s.problems.join('؛ ')));
+  }
+  document.getElementById('formsFixBtn').style.display = 'none';
+  toast(r.fixed.length + ' كىتاب ئوڭشالدى', 's');
 }
 
 function hideSettings() {
@@ -3166,7 +3540,7 @@ function raiMdToHtml(text) { return aiMdToHtml(text); }
 const NAI = {
   streamHandle: null, lastReq: null, mode: null, answerText: '',
   scopeWasSelection: false, selText: '', selRange: null,
-  lastSel: null, proofreadBlocks: null, proofreadMap: null, pageNoteText: ''
+  lastSel: null, proofread: null, pageNoteText: ''
 };
 
 async function naiAvailable() {
@@ -3378,16 +3752,14 @@ function naiReplaceSelection() {
 }
 
 // --- (2) Punctuation & spelling correction (segmented ⟦N⟧) -------------------
-function naiCollectBlocks(ed) {
-  const selector = 'p, div, h1, h2, h3, h4, h5, h6, li, blockquote';
-  const blocks = Array.from(ed.querySelectorAll(selector)).filter(el => {
-    const txt = (el.textContent || '').trim();
-    if (!txt) return false;
-    return !el.querySelector(selector);   // leaf text blocks only (avoid nesting double-count)
-  });
-  if (!blocks.length && (ed.textContent || '').trim()) return [ed];
-  return blocks;
-}
+// By units (W13, K9). src/note-units.js reads the note into the lines the
+// writer sees, never sends quoted material (verses, quoted passages,
+// citations, links), and writes back only what changed — each change
+// through an editing command, so the formatting around it survives and
+// Ctrl+Z takes it back. The preview lists every change with a box to untick;
+// one that would run across formatting says so. «يېنىۋېلىش» puts the whole
+// note back. (This used to rebuild the note as one <div> per line, after a
+// confirm() warning that it would.)
 function naiParseSegments(text) {
   const map = {};
   const re = /⟦(\d+)⟧/g; let m; const marks = [];
@@ -3398,72 +3770,44 @@ function naiParseSegments(text) {
   }
   return map;
 }
-// Serialize the editor into VISUAL lines: every block boundary AND every <br>
-// becomes an array entry, blank lines kept as ''. innerText reflects exactly
-// what the user sees, so a proofread/cleanup round-trip can preserve every
-// paragraph and line break (the old block+textContent path merged everything
-// when the content had no block elements).
-function naiEditorLines(ed) {
-  let s = String((ed && ed.innerText) || '').replace(/\r/g, '');
-  s = s.replace(/\n+$/, '');           // drop trailing blank lines (no accumulation)
-  return s.length ? s.split('\n') : [];
-}
-// Rebuild the editor as one <div> per entry (blank entry → an empty line). This
-// is how the AI applies corrected text back WITHOUT collapsing the paragraph /
-// line structure. Inline character formatting is intentionally flattened.
-function naiSetEditorBlocks(ed, arr) {
-  if (!ed) return;
-  const html = (arr || []).map(function (t) {
-    return String(t == null ? '' : t).trim()
-      ? '<div>' + sanitize(t) + '</div>'
-      : '<div><br></div>';
-  }).join('');
-  ed.innerHTML = html || '<div><br></div>';
+function naiCurrentNoteId() { return (S.notes && S.notes.curDoc) ? S.notes.curDoc.id : null; }
+// A message in the AI tab, as text.
+function naiMessage(text) {
+  const r = document.getElementById('nai-result'); if (!r) return;
+  r.style.whiteSpace = ''; r.innerHTML = '';
+  const p = document.createElement('p'); p.className = 'nai-msg'; p.textContent = text;
+  r.appendChild(p);
 }
 function naiProofread() {
   naiGate(() => {
-    const ed = naiEditor(); if (!ed) return;
-    // Work on VISUAL lines (one numbered segment per non-blank line) so that
-    // every paragraph and line break survives the round-trip.
-    const lines = naiEditorLines(ed);
-    const segByLine = {}; const segs = []; let count = 0;
-    lines.forEach(function (ln, idx) {
-      if (ln.trim()) {
-        count++; segByLine[idx] = count;
-        segs.push({ num: count, text: ln.replace(/[ \t ]+/g, ' ').trim() });
-      }
-    });
-    if (!count) { naiOpenPanel('ئىملا تۈزىتىش'); naiStatus('تۈزىتىدىغان تېكىست يوق.'); return; }
-    if (!confirm('تۈزىتىشتە ئابزاس ئىچىدىكى ئىنچىكە فورماتلار ئاددىيلىشىدۇ، ئەمما قۇر ۋە ئابزاس بۆلىنىشى ساقلىنىدۇ. داۋاملاشتۇرامسىز؟')) return;
-    NAI.proofreadLines = lines;
-    NAI.proofreadSegByLine = segByLine;
-    NAI.proofreadCount = count;
+    const ed = naiEditor(); const NU = window.NoteUnits;
+    if (!ed || !NU) return;
+    if (!ed.isContentEditable) { toast('بۇ خاتىرە ئەخلەت ساندۇقىدا — پەقەت ئوقۇشقا بولىدۇ.', 'e'); return; }
+    const collected = NU.collect(ed);
+    naiAbort();
+    naiOpenPanel('ئىملا تۈزىتىش'); naiActions(); naiExtra(null); naiChatbar(false); naiResult('');
+    if (!collected.lines.length) {
+      naiStatus(collected.quoted
+        ? 'بۇ خاتىرىدە نەقىل، ئايەت ۋە ئۇلىنىشتىن باشقا تۈزىتىدىغان تېكىست يوق.'
+        : 'تۈزىتىدىغان تېكىست يوق.');
+      return;
+    }
     NAI.mode = 'proofread';
     NAI.lastReq = () => naiProofread();
+    NAI.proofread = { collected: collected, noteId: naiCurrentNoteId(), changes: null };
 
     // Long notes go out in BATCHES (≈6000 chars of segments per request) so
     // every reply fits the model's output budget — one giant request used to
     // truncate mid-text, losing the tail and breaking the ⟦N⟧ format.
-    const batches = []; let cur = []; let curLen = 0;
-    segs.forEach(function (s) {
-      const len = s.text.length + 8;
-      if (cur.length && curLen + len > 6000) { batches.push(cur); cur = []; curLen = 0; }
-      cur.push(s); curLen += len;
-    });
-    if (cur.length) batches.push(cur);
-
-    naiAbort();
-    naiOpenPanel('ئىملا تۈزىتىش'); naiActions(); naiExtra(null); naiChatbar(false);
-    naiResult('');
+    const batches = NU.buildBatches(collected.lines.map(l => ({ num: l.num, text: l.text })));
     let cancelled = false; let inner = null;
     NAI.streamHandle = { abort: function () { cancelled = true; if (inner) { try { inner.abort(); } catch (e) {} inner = null; } } };
 
-    const mergedMap = {};
+    const corrected = new Map();
     let shownPrev = '';   // accumulated raw replies of finished batches
     const show = function (liveBuf) {
       const r = document.getElementById('nai-result'); if (!r) return;
-      // Live view: every ⟦N⟧ marker starts its line — the user sees the SAME
-      // line structure the final text will have (pre-wrap keeps the breaks).
+      // Live view: every ⟦N⟧ marker starts its line.
       const txt = (shownPrev + liveBuf).replace(/[ \t]*⟦\d+⟧[ \t]*/g, '\n').replace(/^\n+/, '');
       r.style.whiteSpace = 'pre-wrap';
       r.textContent = txt;
@@ -3472,35 +3816,32 @@ function naiProofread() {
     const runBatch = function (bi) {
       if (cancelled) return;
       const batch = batches[bi];
-      const segmented = batch.map(function (s) { return '⟦' + s.num + '⟧ ' + s.text; }).join('\n');
       naiBusy(() => { naiAbort(); naiStatus('توختىتىلدى'); });
       if (batches.length > 1) {
         const st = document.getElementById('nai-status');
         if (st && st.firstChild) st.firstChild.textContent = 'جاۋاب يېزىلىۋاتىدۇ… (' + (bi + 1) + '/' + batches.length + ')';
       }
       let buffer = '';
-      inner = window.AI.askStream({ type: 'uy_proofread', context: segmented },
+      inner = window.AI.askStream({ type: 'uy_proofread', context: NU.formatBatch(batch) },
         (delta) => { if (cancelled) return; buffer += delta; show(buffer); },
         (full, model) => {
           inner = null;
           if (cancelled) return;
-          const map = naiParseSegments(full);
-          // Every segment of THIS batch must come back — never apply partially.
-          let ok = true;
-          for (let i = 0; i < batch.length && ok; i++) if (typeof map[batch[i].num] !== 'string') ok = false;
-          if (!ok) {
+          // The same segments, in the same order — or nothing is applied.
+          const checked = NU.checkBatch(batch, full);
+          if (!checked.ok) {
             NAI.streamHandle = null;
             naiStatus('');
-            naiResult('<p style="color:var(--text2);font-size:12px">جاۋاب فورماتى خاتا — قايتا سىناڭ</p>');
+            naiMessage(NU.malformedMessage(checked.reason));
             const a = naiActions(); if (a) { a.style.display = 'flex'; a.appendChild(naiBtn('قايتا سىناش', () => naiProofread())); }
             return;
           }
-          batch.forEach(function (s) { mergedMap[s.num] = map[s.num]; });
+          checked.segments.forEach(function (s) { corrected.set(s.num, s.text); });
           shownPrev = (shownPrev + full).replace(/\s+$/, '') + '\n';
           if (bi + 1 < batches.length) { runBatch(bi + 1); return; }
           NAI.streamHandle = null;
           naiStatus(model ? ('مودېل: ' + model) : '');
-          naiProofreadFinish(mergedMap);
+          naiProofreadFinish(corrected);
         },
         (res) => { inner = null; NAI.streamHandle = null; naiStatus(''); naiRenderError(res); },
         // Restarted on another key: drop this batch's partial text.
@@ -3510,38 +3851,93 @@ function naiProofread() {
     runBatch(0);
   });
 }
-function naiProofreadFinish(map) {
-  const lines = NAI.proofreadLines || [];
-  const segByLine = NAI.proofreadSegByLine || {};
-  NAI.proofreadMap = map;
-  // Preview mirrors the FINAL layout exactly: corrected text line-by-line,
-  // blank lines kept — the user can verify every break survives before apply.
-  const previewText = lines.map(function (ln, idx) {
-    const seg = segByLine[idx];
-    return (seg != null && typeof map[seg] === 'string') ? map[seg] : ln;
-  }).join('\n');
-  naiResult('<div style="font-size:11px;color:var(--text3);margin-bottom:6px">تۈزىتىلگەن نۇسخا (كۆرۈنۈش):</div>'
-    + '<div style="white-space:pre-wrap">' + sanitize(previewText) + '</div>');
-  const a = naiActions(); if (a) {
-    a.style.display = 'flex';
-    a.appendChild(naiBtn('قوللىنىش', naiProofreadApply));
-    a.appendChild(naiBtn('ۋاز كېچىش', naiClose));
+// One line of the preview: the part that changes marked as <del> or <ins>.
+function naiDiffLine(text, p, s, tag) {
+  const div = document.createElement('div'); div.className = 'nai-diff-' + tag;
+  div.appendChild(document.createTextNode(text.slice(0, p)));
+  const mid = document.createElement(tag); mid.textContent = text.slice(p, text.length - s);
+  div.appendChild(mid);
+  div.appendChild(document.createTextNode(text.slice(text.length - s)));
+  return div;
+}
+// Only what would change, each with a box to untick — a list of four changes
+// is something a writer reads; two hundred unchanged lines they accept blind.
+function naiProofreadFinish(corrected) {
+  const st = NAI.proofread; if (!st) return;
+  const changes = window.NoteUnits.planChanges(st.collected, corrected);
+  st.changes = changes;
+  const r = document.getElementById('nai-result'); if (!r) return;
+  r.style.whiteSpace = ''; r.innerHTML = '';
+  const head = document.createElement('div'); head.className = 'nai-proof-head';
+  head.textContent = changes.length ? (changes.length + ' يەردە تۈزىتىش بار — قوللىنىدىغانلىرىنى تاللاڭ:') : 'خاتالىق تېپىلمىدى. خاتىرە ئۆزگەرتىلمىدى.';
+  r.appendChild(head);
+  if (st.collected.quoted) {
+    const q = document.createElement('div'); q.className = 'nai-proof-note';
+    q.textContent = 'نەقىل، ئايەت ۋە ئۇلىنىشلار ئەۋەتىلمىدى (' + st.collected.quoted + ').';
+    r.appendChild(q);
   }
+  changes.forEach(function (ch, i) {
+    const row = document.createElement('label'); row.className = 'nai-change';
+    const box = document.createElement('input'); box.type = 'checkbox'; box.checked = true; box.dataset.index = String(i);
+    const body = document.createElement('div'); body.className = 'nai-change-body';
+    body.appendChild(naiDiffLine(ch.before, ch.p, ch.s, 'del'));
+    body.appendChild(naiDiffLine(ch.after, ch.p, ch.s, 'ins'));
+    if (ch.flattens) {
+      const w = document.createElement('div'); w.className = 'nai-change-warn';
+      w.textContent = 'بۇ ئابزاستىكى فورمات ئاددىيلىشىدۇ';
+      body.appendChild(w);
+    }
+    row.appendChild(box); row.appendChild(body);
+    r.appendChild(row);
+  });
+  const a = naiActions(); if (!a) return;
+  a.style.display = 'flex';
+  if (changes.length) a.appendChild(naiBtn('قوللىنىش', naiProofreadApply));
+  a.appendChild(naiBtn(changes.length ? 'ۋاز كېچىش' : 'تاقاش', naiClose));
 }
 function naiProofreadApply() {
-  const ed = naiEditor();
-  const lines = NAI.proofreadLines, segByLine = NAI.proofreadSegByLine || {}, map = NAI.proofreadMap || {};
-  if (!ed || !lines) return;
-  // Rebuild the editor line-by-line: corrected text for each numbered line,
-  // blank lines kept blank — paragraph / line breaks are preserved.
-  const out = lines.map(function (ln, idx) {
-    const seg = segByLine[idx];
-    return (seg != null && typeof map[seg] === 'string') ? map[seg] : ln;
+  const ed = naiEditor(); const st = NAI.proofread;
+  if (!ed || !st || !st.changes) return;
+  if (naiCurrentNoteId() !== st.noteId) {
+    toast('باشقا خاتىرە ئېچىلغان — تۈزىتىش قوللىنىلمىدى', 'e');
+    NAI.proofread = null; naiClose(); return;
+  }
+  const r = document.getElementById('nai-result');
+  const picked = st.changes.filter(function (ch, i) {
+    const box = r && r.querySelector('input[data-index="' + i + '"]');
+    return !box || box.checked;
   });
-  naiSetEditorBlocks(ed, out);
+  if (!picked.length) { toast('ھېچقانداق تۈزىتىش تاللانمىدى', 'i'); return; }
+  // The note as it is, first: «AI تۈزىتىشتىن بۇرۇن» in «نەشر تارىخى», and «يېنىۋېلىش».
+  if (!window.notesBeforeAi || !window.notesBeforeAi()) return;
+  const res = window.NoteUnits.applyChanges(ed, picked);
+  NAI.proofread = null;
   naiMarkDirty();
-  toast('تۈزىتىش قوللىنىلدى', 's');
-  naiClose();
+  if (!res.applied) {
+    naiMessage('ھېچقانداق تۈزىتىش قوللىنىلمىدى — بۇ قۇرلار ئارىدا ئۆزگەرتىلگەن.');
+    const a = naiActions(); if (a) { a.style.display = 'flex'; a.appendChild(naiBtn('قايتا تەكشۈرۈش', () => naiProofread())); }
+    return;
+  }
+  naiAfterAiApply(res.applied + ' تۈزىتىش قوللىنىلدى' + (res.skipped ? '؛ ئارىدا ئۆزگەرتىلگەن ' + res.skipped + ' قۇرغا تېگىلمىدى' : '') + '.');
+}
+// After an AI change: say what was done and offer «يېنىۋېلىش» — the whole
+// note back as it was — in the AI tab and in the toast.
+function naiUndoAi() {
+  if (window.notesUndoAi && window.notesUndoAi()) {
+    toast('AI ئۆزگەرتىشى يېنىۋېلىندى. ئۆزگەرتىلگەن ھالىتى «نەشر تارىخى» دا ساقلاندى.', 's');
+    naiClose();
+  } else {
+    toast('يېنىۋالغىلى بولمايدۇ — «نەشر تارىخى» دىن ئەسلىگە قايتۇرۇڭ.', 'e');
+  }
+}
+function naiAfterAiApply(message) {
+  naiStatus(''); naiExtra(null); naiChatbar(false);
+  naiMessage(message);
+  toast(message, 's', { action: { label: 'يېنىۋېلىش', run: naiUndoAi }, ms: 10000 });
+  const a = naiActions(); if (!a) return;
+  a.style.display = 'flex';
+  a.appendChild(naiBtn('يېنىۋېلىش', naiUndoAi));
+  a.appendChild(naiBtn('تاقاش', naiClose));
 }
 
 // --- (3) Free chatbot --------------------------------------------------------
@@ -3727,20 +4123,29 @@ async function naiOcrCleanupCore(text, opts) {
 window.naiOfferOcrCleanup = function () {
   naiAvailable().then(ok => { const b = document.getElementById('notes-ocr-cleanup-btn'); if (b) b.style.display = ok ? '' : 'none'; });
 };
-// Notebook context: clean the note's blocks, preview, then apply (reuses the
-// proofread block-apply path).
+// Notebook context: clean the OCR text, preview, then apply. It works on the
+// selection; on the whole note only when the note is plain paragraphs (no
+// quoted material, headings, lists, tables) — replacing those with plain
+// paragraphs would destroy them. src/note-units.js (ocrScope, replaceScope)
+// keeps quoted material out and writes the answer back as one editing
+// command, so Ctrl+Z takes it back; «يېنىۋېلىش» puts the whole note back.
 window.naiOcrCleanupNote = function () {
   naiGate(async () => {
-    const ed = naiEditor(); if (!ed) return;
-    // Paragraphs = blank-line-separated visual blocks. OCR cleanup reflows the
-    // lines WITHIN a paragraph (rejoins broken lines) but keeps paragraph breaks.
-    const paras = naiEditorLines(ed).join('\n').split(/\n{2,}/)
-      .map(p => p.replace(/\s+/g, ' ').trim()).filter(Boolean);
-    if (!paras.length) { toast('تۈزىتىدىغان تېكىست يوق', 'e'); return; }
+    const ed = naiEditor(); const NU = window.NoteUnits;
+    if (!ed || !NU) return;
+    if (!ed.isContentEditable) { toast('بۇ خاتىرە ئەخلەت ساندۇقىدا — پەقەت ئوقۇشقا بولىدۇ.', 'e'); return; }
+    const scope = NU.ocrScope(ed, window.getSelection());
+    if (!scope.ok) {
+      toast(scope.reason === 'quoted'
+        ? 'تاللانغان قىسىمدا نەقىل، ئايەت ياكى ئۇلىنىش بار — پەقەت OCR تېكىستىنى تاللاڭ'
+        : 'OCR تېكىستىنى تاللاپ ئاندىن تۈزىتىڭ', 'e');
+      return;
+    }
+    if (!scope.paragraphs.length) { toast('تۈزىتىدىغان تېكىست يوق', 'e'); return; }
     _naiOcrAbort = false;
     naiOpenPanel('OCR تۈزىتىش'); naiActions(); naiExtra(null); naiChatbar(false); naiResult('');
     naiBusy(() => { _naiOcrAbort = true; naiStatus('توختىتىلدى'); });
-    const cleaned = await naiOcrCleanupCore(paras.join('\n\n'), {
+    const cleaned = await naiOcrCleanupCore(scope.paragraphs.join('\n\n'), {
       onProgress: (x, y) => naiStatus('AI تۈزىتىۋاتىدۇ: بۆلەك ' + x + ' / ' + y),
       shouldAbort: () => _naiOcrAbort,
       onError: (res) => naiRenderError(res || {})
@@ -3749,26 +4154,36 @@ window.naiOcrCleanupNote = function () {
     if (cleaned == null) return;
     const parts = cleaned.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
     if (!parts.length) {
-      naiResult('<p style="color:var(--text2);font-size:12px">جاۋاب فورماتى خاتا — قايتا سىناڭ</p>');
+      naiMessage('جاۋاب فورماتى خاتا — قايتا سىناڭ');
       const a = naiActions(); if (a) { a.style.display = 'flex'; a.appendChild(naiBtn('قايتا سىناش', () => window.naiOcrCleanupNote())); }
       return;
     }
-    NAI.ocrParts = parts;
+    NAI.ocr = { scope: scope, parts: parts, noteId: naiCurrentNoteId() };
     naiStatus('');
-    naiResult('<div style="font-size:11px;color:var(--text3);margin-bottom:6px">تۈزىتىلگەن نۇسخا (كۆرۈنۈش):</div>' + parts.map(p => '<p>' + sanitize(p) + '</p>').join(''));
+    naiResult('<div style="font-size:11px;color:var(--text3);margin-bottom:6px">' +
+      (scope.whole ? 'پۈتۈن خاتىرە' : 'تاللانغان قىسىم') + ' — تۈزىتىلگەن نۇسخا (كۆرۈنۈش):</div>' +
+      parts.map(p => '<p>' + sanitize(p) + '</p>').join(''));
     const a = naiActions(); if (a) { a.style.display = 'flex'; a.appendChild(naiBtn('قوللىنىش', naiOcrApply)); a.appendChild(naiBtn('ۋاز كېچىش', naiClose)); }
     const b = document.getElementById('notes-ocr-cleanup-btn'); if (b) b.style.display = 'none';
   });
 };
-// Apply OCR-cleaned paragraphs back to the note as one block per paragraph, so
-// paragraph breaks are preserved (its own apply — proofread's is line-based).
 function naiOcrApply() {
-  const ed = naiEditor(); const parts = NAI.ocrParts;
-  if (!ed || !parts || !parts.length) return;
-  naiSetEditorBlocks(ed, parts);
+  const ed = naiEditor(); const st = NAI.ocr;
+  if (!ed || !st) return;
+  if (naiCurrentNoteId() !== st.noteId) {
+    toast('باشقا خاتىرە ئېچىلغان — تۈزىتىش قوللىنىلمىدى', 'e');
+    NAI.ocr = null; naiClose(); return;
+  }
+  if (!window.NoteUnits.scopeIntact(ed, st.scope)) {
+    toast('تېكىست ئارىدا ئۆزگەرتىلگەن — قايتا تاللاپ تۈزىتىڭ', 'e');
+    return;
+  }
+  // The note as it is, first: «AI تۈزىتىشتىن بۇرۇن» in «نەشر تارىخى», and «يېنىۋېلىش».
+  if (!window.notesBeforeAi || !window.notesBeforeAi()) return;
+  if (!window.NoteUnits.replaceScope(ed, st.scope, st.parts)) return;
+  NAI.ocr = null;
   naiMarkDirty();
-  toast('تۈزىتىش قوللىنىلدى', 's');
-  naiClose();
+  naiAfterAiApply('OCR تۈزىتىشى قوللىنىلدى.');
 }
 // PDF-import context: clean the staged S.tempContent, confirm preview, apply.
 window.naiOcrCleanupStaged = async function () {
@@ -4010,6 +4425,14 @@ function raiSpellfixApplyConfirm() {
   raiSpellfixApply(RAI_SF.corrected);
 }
 
+// Where each page begins once the content is rebuilt by joining them (K5).
+function readerJoinedStarts(pages) {
+  const starts = [];
+  let at = 0;
+  for (const page of pages) { starts.push(at); at += page.length + 1; }
+  return starts;
+}
+
 async function raiSpellfixApply(text) {
   const b = S.curB;
   if (!b || RAI_SF.pageIdx < 0 || !S.readerPages || RAI_SF.pageIdx >= S.readerPages.length) return;
@@ -4020,6 +4443,7 @@ async function raiSpellfixApply(text) {
   S.readerPages[RAI_SF.pageIdx] = text;
   // Lossless rebuild — the page split joined paragraphs with '\n', so do the same.
   S.readerContent = S.readerPages.join('\n');
+  S.readerPageStarts = readerJoinedStarts(S.readerPages);
   try { await window.electron.dbSaveContent(b.id, S.readerContent); }
   catch (e) { toast('ساقلاشتا خاتالىق', 'e'); return; }
   if (S.readerPage - 1 === RAI_SF.pageIdx) renderReaderPage();
@@ -4034,6 +4458,7 @@ async function raiSpellfixRevert() {
   if (!(key in RAI_SF.pageBackup)) { toast('ئەسلىي نۇسخا يوق', 'i'); return; }
   S.readerPages[RAI_SF.pageIdx] = RAI_SF.pageBackup[key];
   S.readerContent = S.readerPages.join('\n');
+  S.readerPageStarts = readerJoinedStarts(S.readerPages);
   try { await window.electron.dbSaveContent(b.id, S.readerContent); }
   catch (e) { toast('ساقلاشتا خاتالىق', 'e'); return; }
   delete RAI_SF.pageBackup[key];
@@ -4049,6 +4474,8 @@ function hideAiSelChip() {
   const c = document.getElementById('aiSelChip');
   if (c) c.style.display = 'none';
 }
+
+document.getElementById('rc').addEventListener('scroll', readerScrolled, { passive: true });
 
 (function bindAiSelection() {
   const rc = document.getElementById('rc');
@@ -4523,13 +4950,23 @@ async function delBook(id, e) {
   e.stopPropagation();
   const b=S.books.find(x=>x.id===id);
   if(!confirm((b?sanitize(b.title):'بۇ كىتاب')+'نى ئۆچۈرمەكچىمۇ؟'))return;
+  // From the database first, through the one IPC that deletes a book — its
+  // text, bookmarks, notes, position and file go with it. Only then from the
+  // screen. save-library no longer deletes anything (K4).
+  let res = null;
+  try { res = await window.electron.dbDeleteBook(id); }
+  catch (err) { res = { success: false, error: err && err.message }; }
+  if (!res || !res.success) {
+    toast('كىتاب ئۆچۈرۈلمىدى' + (res && res.error ? ' — ' + res.error : ''), 'e');
+    return;
+  }
   S.books=S.books.filter(x=>x.id!==id);
   delete S.readPos[id];
   delete S.bookmarks[id];
   delete S.bookNotes[id];
   delete S.searchIndex[id];
   S.recent = S.recent.filter(r => r.id !== id);
-  await saveData();renderSide();renderBooks();if(b)toast(sanitize(b.title)+' ئۆچۈرۈلدى','i');
+  renderSide();renderBooks();if(b)toast(sanitize(b.title)+' ئۆچۈرۈلدى','i');
 }
 
 function showAdd(){
@@ -4757,11 +5194,9 @@ async function confirmBatchImport() {
   // Phase 3: refresh frontend state from backend (so IDs are correct)
   try {
     const data = await window.electron.loadLibrary();
-    S.books = data.books || [];
-    S.cats = data.cats || S.cats;
-    S.nid = data.nid || S.nid;
-    S.bookmarks = data.bookmarks || S.bookmarks;
-    S.bookNotes = data.notes || S.bookNotes;
+    // Only what loaded replaces what is on screen — a failed read here used
+    // to empty S.books, and the next save then emptied the library.
+    applyLibraryData(data, false, ['books', 'cats', 'nid', 'bookmarks', 'notes']);
   } catch (e) {
     console.warn('Refresh library after batch import failed:', e);
   }
@@ -5049,33 +5484,23 @@ function setupKeyboardShortcuts() {
   });
 }
 
-// Flush any pending Notes save before the window closes
+// The last resort before the window goes.
+//
+// The guarantee is in the main process: it stops the close, asks the renderer
+// to flush and waits for the answer (app-flush-request). This stays because a
+// reload, a crash of the main window or a close that skipped that path would
+// otherwise write nothing at all. notesFlush() takes its snapshot — the clean
+// one, without the transient markup — and dispatches the write synchronously;
+// beforeunload cannot wait for the answer, which is exactly why it is not the
+// guarantee.
 window.addEventListener('beforeunload', () => {
   try {
-    if (window.S && window.S.notes && window.S.notes.dirty && window.S.notes.curDoc) {
-      // Use sync IPC via a synchronous-looking pattern:
-      // We can't actually await here, but we can fire-and-forget.
-      // The main process auto-save is no longer necessary, but ensure
-      // the most recent state is at least dispatched.
-      const editorEl = document.getElementById('notes-editor');
-      if (editorEl && window.electron && window.electron.notesUpdate) {
-        const rawHtml = editorEl.innerHTML;
-        const html = (window.SafeHTML && window.SafeHTML.sanitize)
-          ? window.SafeHTML.sanitize(rawHtml)
-          : rawHtml;
-        const text = editorEl.innerText || '';
-        // Don't await — beforeunload can't reliably wait, but the IPC
-        // is queued and the main process will process it.
-        window.electron.notesUpdate(
-          window.S.notes.curDoc.id,
-          window.S.notes.curDoc.title,
-          html,
-          text
-        );
-      }
+    if (window.S && window.S.notes && window.S.notes.dirty && window.S.notes.curDoc &&
+        typeof window.notesFlush === 'function') {
+      window.notesFlush();
     }
   } catch (e) {
-    // Ignore — best effort save
+    // Ignore — best effort
   }
 });
 
@@ -5112,12 +5537,35 @@ async function loadSearchHistory() {
       </div>`;
     }).join('');
 
-    el.innerHTML = `<div class="sh-header">يېقىنقى ئىزدەشلەر</div>${rows}`;
+    el.innerHTML = `<div class="sh-header"><span>يېقىنقى ئىزدەشلەر</span>
+        <button type="button" class="sh-clear" onmousedown="event.preventDefault()" onclick="clearSearchHistory(this)">تارىخنى تازىلاش</button>
+      </div>${rows}`;
     el.classList.add('on');
   } catch(e) {
     console.warn('loadSearchHistory failed:', e);
     el.classList.remove('on');
   }
+}
+
+// «تارىخنى تازىلاش» (W20, K17). It cannot be taken back, so it asks with a
+// second click on the same button — never confirm() — and disarms by itself.
+async function clearSearchHistory(btn) {
+  if (!btn.classList.contains('armed')) {
+    btn.classList.add('armed');
+    btn.textContent = 'يەنە بىر بېسىڭ — قايتۇرغىلى بولمايدۇ';
+    clearTimeout(btn._disarm);
+    btn._disarm = setTimeout(() => {
+      btn.classList.remove('armed');
+      btn.textContent = 'تارىخنى تازىلاش';
+    }, 4000);
+    return;
+  }
+  clearTimeout(btn._disarm);
+  let r = null;
+  try { r = await window.electron.dbClearSearchHistory(); } catch (e) { r = null; }
+  if (!r || !r.success) { toast('ئىزدەش تارىخى تازىلانمىدى', 'e'); return; }
+  hideSearchHistory(true);
+  toast('ئىزدەش تارىخى تازىلاندى', 's');
 }
 
 function useSearchHistory(query) {
@@ -5166,9 +5614,19 @@ function progress(val) {
   }
 }
 
-function toast(msg,type='i'){
+// toast(msg, type) — and, for a change that can be taken back, a button:
+// toast(msg, type, { action: { label, run }, ms }). The note moved to the trash
+// is the first user: «قايتۇرۇش» for 10 seconds.
+function toast(msg,type='i',opts){
   const tc=document.getElementById('toast');const tk=document.createElement('div');
-  tk.className='tk '+type;tk.textContent=msg;tc.appendChild(tk);setTimeout(()=>tk.remove(),3000);
+  tk.className='tk '+type;
+  const text=document.createElement('span');text.textContent=msg;tk.appendChild(text);
+  if(opts&&opts.action&&typeof opts.action.run==='function'){
+    const b=document.createElement('button');b.type='button';b.className='tk-act';b.textContent=opts.action.label||'';
+    b.addEventListener('click',()=>{tk.remove();try{opts.action.run();}catch(e){}});
+    tk.appendChild(b);
+  }
+  tc.appendChild(tk);setTimeout(()=>tk.remove(),(opts&&opts.ms)||3000);
 }
 
 init();
@@ -5183,8 +5641,15 @@ init();
 <script src="ai-client.js"></script>
 <script src="sanitize.js"></script>
 <script src="ngram.js"></script>
+<!-- Where things are in the note: one offset map for the spellchecker, find
+     and the reference scanner. Must load before all three. -->
+<script src="textmap.js"></script>
 <script src="spellcheck.js"></script>
 <script src="quran.js"></script>
+<!-- The notebook's export: the document model, Markdown and text (W6). -->
+<script src="notes-export.js"></script>
+<script src="note-units.js"></script>
+<script src="reader-places.js"></script>
 <script src="notes.js"></script>
 </body>
 </html>

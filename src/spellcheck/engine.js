@@ -29,6 +29,7 @@ const {
   unpackDictionary
 } = require('./dictionary');
 const { isCorrect, suggest: suggestFor } = require('./check');
+const { looksGlued } = require('./glued');
 
 const ASSETS = path.join(__dirname, '..', '..', 'assets', 'spellcheck');
 const DICT_PATH = path.join(ASSETS, 'uyghur-dict.bin');
@@ -136,4 +137,14 @@ function check(word) {
   return isCorrect(dictionary, String(word == null ? '' : word), personal);
 }
 
-module.exports = { init, isReady, setPersonal, checkText, suggest, check };
+/**
+ * Which of `words` look like two words glued together (glued.js) — the
+ * personal-dictionary panel marks them. A hint only: nothing is removed.
+ */
+function glued(words) {
+  load();
+  if (!dictionary || !Array.isArray(words)) return [];
+  return words.filter((word) => typeof word === 'string' && looksGlued(dictionary, word));
+}
+
+module.exports = { init, isReady, setPersonal, checkText, suggest, check, glued };

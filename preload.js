@@ -10,9 +10,10 @@ contextBridge.exposeInMainWorld('electron', {
   dbDeleteBook: (id) => ipcRenderer.invoke('db-delete-book', id),
   dbGetContent: (bookId) => ipcRenderer.invoke('db-get-content', bookId),
   dbSaveContent: (bookId, content) => ipcRenderer.invoke('db-save-content', bookId, content),
-  dbSearch: (query, category) => ipcRenderer.invoke('db-search', query, category),
+  dbSearch: (query, category, opts) => ipcRenderer.invoke('db-search', query, category, opts),
   dbGetAllSnippets: (bookId, query) => ipcRenderer.invoke('db-get-all-snippets', bookId, query),
   dbSearchHistory: () => ipcRenderer.invoke('db-search-history'),
+  dbClearSearchHistory: () => ipcRenderer.invoke('db-clear-search-history'),
   dbGetCategories: () => ipcRenderer.invoke('db-get-categories'),
   dbAddCategory: (name, parentId) => ipcRenderer.invoke('db-add-category', name, parentId),
   dbRenameCategory: (oldName, newName) => ipcRenderer.invoke('db-rename-category', oldName, newName),
@@ -24,7 +25,7 @@ contextBridge.exposeInMainWorld('electron', {
   dbAddNote: (bookId, text, position) => ipcRenderer.invoke('db-add-note', bookId, text, position),
   dbDeleteNote: (id) => ipcRenderer.invoke('db-delete-note', id),
   dbGetProgress: (bookId) => ipcRenderer.invoke('db-get-progress', bookId),
-  dbSaveProgress: (bookId, position, page) => ipcRenderer.invoke('db-save-progress', bookId, position, page),
+  dbSaveProgress: (bookId, position, page, charOffset) => ipcRenderer.invoke('db-save-progress', bookId, position, page, charOffset),
   dbAddRecent: (bookId) => ipcRenderer.invoke('db-add-recent', bookId),
   dbGetRecent: () => ipcRenderer.invoke('db-get-recent'),
   dbGetSetting: (key, defaultVal) => ipcRenderer.invoke('db-get-setting', key, defaultVal),
@@ -35,6 +36,13 @@ contextBridge.exposeInMainWorld('electron', {
   // Legacy operations (kept for backward compatibility)
   loadLibrary: () => ipcRenderer.invoke('load-library'),
   saveLibrary: (data) => ipcRenderer.invoke('save-library', data),
+  // Backup and restore — the files are handled in the main process (backup.js).
+  backupInfo: () => ipcRenderer.invoke('backup-info'),
+  backupNow: () => ipcRenderer.invoke('backup-now'),
+  booksFormsScan: () => ipcRenderer.invoke('books-forms-scan'),
+  booksFormsFix: () => ipcRenderer.invoke('books-forms-fix'),
+  backupOpenFolder: () => ipcRenderer.invoke('backup-open-folder'),
+  backupRestore: () => ipcRenderer.invoke('backup-restore'),
   saveBookContent: (id, content) => ipcRenderer.invoke('save-book-content', id, content),
   loadBookContent: (id) => ipcRenderer.invoke('load-book-content', id),
 
@@ -50,6 +58,8 @@ contextBridge.exposeInMainWorld('electron', {
   saveFileDialog: (name, content) => ipcRenderer.invoke('save-file-dialog', name, content),
   exportAsDocx: (title, author, content) => ipcRenderer.invoke('export-as-docx', title, author, content),
   exportAsPdf: (title, author, content) => ipcRenderer.invoke('export-as-pdf', title, author, content),
+  // The notebook's export: format is docx | pdf | md | txt (see note-export.js).
+  exportNote: (format, payload) => ipcRenderer.invoke('export-note', format, payload),
   openFolder: () => ipcRenderer.invoke('open-folder'),
   readFolder: (folderPath) => ipcRenderer.invoke('read-folder', folderPath),
   // Offline OCR (main process runs tesseract.js; renderer ships base64 PNGs).
@@ -75,13 +85,32 @@ contextBridge.exposeInMainWorld('electron', {
   quranGetAyas: (n) => ipcRenderer.invoke('quran-get-ayas', n),
   quranGetAya: (sura, aya) => ipcRenderer.invoke('quran-get-aya', sura, aya),
   quranSearch: (q, opts) => ipcRenderer.invoke('quran-search', q, opts),
+  quranBookmarks: () => ipcRenderer.invoke('quran-bookmarks'),
+  quranBookmarkAdd: (sura, aya) => ipcRenderer.invoke('quran-bookmark-add', sura, aya),
+  quranBookmarkRemove: (sura, aya) => ipcRenderer.invoke('quran-bookmark-remove', sura, aya),
   quranLookupSura: (input) => ipcRenderer.invoke('quran-lookup-sura', input),
   // Notes API (new documents module)
   notesGetAll: () => ipcRenderer.invoke('notes-get-all'),
   notesGet: (id) => ipcRenderer.invoke('notes-get', id),
   notesCreate: (title) => ipcRenderer.invoke('notes-create', title),
   notesUpdate: (id, title, html, text) => ipcRenderer.invoke('notes-update', id, title, html, text),
-  notesDelete: (id) => ipcRenderer.invoke('notes-delete', id),
+  notesDelete: (id) => ipcRenderer.invoke('notes-delete', id),   // to the trash
+  notesRestore: (id) => ipcRenderer.invoke('notes-restore', id),
+  notesTrashList: () => ipcRenderer.invoke('notes-trash-list'),
+  notesDeleteForever: (id) => ipcRenderer.invoke('notes-delete-forever', id),
+  notesEmptyTrash: () => ipcRenderer.invoke('notes-empty-trash'),
+  notesSetPinned: (id, pinned) => ipcRenderer.invoke('notes-set-pinned', id, pinned),
+  notesSearch: (query) => ipcRenderer.invoke('notes-search', query),
+  notesDiscardEmpty: (id) => ipcRenderer.invoke('notes-discard-empty', id),
+  // Earlier versions of a note (W1): kept in the background, listed, read back.
+  notesVersionKeep: (noteId, reason, title, html, text) => ipcRenderer.invoke('notes-version-keep', noteId, reason, title, html, text),
+  notesVersionList: (noteId) => ipcRenderer.invoke('notes-version-list', noteId),
+  notesVersionGet: (id) => ipcRenderer.invoke('notes-version-get', id),
+  // Whether the notebook holds anything unsaved, and the handshake that lets
+  // closing the window wait for the save — see mainWindow.on('close').
+  notesDirty: (dirty) => ipcRenderer.send('notes-dirty', !!dirty),
+  onAppFlushRequest: (callback) => ipcRenderer.on('app-flush-request', () => callback()),
+  appFlushDone: (ok) => ipcRenderer.send('app-flush-done', !!ok),
   // Ngram API
   ngramFindWord: (word) => ipcRenderer.invoke('ngram-find-word', word),
   bookContentSnippet: (bookId, needle, max, ctx) => ipcRenderer.invoke('book-content-snippet', bookId, needle, max, ctx),
@@ -95,6 +124,12 @@ contextBridge.exposeInMainWorld('electron', {
   spellCheck: (text) => ipcRenderer.invoke('spell-check', text),
   spellSuggest: (word) => ipcRenderer.invoke('spell-suggest', word),
   spellPersonal: (words) => ipcRenderer.invoke('spell-personal', words),
+  // Guards «لۇغەتكە قوشۇش»: one word only, by the engine's own rules.
+  spellValidateWord: (word) => ipcRenderer.invoke('spell-validate-word', word),
+  // The personal-dictionary panel: glued-word hints, export, import (W8).
+  spellGlued: (words) => ipcRenderer.invoke('spell-glued', words),
+  spellDictionaryExport: (words) => ipcRenderer.invoke('spell-dictionary-export', words),
+  spellDictionaryImport: (existing) => ipcRenderer.invoke('spell-dictionary-import', existing),
 
   // AI (Gemini) — all network happens in the main process (see ai.js).
   // The real API key never crosses into the renderer; only a masked form.

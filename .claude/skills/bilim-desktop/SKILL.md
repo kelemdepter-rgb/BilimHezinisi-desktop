@@ -30,7 +30,8 @@ time:
 | Step | Needs | In Claude's sandbox? | Where it runs |
 |------|-------|----------------------|---------------|
 | Edit code | file tools | ✅ yes | sandbox / file tools |
-| `node --check <file>` (syntax gate) | Node | ✅ yes | run it yourself |
+| `npm run check-syntax` (the whole syntax gate) | Node | ✅ yes | run it yourself |
+| `npm test` (the app's own suites) | Electron + native modules | ❌ no | user's Windows machine |
 | `npm install` (+ `electron-rebuild`) | Windows build tools | ❌ no | user's Windows machine |
 | `npm start` / `npm run dev` (GUI) | Electron + a display | ❌ no | user's Windows machine |
 | `npm run fetch-ocr-models` | network | ❌ no¹ | user's networked machine |
@@ -38,8 +39,8 @@ time:
 
 Claude's sandbox has Node but **no Electron, no Windows build chain, no display,
 and no Windows-native `better-sqlite3`**, so Claude **cannot run or package the
-app itself.** Claude's real job: (1) make the code change, (2) `node --check`
-it in the sandbox, then (3) hand the user one copy-paste command to run/build on
+app itself.** Claude's real job: (1) make the code change, (2) run
+`npm run check-syntax`, then (3) hand the user one copy-paste command to run/build on
 their own machine.
 
 ¹ `fetch-ocr-models` is plain Node + HTTPS and *could* run in the sandbox, but
@@ -55,19 +56,30 @@ copy-paste-ready block with a one-line Uyghur explanation.
 
 - Edit source in place. **Preserve CRLF line endings** — there is no build step
   and inconsistent endings cause noisy diffs and the occasional parser hiccup.
-- Run the syntax gate over every changed file (and the inline `<script>` in
-  `src/index.html`). In the sandbox you can check everything at once:
-  ```bash
-  ok=1; for f in *.js src/*.js scripts/*.js; do node --check "$f" || { echo "FAIL: $f"; ok=0; }; done; [ $ok -eq 1 ] && echo "All JS OK"
-  ```
+- Run the syntax gate: `npm run check-syntax` checks every `.js` in the repo
+  **and** the inline `<script>` blocks of `src/index.html` with `node --check`.
   Why this matters: the app is loaded straight from source, so a single syntax
   error ships as a hard crash. Never hand off a build without a clean check.
 - Change **only what's necessary** and respect the hard constraints in
   *DO-NOT-TOUCH* below.
 
-### 2. Run / test on the user's machine
+### 2. Run the tests, then the app, on the user's machine
 
-Safest test command — `dev` uses a **separate** library
+The app has its own suites. They run inside Electron 28 — the engine it ships
+with — against a fresh temporary database, so they never touch the real
+library or the DEV one:
+
+```
+cd "E:\ditallar\men yasigan ditallar\bilim hezinisi\bilim hezinisi pc"
+npm test
+```
+
+It prints one line per test and fails the command if anything is red. Every
+bug fixed from v3.5 on has a test here that failed before the fix.
+
+Uyghur note: «بۇ ئاپتوماتىك سىناق — دېتالنى ئاچمايدۇ، كۇتۇپخانىڭىزغا تەگمەيدۇ.»
+
+Then the app itself. Safest test command — `dev` uses a **separate** library
 (`%USERPROFILE%\JamiyKutupxana-DEV`), so it can't harm the real one:
 
 ```
@@ -142,6 +154,8 @@ antivirus.
 | `npm start` | run against the **real** library | Windows |
 | `npm run dev` | run against the **DEV** library (safe) | Windows |
 | `npm run dist-win` / `dist` | electron-builder → NSIS + portable (x64) | Windows |
+| `npm test` | syntax gate + main-process + notebook suites (Electron, temp DB) | Windows |
+| `npm run check-syntax` | `node --check` every `.js` + the inline scripts of `index.html` | sandbox ✅ |
 
 ## DO-NOT-TOUCH (hard constraints — breaking these is a regression)
 

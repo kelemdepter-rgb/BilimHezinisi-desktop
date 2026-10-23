@@ -157,7 +157,7 @@ machine; no image or text is uploaded for recognition.
 | mammoth | ^1.6.0 | BSD-2-Clause |
 | node-html-parser | ^6.1.13 | MIT |
 | pdfjs-dist | 3.11.174 | Apache-2.0 |
-| sql.js | ^1.10.0 | MIT |
+| sql.js | ^1.10.0 — shipped up to v3.2.0, removed in v3.5.0 (unused) | MIT |
 | tesseract.js | ^5.0.0 | Apache-2.0 |
 | turndown | ^7.2.4 | MIT |
 | word-extractor | ^1.0.4 | MIT |

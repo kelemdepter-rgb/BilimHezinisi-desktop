@@ -5,6 +5,17 @@
  */
 const path = require('path');
 const fs = require('fs');
+const textNormalize = require('./text-normalize');
+
+/**
+ * Text as the library stores it: letters, never glyph codepoints (W18, K15).
+ * Every write of a book's title, author, description or text goes through
+ * this, whichever way it came in — import, edit, the renderer's whole-library
+ * save, the reader's page fix.
+ */
+function letters(value) {
+  return textNormalize.normalizeImportedText(value);
+}
 
 let db = null;
 let hasFTS5 = false;
@@ -201,12 +212,13 @@ function createTables() {
     CREATE INDEX IF NOT EXISTS idx_note_updated ON note_documents(updated_at DESC);
   `);
 
-  // Book FTS5
+  // Book FTS5. Libraries made before 3.5 have this table declared with
+  // content_rowid='book_id' and no content table, which FTS5 cannot read
+  // back; migration step 5 rebuilds it in this shape.
   try {
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS book_fts USING fts5(
         title, author, content,
-        content_rowid='book_id',
         tokenize='unicode61'
       )
     `);
@@ -277,11 +289,236 @@ function close() {
     }
     db = null;
   }
+  // Cached text belongs to the library it was read from (a restore, or the
+  // tests, open another one).
+  contentCache.clear();
+}
+
+// ========== SCHEMA MIGRATIONS ==========
+// Every schema change from v3.5 on is a numbered step here, run in order at
+// startup; PRAGMA user_version records the last one applied. createTables()
+// stays as the baseline every library already has. The rules:
+//
+//   - additive only — new tables, new columns. User data is never dropped,
+//     renamed or rewritten by a step;
+//   - each step runs in its own transaction and user_version moves with it,
+//     so a step that fails leaves nothing behind and nothing after it runs;
+//   - before the FIRST pending step of a run, main.js backs the library up to
+//     JamiyKutupxana\backups\ (beforeFirst). If that backup fails, no step
+//     runs at all.
+const MIGRATIONS = [
+  {
+    // W1 — earlier versions of a note (Phase 3.1). AUTOINCREMENT, so an id is
+    // never reused after an eviction and the highest id is always the newest.
+    version: 1,
+    name: 'note_versions',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS note_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          note_id INTEGER NOT NULL REFERENCES note_documents(id) ON DELETE CASCADE,
+          reason TEXT NOT NULL,
+          title TEXT,
+          content_html TEXT,
+          content_text TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_note_versions_note ON note_versions(note_id, created_at);
+      `);
+    }
+  },
+  {
+    // W2, W3 — the trash and pinning (Phase 5). Neither ever touches
+    // updated_at: moving a note to the trash and back, or pinning it, is not
+    // an edit of the note.
+    version: 2,
+    name: 'note_trash_and_pin',
+    up(db) {
+      db.exec(`
+        ALTER TABLE note_documents ADD COLUMN deleted_at TEXT;
+        ALTER TABLE note_documents ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+        CREATE INDEX IF NOT EXISTS idx_note_deleted ON note_documents(deleted_at);
+      `);
+    }
+  },
+  {
+    // K5, W16 — a bookmark, an in-book note and the reading position keep
+    // their PLACE: the character offset where their paragraph begins in the
+    // book's text (src/reader-places.js). Rows from before stay NULL — the
+    // reader lists them as old ones whose place was never kept.
+    version: 3,
+    name: 'annotation_offsets',
+    up(db) {
+      db.exec(`
+        ALTER TABLE bookmarks ADD COLUMN char_offset INTEGER;
+        ALTER TABLE notes ADD COLUMN char_offset INTEGER;
+        ALTER TABLE reading_progress ADD COLUMN char_offset INTEGER;
+      `);
+    }
+  },
+  {
+    // W17 — bookmarks in the Qur'an: one per verse.
+    version: 4,
+    name: 'quran_bookmarks',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS quran_bookmarks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sura INTEGER NOT NULL,
+          aya INTEGER NOT NULL,
+          note TEXT DEFAULT '',
+          created_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(sura, aya)
+        );
+      `);
+    }
+  },
+  {
+    // The book search index, built right. book_fts was declared with
+    // content_rowid='book_id' and no external content table, so FTS5 read its
+    // own content through a column that does not exist: a row could not be
+    // deleted or counted, snippet() failed, and every book whose text or
+    // title changed kept its OLD words in the index. The index is derived
+    // data — it is dropped and built again, and no user data is touched (the
+    // library is backed up before the step).
+    //
+    // The step only lays the table down and leaves a marker: indexing takes
+    // about 12 s per 90 MB of text (measured), a large library a minute, and
+    // the window must not wait for that. main.js fills the index afterwards,
+    // a little at a time (ftsRebuildStep).
+    version: 5,
+    name: 'book_fts_rebuild',
+    up(db) {
+      if (!hasFTS5) return;
+      db.exec(`
+        DROP TABLE IF EXISTS book_fts;
+        CREATE VIRTUAL TABLE book_fts USING fts5(title, author, content, tokenize='unicode61');
+      `);
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(FTS_FILL_KEY, '0');
+    }
+  }
+];
+
+// ========== FILLING THE BOOK SEARCH INDEX (migration step 5) ==========
+
+/** The settings key that says the index is still being filled: books after this id. */
+const FTS_FILL_KEY = 'fts_fill_after';
+/** Characters of book text indexed per step — about a tenth of a second. */
+const FTS_FILL_CHARS = 500000;
+
+/** Is the index still waiting to be filled (after step 5, or after a close part-way)? */
+function ftsRebuildPending() {
+  return !!db.prepare('SELECT 1 FROM settings WHERE key=?').get(FTS_FILL_KEY);
+}
+
+/**
+ * Index the next books, in id order, until about `maxChars` of text — at
+ * least one book — in one transaction that also moves the marker on, so a
+ * close part-way resumes where it stopped. Each book is indexed as it is NOW
+ * (its row deleted and written again), so one changed meanwhile, already
+ * indexed by its own write, comes out right; a deleted one is simply not
+ * found.
+ *
+ * @returns {{done: boolean, indexed: number}}
+ */
+function ftsRebuildStep(maxChars) {
+  const marker = db.prepare('SELECT value FROM settings WHERE key=?').get(FTS_FILL_KEY);
+  if (!marker) return { done: true, indexed: 0 };
+  const limit = Math.max(1, maxChars || FTS_FILL_CHARS);
+  const next = db.prepare(`
+    SELECT b.id, b.title, b.author, c.content FROM books b
+    LEFT JOIN book_content c ON c.book_id = b.id
+    WHERE b.id > ? ORDER BY b.id LIMIT 1
+  `);
+  let after = Number(marker.value) || 0;
+  let indexed = 0;
+  let done = false;
+  db.transaction(() => {
+    let chars = 0;
+    while (chars < limit) {
+      const book = next.get(after);
+      if (!book) { done = true; break; }
+      if (hasFTS5) {
+        db.prepare('DELETE FROM book_fts WHERE rowid=?').run(book.id);
+        if (book.content) {
+          db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
+            .run(book.id, book.title || '', book.author || '', book.content);
+          chars += book.content.length;
+        }
+      }
+      after = book.id;
+      indexed++;
+    }
+    if (done) db.prepare('DELETE FROM settings WHERE key=?').run(FTS_FILL_KEY);
+    else db.prepare('UPDATE settings SET value=? WHERE key=?').run(String(after), FTS_FILL_KEY);
+  })();
+  return { done: done, indexed: indexed };
+}
+
+/** The last migration step applied to this library (0: none yet). */
+function schemaVersion() {
+  return db.pragma('user_version', { simple: true });
+}
+
+/**
+ * Apply the pending steps. `opts.steps` replaces MIGRATIONS (the tests use it);
+ * `opts.beforeFirst(from, to)` runs — and is awaited — before the first one.
+ * @returns {Promise<{from: number, to: number, ran: number[]}>}
+ */
+async function runMigrations(opts) {
+  const options = opts || {};
+  const steps = (options.steps || MIGRATIONS).slice().sort((a, b) => a.version - b.version);
+  steps.forEach((step, i) => {
+    if (!Number.isInteger(step.version) || step.version < 1 ||
+        (i > 0 && step.version === steps[i - 1].version) || typeof step.up !== 'function') {
+      throw new Error('migration steps need distinct positive versions and an up() function');
+    }
+  });
+
+  const from = schemaVersion();
+  const pending = steps.filter(step => step.version > from);
+  if (!pending.length) return { from: from, to: from, ran: [] };
+  const to = pending[pending.length - 1].version;
+
+  if (typeof options.beforeFirst === 'function') await options.beforeFirst(from, to);
+
+  const ran = [];
+  for (const step of pending) {
+    db.transaction(() => {
+      step.up(db);
+      db.pragma('user_version = ' + step.version);
+    })();
+    ran.push(step.version);
+    console.log('[migration] ' + step.version + ' ' + (step.name || '') + ' applied');
+  }
+  return { from: from, to: to, ran: ran };
+}
+
+// ========== BACKUP ==========
+
+/**
+ * A consistent copy of the open library at `file`, made with SQLite's online
+ * backup — safe while the app is using the database, WAL included.
+ */
+async function backupTo(file) {
+  if (!db) throw new Error('the database is not open');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  await db.backup(file);
+  return file;
+}
+
+/** Fold the WAL back into the main file — before the file is replaced. */
+function checkpoint() {
+  if (db) db.pragma('wal_checkpoint(TRUNCATE)');
 }
 
 // ========== BOOKS ==========
 
 function addBook(title, author, category, format, date, description, content, fileHash) {
+  title = letters(title);
+  author = letters(author);
+  description = letters(description);
+  content = letters(content);
   const stmt = db.prepare(`
     INSERT INTO books (title, author, category, format, date, description, file_hash)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -349,7 +586,9 @@ function addBooksBatch(books) {
 
   const tx = db.transaction(() => {
     for (const b of books) {
-      const title = String(b.title || '').trim();
+      const title = letters(String(b.title || '').trim());
+      const author = letters(b.author);
+      const content = letters(b.content);
       if (!title) {
         skipped.push({ title: b.title || '(empty)', reason: 'empty_title' });
         continue;
@@ -368,20 +607,20 @@ function addBooksBatch(books) {
       try {
         const info = insertBook.run(
           title,
-          b.author || '',
+          author,
           b.category || '',
           b.format || 'TXT',
           date,
-          b.description || '',
+          letters(b.description),
           fileHash
         );
         const bookId = info.lastInsertRowid;
 
-        if (b.content) {
-          insertContent.run(bookId, b.content);
+        if (content) {
+          insertContent.run(bookId, content);
           if (insertFts) {
             try {
-              insertFts.run(bookId, title, b.author || '', b.content);
+              insertFts.run(bookId, title, author, content);
             } catch (e) { /* skip FTS insert error per book */ }
           }
         }
@@ -398,6 +637,9 @@ function addBooksBatch(books) {
 }
 
 function updateBook(id, title, author, category, description) {
+  title = letters(title);
+  author = letters(author);
+  description = letters(description);
   db.prepare(`
     UPDATE books SET title=?, author=?, category=?, description=?, updated_at=datetime('now')
     WHERE id=?
@@ -475,6 +717,7 @@ function getBookContent(bookId) {
 }
 
 function saveBookContent(bookId, content) {
+  content = letters(content);
   contentCache.delete(bookId);
   db.prepare('INSERT OR REPLACE INTO book_content (book_id, content) VALUES (?, ?)')
     .run(bookId, content);
@@ -497,83 +740,126 @@ function checkDuplicateHash(hash) {
   return !!row;
 }
 
+// ========== BOOKS STORED AS GLYPH CODEPOINTS (W18, K15) ==========
+// «كىتابلارنى تەكشۈرۈش» in the settings. Text that comes in now is folded on
+// the way (letters() above); these repair what was stored before that.
+
+/** A book's four text fields as stored now. */
+function bookTextFields(id) {
+  const book = db.prepare('SELECT title, author, description FROM books WHERE id=?').get(id);
+  if (!book) return null;
+  const row = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(id);
+  return {
+    title: book.title || '',
+    author: book.author || '',
+    description: book.description || '',
+    content: row ? (row.content || '') : '',
+    hasContent: !!row
+  };
+}
+
+/**
+ * Read-only. `candidates`: books with a field that is CANDIDATE_SHARE or more
+ * glyph codepoints — damaged, and what a repair rewrites (only those fields).
+ * `nearMisses`: books with a stray form or two, left alone — a book about the
+ * letters' shapes may hold them on purpose.
+ */
+function presentationFormsScan() {
+  const candidates = [];
+  const nearMisses = [];
+  const ids = db.prepare('SELECT id FROM books ORDER BY id').all().map(r => r.id);
+  for (const id of ids) {
+    const fields = bookTextFields(id);
+    if (!fields) continue;
+    let forms = 0;
+    const damaged = [];
+    for (const name of ['title', 'author', 'description', 'content']) {
+      const share = textNormalize.presentationFormShare(fields[name]);
+      if (!share.forms) continue;
+      forms += share.forms;
+      if (share.share >= textNormalize.CANDIDATE_SHARE) damaged.push(name);
+    }
+    if (!forms) continue;
+    (damaged.length ? candidates : nearMisses).push({ id: id, title: fields.title, forms: forms, fields: damaged });
+  }
+  return { candidates: candidates, nearMisses: nearMisses };
+}
+
+/**
+ * Repair every candidate. `opts.beforeFirst()` is awaited before anything is
+ * written — main.js backs the library up there, and if that fails, nothing
+ * is. Each book is folded in its own transaction and only after its fold
+ * passes the web repair script's checks (text-normalize.js, verifyFold); a
+ * book that fails is skipped and listed with the reasons. Its search row is
+ * rebuilt with it. `opts.fold` replaces the fold (the tests use it to make a
+ * repair fail its checks).
+ *
+ * @returns {Promise<{fixed: Array, skipped: Array}>}
+ */
+async function presentationFormsFix(opts) {
+  const options = opts || {};
+  const fold = options.fold || textNormalize.foldPresentationForms;
+  const scan = presentationFormsScan();
+  const fixed = [];
+  const skipped = [];
+  if (!scan.candidates.length) return { fixed: fixed, skipped: skipped };
+  if (typeof options.beforeFirst === 'function') await options.beforeFirst(scan.candidates.length);
+
+  for (const candidate of scan.candidates) {
+    const current = bookTextFields(candidate.id);
+    if (!current) continue;
+    const next = Object.assign({}, current);
+    const problems = [];
+    for (const name of candidate.fields) {
+      next[name] = fold(current[name]);
+      for (const problem of textNormalize.verifyFold(current[name], next[name])) problems.push(name + ': ' + problem);
+    }
+    if (problems.length) {
+      skipped.push({ id: candidate.id, title: current.title, problems: problems });
+      continue;
+    }
+    try {
+      db.transaction(() => {
+        db.prepare(`UPDATE books SET title=?, author=?, description=?, updated_at=datetime('now') WHERE id=?`)
+          .run(next.title, next.author, next.description, candidate.id);
+        if (current.hasContent) {
+          db.prepare('UPDATE book_content SET content=? WHERE book_id=?').run(next.content, candidate.id);
+        }
+        if (hasFTS5) {
+          db.prepare('DELETE FROM book_fts WHERE rowid=?').run(candidate.id);
+          if (next.content) {
+            db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
+              .run(candidate.id, next.title, next.author, next.content);
+          }
+        }
+      })();
+    } catch (e) {
+      skipped.push({ id: candidate.id, title: current.title, problems: [e.message] });
+      continue;
+    }
+    contentCache.delete(candidate.id);
+    fixed.push({ id: candidate.id, title: next.title, author: next.author, description: next.description, forms: candidate.forms });
+  }
+  return { fixed: fixed, skipped: skipped };
+}
+
 // ========== SEARCH ==========
 
+/**
+ * Search the library: every book whose title, author or text holds `query`
+ * anywhere, a part of a word included («كتاب» finds «الكتاب»), without regard
+ * to case.
+ *
+ * The owner's decision (2026-10-23, Phase 7): search finds what it has always
+ * found. It used to try the full-text index first; snippet() failed on the
+ * index as it was declared, and a search that found anything fell back to
+ * this. One that found nothing in the index came back empty — so a word only
+ * in a book's changed text was never found. The index is built right now
+ * (migration step 5) and serves the notebook's reference scan (ngramFindWord);
+ * a ranked word search on it would find less, and is a decision of its own.
+ */
 function searchBooks(query, category) {
-  if (!hasFTS5) return searchBooksSimple(query, category);
-
-  const results = [];
-
-  try {
-    let ftsQuery = query;
-    if (!ftsQuery.includes('"')) {
-      ftsQuery = ftsQuery.split(/\s+/).filter(Boolean).map(w => w + '*').join(' ');
-    }
-
-    let sql = `
-      SELECT b.*, snippet(book_fts, 2, '<mark>', '</mark>', '...', 40) as snippet, rank
-      FROM book_fts
-      JOIN books b ON b.id = book_fts.rowid
-      WHERE book_fts MATCH ?
-    `;
-    const params = [ftsQuery];
-
-    if (category && category !== 'all') {
-      sql += ' AND b.category = ?';
-      params.push(category);
-    }
-    sql += ' ORDER BY rank LIMIT 200';
-
-    const rows = db.prepare(sql).all(...params);
-    const lcQuery = query.toLowerCase();
-    for (const row of rows) {
-      const book = { ...row };
-      book.desc = book.description || '';
-      // First-occurrence char offset, used by the reader to scroll directly
-      // to the match on click. Cached content reads make this cheap.
-      let pos = -1;
-      try {
-        const content = getBookContent(book.id);
-        if (content) pos = content.toLowerCase().indexOf(lcQuery);
-      } catch(e) {}
-      results.push({
-        book,
-        snip: book.snippet || '',
-        pos: pos >= 0 ? pos : null,
-        inT: (book.title || '').toLowerCase().includes(lcQuery),
-        inA: (book.author || '').toLowerCase().includes(lcQuery),
-        inC: true
-      });
-    }
-  } catch (e) {
-    return searchBooksSimple(query, category);
-  }
-
-  // Title/author matches FTS5 might miss
-  try {
-    let likeSql = 'SELECT * FROM books WHERE (title LIKE ? OR author LIKE ?)';
-    const likeParams = ['%' + query + '%', '%' + query + '%'];
-    if (category && category !== 'all') {
-      likeSql += ' AND category = ?';
-      likeParams.push(category);
-    }
-    const rows = db.prepare(likeSql).all(...likeParams);
-    const existingIds = new Set(results.map(r => r.book.id));
-    for (const row of rows) {
-      const book = rowToBook(row);
-      if (!existingIds.has(book.id)) {
-        results.push({
-          book,
-          snip: '',
-          inT: (book.title || '').toLowerCase().includes(query.toLowerCase()),
-          inA: (book.author || '').toLowerCase().includes(query.toLowerCase()),
-          inC: false
-        });
-      }
-    }
-  } catch (e) { /* ignore */ }
-
-  return results;
+  return searchBooksSimple(query, category);
 }
 
 function searchBooksSimple(query, category) {
@@ -720,6 +1006,35 @@ function quranGetAya(sura, aya) {
     SELECT id, sura, aya, text_ar, text_ar_simple, text_ug
     FROM quran_ayas WHERE sura=? AND aya=?
   `).get(sura, aya) || null;
+}
+
+// ========== QURAN BOOKMARKS (W17) ==========
+
+/** The longest sura has 286 verses; a seeded library knows each sura's own count. */
+const LONGEST_SURA = 286;
+
+/** Is (sura, aya) a verse that can exist? */
+function isVerse(sura, aya) {
+  if (!Number.isInteger(sura) || !Number.isInteger(aya) || sura < 1 || sura > 114 || aya < 1) return false;
+  const row = db.prepare('SELECT aya_count FROM quran_suras WHERE number=?').get(sura);
+  return aya <= (row && row.aya_count ? row.aya_count : LONGEST_SURA);
+}
+
+/** Every bookmarked verse, in the order of the mushaf. */
+function quranBookmarkList() {
+  return db.prepare('SELECT id, sura, aya, note, created_at FROM quran_bookmarks ORDER BY sura, aya').all();
+}
+
+function quranBookmarkAdd(sura, aya) {
+  if (!isVerse(sura, aya)) return { ok: false };
+  const info = db.prepare('INSERT OR IGNORE INTO quran_bookmarks (sura, aya) VALUES (?, ?)').run(sura, aya);
+  return { ok: true, added: info.changes > 0 };
+}
+
+function quranBookmarkRemove(sura, aya) {
+  if (!isVerse(sura, aya)) return { ok: false };
+  const info = db.prepare('DELETE FROM quran_bookmarks WHERE sura=? AND aya=?').run(sura, aya);
+  return { ok: true, removed: info.changes > 0 };
 }
 
 /**
@@ -898,16 +1213,22 @@ function quranSearchSimple(q, lang, limit) {
 
 // ========== NOTES (DOCUMENTS) ==========
 
+// The first 120 characters of a note's text on one line — computed here, so the
+// list never carries every note's whole text across the IPC.
+const NOTE_PREVIEW_SQL = "substr(trim(replace(replace(replace(substr(content_text, 1, 240), char(13), ' '), char(10), ' '), char(9), ' ')), 1, 120)";
+
+/** The notes in the list (not the trash), newest edit first. */
 function notesGetAll() {
   return db.prepare(`
-    SELECT id, title, created_at, updated_at, length(content_text) AS size
-    FROM note_documents ORDER BY updated_at DESC
+    SELECT id, title, created_at, updated_at, pinned, length(content_text) AS size,
+           ${NOTE_PREVIEW_SQL} AS preview
+    FROM note_documents WHERE deleted_at IS NULL ORDER BY updated_at DESC
   `).all();
 }
 
 function notesGet(id) {
   return db.prepare(`
-    SELECT id, title, content_html, content_text, created_at, updated_at
+    SELECT id, title, content_html, content_text, created_at, updated_at, deleted_at, pinned
     FROM note_documents WHERE id=?
   `).get(id) || null;
 }
@@ -917,16 +1238,201 @@ function notesCreate(title) {
   return info.lastInsertRowid;
 }
 
+/** Write a note. A note in the trash is read-only: 0 rows are written. */
 function notesUpdate(id, title, contentHtml, contentText) {
-  db.prepare(`
+  return db.prepare(`
     UPDATE note_documents
     SET title=?, content_html=?, content_text=?, updated_at=datetime('now')
-    WHERE id=?
-  `).run(title || 'يېڭى خاتىرە', contentHtml || '', contentText || '', id);
+    WHERE id=? AND deleted_at IS NULL
+  `).run(title || 'يېڭى خاتىرە', contentHtml || '', contentText || '', id).changes;
 }
 
+/**
+ * Remove a note for good — with its versions (ON DELETE CASCADE) and the
+ * words ignored in it. Only ever reached from the trash, an emptied trash,
+ * the 30-day purge, or an untouched new note.
+ */
 function notesDelete(id) {
-  db.prepare('DELETE FROM note_documents WHERE id=?').run(id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM note_documents WHERE id=?').run(id);
+    db.prepare('DELETE FROM settings WHERE key=?').run('spell_ignore_note_' + id);
+  })();
+}
+
+// ========== THE TRASH (W2) AND THE LIST (W3) ==========
+// Deleting a note used to be one confirm() and gone. It now goes to the
+// trash, from where it can be restored, is deleted for ever only from there,
+// and is purged after 30 days. None of this, nor pinning, changes updated_at.
+
+const NOTE_TRASH_DAYS = 30;
+const DEFAULT_NOTE_TITLE = 'يېڭى خاتىرە';
+
+/** Move a note to the trash. `now` (ms) is for the tests. */
+function notesTrash(id, now) {
+  const when = new Date(Number.isFinite(now) ? now : Date.now()).toISOString();
+  return db.prepare('UPDATE note_documents SET deleted_at=? WHERE id=? AND deleted_at IS NULL').run(when, id).changes > 0;
+}
+
+function notesRestore(id) {
+  return db.prepare('UPDATE note_documents SET deleted_at=NULL WHERE id=? AND deleted_at IS NOT NULL').run(id).changes > 0;
+}
+
+function notesTrashList() {
+  return db.prepare(`
+    SELECT id, title, created_at, updated_at, deleted_at, length(content_text) AS size,
+           ${NOTE_PREVIEW_SQL} AS preview
+    FROM note_documents WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC
+  `).all();
+}
+
+/** Delete for ever — only a note that is already in the trash. */
+function notesDeleteForever(id) {
+  const row = db.prepare('SELECT deleted_at FROM note_documents WHERE id=?').get(id);
+  if (!row || !row.deleted_at) return false;
+  notesDelete(id);
+  return true;
+}
+
+/** Empty the trash; returns how many notes were removed. */
+function notesEmptyTrash() {
+  const rows = db.prepare('SELECT id FROM note_documents WHERE deleted_at IS NOT NULL').all();
+  for (const row of rows) notesDelete(row.id);
+  return rows.length;
+}
+
+/** At startup: whatever has been in the trash for more than 30 days. */
+function notesPurgeTrash(now) {
+  const cutoff = new Date((Number.isFinite(now) ? now : Date.now()) - NOTE_TRASH_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const rows = db.prepare('SELECT id FROM note_documents WHERE deleted_at IS NOT NULL AND deleted_at < ?').all(cutoff);
+  for (const row of rows) notesDelete(row.id);
+  return rows.length;
+}
+
+function notesSetPinned(id, pinned) {
+  return db.prepare('UPDATE note_documents SET pinned=? WHERE id=?').run(pinned ? 1 : 0, id).changes > 0;
+}
+
+/**
+ * Search titles AND text: a literal phrase (instr, so % and _ are just
+ * characters), case-insensitive for the letters that have case, 2–100
+ * characters, at most 50 results, pinned first, never the trash.
+ */
+function notesSearch(query) {
+  const q = String(query == null ? '' : query).trim();
+  if (q.length < 2 || q.length > 100) return { ok: false, reason: 'length', notes: [] };
+  const notes = db.prepare(`
+    SELECT id, title, created_at, updated_at, pinned, length(content_text) AS size,
+           ${NOTE_PREVIEW_SQL} AS preview
+    FROM note_documents
+    WHERE deleted_at IS NULL AND (instr(lower(title), lower(?)) > 0 OR instr(lower(content_text), lower(?)) > 0)
+    ORDER BY pinned DESC, updated_at DESC, id DESC
+    LIMIT 50
+  `).all(q, q);
+  return { ok: true, notes: notes };
+}
+
+/**
+ * A new note the writer opened and left untouched — the default title and no
+ * text — is removed when they leave it, instead of piling up in the list.
+ * Checked here, not trusted from the renderer.
+ */
+function notesDiscardIfEmpty(id) {
+  const row = db.prepare('SELECT title, content_text FROM note_documents WHERE id=?').get(id);
+  if (!row) return false;
+  const title = String(row.title || '').trim();
+  if ((title && title !== DEFAULT_NOTE_TITLE) || String(row.content_text || '').trim()) return false;
+  notesDelete(id);
+  return true;
+}
+
+// ========== NOTE VERSIONS (W1) ==========
+// A replace-all, an AI correction, a format paint over several paragraphs or
+// a restore is permanent the moment autosave writes it. Each of them first
+// keeps the note as it was, and «نەشر تارىخى» puts any version back. The
+// rules come from the web edition's lib/notes/history.ts:
+//
+//   - a version identical to the note's newest is never stored twice; a
+//     before-* reason relabels an identical newest open/auto instead, so a
+//     note opened and at once replaced-all is found under the name the
+//     writer will look for;
+//   - auto at most every five minutes per note (and only after a save the
+//     database confirmed — the renderer's side);
+//   - at most 30 per note: the oldest auto goes first, then the oldest of any
+//     reason, and never the newest.
+
+const NOTE_VERSION_REASONS = ['open', 'auto', 'before-replace-all', 'before-paint', 'before-ai', 'before-restore'];
+const MAX_NOTE_VERSIONS = 30;
+const AUTO_VERSION_EVERY_MS = 5 * 60 * 1000;
+
+/**
+ * Keep the note as it is now, for `reason`. `now` (ms) is for the tests.
+ * @returns {'kept'|'same'|'recent'|'refused'}
+ */
+function noteVersionKeep(noteId, reason, title, html, text, now) {
+  const id = Number(noteId);
+  if (NOTE_VERSION_REASONS.indexOf(reason) === -1 || !Number.isInteger(id) || id < 1) return 'refused';
+  const when = Number.isFinite(now) ? now : Date.now();
+  const t = String(title == null ? '' : title);
+  const h = String(html == null ? '' : html);
+
+  return db.transaction(() => {
+    if (!db.prepare('SELECT 1 FROM note_documents WHERE id=?').get(id)) return 'refused';
+
+    if (reason === 'auto') {
+      const last = db.prepare('SELECT created_at FROM note_versions WHERE note_id=? AND reason=\'auto\' ORDER BY id DESC LIMIT 1').get(id);
+      const lastAt = last ? Date.parse(last.created_at) : NaN;
+      if (Number.isFinite(lastAt) && when - lastAt < AUTO_VERSION_EVERY_MS) return 'recent';
+    }
+
+    const newest = db.prepare('SELECT id, reason, title, content_html FROM note_versions WHERE note_id=? ORDER BY id DESC LIMIT 1').get(id);
+    if (newest && newest.title === t && newest.content_html === h) {
+      if (reason.indexOf('before-') === 0 && (newest.reason === 'open' || newest.reason === 'auto')) {
+        db.prepare('UPDATE note_versions SET reason=? WHERE id=?').run(reason, newest.id);
+      }
+      return 'same';
+    }
+
+    db.prepare('INSERT INTO note_versions (note_id, reason, title, content_html, content_text, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, reason, t, h, String(text == null ? '' : text), new Date(when).toISOString());
+    trimNoteVersions(id);
+    return 'kept';
+  })();
+}
+
+/** Over 30: the oldest auto first, then the oldest of any reason — never the newest. */
+function trimNoteVersions(noteId) {
+  const rows = db.prepare('SELECT id, reason FROM note_versions WHERE note_id=? ORDER BY id ASC').all(noteId);
+  let excess = rows.length - MAX_NOTE_VERSIONS;
+  if (excess <= 0) return;
+  const candidates = rows.slice(0, -1);
+  const order = candidates.filter(r => r.reason === 'auto').concat(candidates.filter(r => r.reason !== 'auto'));
+  const remove = db.prepare('DELETE FROM note_versions WHERE id=?');
+  for (const victim of order) {
+    if (excess <= 0) break;
+    remove.run(victim.id);
+    excess--;
+  }
+}
+
+function firstLine(text) {
+  const line = String(text || '').split('\n').map(s => s.trim()).find(Boolean) || '';
+  return line.length > 120 ? line.slice(0, 120) + '…' : line;
+}
+
+/** One note's versions, newest first — without their HTML, which only a preview needs. */
+function noteVersionList(noteId) {
+  return db.prepare(`
+    SELECT id, note_id, reason, title, created_at,
+           substr(content_text, 1, 400) AS head, length(content_text) AS chars
+    FROM note_versions WHERE note_id=? ORDER BY id DESC
+  `).all(Number(noteId)).map(r => ({
+    id: r.id, note_id: r.note_id, reason: r.reason, title: r.title,
+    created_at: r.created_at, first_line: firstLine(r.head), chars: r.chars || 0
+  }));
+}
+
+function noteVersionGet(id) {
+  return db.prepare('SELECT * FROM note_versions WHERE id=?').get(Number(id)) || null;
 }
 
 // ========== N-GRAM (legacy: now FTS5-backed; index funcs are no-ops) ==========
@@ -1173,11 +1679,33 @@ function getReadingProgress(bookId) {
   return row || { position: 0, page: 1 };
 }
 
-function saveReadingProgress(bookId, position, page) {
+/** A place (K5): a whole, non-negative character offset — anything else is none. */
+function placeOrNull(value) {
+  return (typeof value === 'number' && Number.isInteger(value) && value >= 0) ? value : null;
+}
+
+/**
+ * Does this library keep places yet (migration step 3)? It always does once
+ * the app has started — unless the backup before the step failed, and then
+ * the step did not run. Bookmarks and the reading position must still save in
+ * that library, the way they did before.
+ */
+function keepsPlaces() {
+  return db.prepare('PRAGMA table_info(reading_progress)').all().some(c => c.name === 'char_offset');
+}
+
+function saveReadingProgress(bookId, position, page, charOffset) {
+  if (!keepsPlaces()) {
+    db.prepare(`
+      INSERT OR REPLACE INTO reading_progress (book_id, position, page, updated_at)
+      VALUES (?, ?, ?, datetime('now'))
+    `).run(bookId, position, page || 1);
+    return;
+  }
   db.prepare(`
-    INSERT OR REPLACE INTO reading_progress (book_id, position, page, updated_at)
-    VALUES (?, ?, ?, datetime('now'))
-  `).run(bookId, position, page || 1);
+    INSERT OR REPLACE INTO reading_progress (book_id, position, page, char_offset, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+  `).run(bookId, position, page || 1, placeOrNull(charOffset));
 }
 
 function addRecentRead(bookId) {
@@ -1226,6 +1754,11 @@ function addSearchHistory(query, resultCount) {
 
 function getSearchHistory(limit) {
   return db.prepare('SELECT * FROM search_history ORDER BY searched_at DESC LIMIT ?').all(limit || 20);
+}
+
+/** «تارىخنى تازىلاش» (W20, K17): every search kept is deleted. Returns how many. */
+function clearSearchHistory() {
+  return db.prepare('DELETE FROM search_history').run().changes;
 }
 
 // ========== STATS ==========
@@ -1334,6 +1867,11 @@ function migrateFromJSON(jsonData, contentDir) {
 // ========== UPSERT / SYNC (frontend compatibility) ==========
 
 function upsertBook(id, title, author, category, format, date, description) {
+  // The renderer sends the title it holds, which may be the one it imported
+  // before the fold existed: it is stored as letters all the same.
+  title = letters(title);
+  author = letters(author);
+  description = letters(description);
   const existing = getBook(id);
   if (existing) {
     db.prepare(`
@@ -1358,14 +1896,15 @@ function upsertBook(id, title, author, category, format, date, description) {
   }
 }
 
+/**
+ * Write the renderer's book metadata. It NEVER deletes: a book missing from
+ * the list is left alone (K4). Deleting is db-delete-book's job and nobody
+ * else's — this used to delete every book the list did not mention, and one
+ * failed read at startup sent an empty list.
+ */
 function syncBooks(books) {
   if (!Array.isArray(books)) return;
   const tx = db.transaction(() => {
-    const existing = getAllBooks();
-    const incomingIds = new Set(books.map(b => b.id));
-    for (const eb of existing) {
-      if (!incomingIds.has(eb.id)) deleteBook(eb.id);
-    }
     for (const b of books) {
       upsertBook(b.id, b.title, b.author, b.category, b.format, b.date, b.desc || b.description || '');
     }
@@ -1387,11 +1926,16 @@ function syncBookmarks(bookmarksObj) {
   if (!bookmarksObj || typeof bookmarksObj !== 'object') return;
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM bookmarks').run();
-    const stmt = db.prepare('INSERT INTO bookmarks (book_id, name, position, created_at) VALUES (?, ?, ?, ?)');
+    const places = keepsPlaces();
+    const stmt = places
+      ? db.prepare('INSERT INTO bookmarks (book_id, name, position, created_at, char_offset) VALUES (?, ?, ?, ?, ?)')
+      : db.prepare('INSERT INTO bookmarks (book_id, name, position, created_at) VALUES (?, ?, ?, ?)');
     for (const bookIdStr of Object.keys(bookmarksObj)) {
       const bookId = parseInt(bookIdStr);
       for (const bm of (bookmarksObj[bookIdStr] || [])) {
-        stmt.run(bookId, bm.name || '', bm.pos || 0, bm.date || new Date().toISOString());
+        const row = [bookId, bm.name || '', bm.pos || 0, bm.date || new Date().toISOString()];
+        if (places) row.push(placeOrNull(bm.off));
+        stmt.run(...row);
       }
     }
   });
@@ -1402,22 +1946,46 @@ function syncNotes(notesObj) {
   if (!notesObj || typeof notesObj !== 'object') return;
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM notes').run();
-    const stmt = db.prepare('INSERT INTO notes (book_id, text, position, created_at) VALUES (?, ?, ?, ?)');
+    const places = keepsPlaces();
+    const stmt = places
+      ? db.prepare('INSERT INTO notes (book_id, text, position, created_at, char_offset) VALUES (?, ?, ?, ?, ?)')
+      : db.prepare('INSERT INTO notes (book_id, text, position, created_at) VALUES (?, ?, ?, ?)');
     for (const bookIdStr of Object.keys(notesObj)) {
       const bookId = parseInt(bookIdStr);
       for (const note of (notesObj[bookIdStr] || [])) {
-        stmt.run(bookId, note.text || '', note.pos || 0, note.date || new Date().toISOString());
+        const row = [bookId, note.text || '', note.pos || 0, note.date || new Date().toISOString()];
+        if (places) row.push(placeOrNull(note.off));
+        stmt.run(...row);
       }
     }
   });
   tx();
 }
 
+// The percentages saveData() sends with the whole library. A book whose
+// percentage is unchanged keeps its page and its exact place (K5) — this used
+// INSERT OR REPLACE, which reset both on every theme change. A changed one
+// makes the old place stale.
 function syncReadingProgress(readPos) {
   if (!readPos || typeof readPos !== 'object') return;
+  if (!keepsPlaces()) {
+    const tx = db.transaction(() => {
+      for (const bookIdStr of Object.keys(readPos)) saveReadingProgress(parseInt(bookIdStr), readPos[bookIdStr], 1);
+    });
+    tx();
+    return;
+  }
+  const stmt = db.prepare(`
+    INSERT INTO reading_progress (book_id, position, page, char_offset, updated_at)
+    VALUES (?, ?, 1, NULL, datetime('now'))
+    ON CONFLICT(book_id) DO UPDATE SET
+      char_offset = CASE WHEN reading_progress.position = excluded.position THEN reading_progress.char_offset ELSE NULL END,
+      updated_at = CASE WHEN reading_progress.position = excluded.position THEN reading_progress.updated_at ELSE excluded.updated_at END,
+      position = excluded.position
+  `);
   const tx = db.transaction(() => {
     for (const bookIdStr of Object.keys(readPos)) {
-      saveReadingProgress(parseInt(bookIdStr), readPos[bookIdStr], 1);
+      stmt.run(parseInt(bookIdStr), readPos[bookIdStr]);
     }
   });
   tx();
@@ -1442,7 +2010,8 @@ function getAllBookmarksGrouped() {
     if (!grouped[row.book_id]) grouped[row.book_id] = [];
     grouped[row.book_id].push({
       id: String(row.id), name: row.name || '',
-      pos: row.position || 0, date: row.created_at || new Date().toISOString()
+      pos: row.position || 0, off: placeOrNull(row.char_offset),
+      date: row.created_at || new Date().toISOString()
     });
   }
   return grouped;
@@ -1455,7 +2024,8 @@ function getAllNotesGrouped() {
     if (!grouped[row.book_id]) grouped[row.book_id] = [];
     grouped[row.book_id].push({
       id: String(row.id), text: row.text || '',
-      pos: row.position || 0, date: row.created_at || new Date().toISOString()
+      pos: row.position || 0, off: placeOrNull(row.char_offset),
+      date: row.created_at || new Date().toISOString()
     });
   }
   return grouped;
@@ -1476,6 +2046,11 @@ function getRecentForFrontend() {
   `).all().map(r => ({ id: r.book_id, time: r.read_at || new Date().toISOString() }));
 }
 
+function getBookCount() {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM books').get();
+  return row ? row.n : 0;
+}
+
 function getMaxBookId() {
   const row = db.prepare('SELECT MAX(id) AS m FROM books').get();
   return row && row.m !== null ? row.m : 0;
@@ -1483,9 +2058,14 @@ function getMaxBookId() {
 
 module.exports = {
   initDB, saveDB, vacuum, close,
+  // Schema migrations and backup
+  MIGRATIONS, schemaVersion, runMigrations, backupTo, checkpoint,
+  ftsRebuildPending, ftsRebuildStep,
   normalizeArabicQuery, isArabicScript,
   addBook, addBooksBatch, updateBook, deleteBook, getBook, getAllBooks, getBooksByCategory,
   getBookContent, saveBookContent, checkDuplicateHash,
+  // Books stored as glyph codepoints (W18, K15)
+  presentationFormsScan, presentationFormsFix,
   searchBooks, getAllSnippetsForBook,
   getCategories, getCategoryNames, addCategory, renameCategory, deleteCategory, ensureDefaultCategories,
   getBookmarks, addBookmark, deleteBookmark,
@@ -1493,18 +2073,24 @@ module.exports = {
   getReadingProgress, saveReadingProgress,
   addRecentRead, getRecentReads,
   getSetting, setSetting,
-  addSearchHistory, getSearchHistory,
+  addSearchHistory, getSearchHistory, clearSearchHistory,
   getStats, migrateFromJSON,
   // Sync functions for frontend compatibility
   upsertBook, syncBooks, syncCategories, syncBookmarks, syncNotes,
   syncReadingProgress, syncRecent,
   getAllBookmarksGrouped, getAllNotesGrouped, getAllReadingProgress,
-  getRecentForFrontend, getMaxBookId,
+  getRecentForFrontend, getMaxBookId, getBookCount,
   // Quran
   quranSuraExists, quranSeedBulk, quranGetSuras, quranGetAyas, quranGetAya, quranSearch, quranLookupSura,
+  quranBookmarkList, quranBookmarkAdd, quranBookmarkRemove,
   migrationStripBasmalaAyah1,
   // Notes (documents)
   notesGetAll, notesGet, notesCreate, notesUpdate, notesDelete,
+  // The trash and the list (W2, W3)
+  notesTrash, notesRestore, notesTrashList, notesDeleteForever, notesEmptyTrash, notesPurgeTrash,
+  notesSetPinned, notesSearch, notesDiscardIfEmpty,
+  // Note versions (W1)
+  NOTE_VERSION_REASONS, noteVersionKeep, noteVersionList, noteVersionGet,
   // Ngram
   hasNgramIndex, ngramIndexBook, ngramRemoveBook, ngramFindWord,
   // Quran ngram (virtual books)

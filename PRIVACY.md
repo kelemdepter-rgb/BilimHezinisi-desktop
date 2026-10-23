@@ -1,6 +1,6 @@
 # Privacy Policy — بىلىم خەزىنىسى (Bilim Hezinisi)
 
-**Last updated: 20 August 2026**
+**Last updated: 23 October 2026**
 **Applies to: Bilim Hezinisi for Windows, version 3.2.0 and later**
 
 ## Short version
@@ -26,7 +26,8 @@ All of the following stays on your own machine, in
 | Data | Where | Why |
 | --- | --- | --- |
 | Books you import (PDF, DOCX, DOC, TXT, MD, HTML) and their extracted text | `library.db`, `content\` | So you can read and search them offline |
-| Notes and notebooks you write | `library.db` | Your notes |
+| Notes and notebooks you write, their earlier versions and the notes in the trash | `library.db` | Your notes, and the way back to an earlier version |
+| Backups of the library — weekly, before an update, before a restore or a repair, and the ones you make | `backups\` | So you can restore your library |
 | Reading position, categories, favourites, window size, theme, fonts | `library.db` | To restore your session |
 | Your Google Gemini API key, if you enter one | `library.db` (settings table, stored obfuscated) | So you do not have to retype it |
 
@@ -125,7 +126,7 @@ Questions, corrections or a request to remove material:
 
 # مەخپىيەتلىك سىياسىتى — بىلىم خەزىنىسى
 
-**ئاخىرقى يېڭىلانغان ۋاقتى: 2026-يىلى 8-ئاينىڭ 20-كۈنى**
+**ئاخىرقى يېڭىلانغان ۋاقتى: 2026-يىلى 10-ئاينىڭ 23-كۈنى**
 **قوللىنىش دائىرىسى: Windows ئۈچۈن بىلىم خەزىنىسى، 3.2.0 ۋە ئۇنىڭدىن كېيىنكى نەشرى**
 
 ## قىسقىچە
@@ -151,7 +152,8 @@ Questions, corrections or a request to remove material:
 | سانلىق مەلۇمات | ئورنى | سەۋەبى |
 | --- | --- | --- |
 | سىز ئەكىرگەن كىتابلار (PDF، DOCX، DOC، TXT، MD، HTML) ۋە ئۇلاردىن ئاجرىتىلغان تېكىست | `library.db`، `content\` | تورسىز ئوقۇش ۋە ئىزدەش ئۈچۈن |
-| سىز يازغان خاتىرە ۋە خاتىرە دەپتەرلىرى | `library.db` | خاتىرىلىرىڭىز |
+| سىز يازغان خاتىرە ۋە خاتىرە دەپتەرلىرى، ئۇلارنىڭ ئىلگىرىكى نەشرلىرى ۋە ئەخلەت ساندۇقىدىكى خاتىرىلەر | `library.db` | خاتىرىلىرىڭىز ۋە ئىلگىرىكى نەشرىگە قايتىش ئۈچۈن |
+| كۇتۇپخانىنىڭ زاپاسلىرى — ھەپتىدە بىر، يېڭىلاش، ئەسلىگە كەلتۈرۈش ياكى ئوڭشاشتىن بۇرۇن، شۇنداقلا سىز ياسىغانلىرى | `backups\` | كۇتۇپخانىنى ئەسلىگە كەلتۈرۈش ئۈچۈن |
 | ئوقۇش ئورنى، تۈرلەر، ساقلانمىلار، كۆزنەك چوڭلۇقى، تېما، خەت نۇسخىسى | `library.db` | ئالدىنقى ھالەتنى ئەسلىگە كەلتۈرۈش ئۈچۈن |
 | ئەگەر كىرگۈزسىڭىز، Google Gemini API ئاچقۇچىڭىز | `library.db` (تەڭشەك جەدۋىلى، مەخپىيلەشتۈرۈلگەن ھالەتتە) | ھەر قېتىم قايتا يازماسلىقىڭىز ئۈچۈن |
 

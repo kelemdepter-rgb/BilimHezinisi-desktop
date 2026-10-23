@@ -1,0 +1,62 @@
+<!-- Reference only — see README.md. -->
+<!doctype html>
+<html dir="rtl" lang="ug">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="notes.css">
+<style>
+  body { font-family: 'DejaVu Sans', sans-serif; font-size: 18px; margin: 0; }
+  #main { width: 900px; height: 700px; }
+  .notes-editor { min-height: 300px; padding: 16px; }
+  ::highlight(bh-spell-error) { text-decoration: underline wavy red; }
+</style>
+</head>
+<body>
+<div id="side"></div>
+<div id="main"></div>
+<div id="toast"></div>
+<script>
+  // ---- Minimal stand-ins for what index.html provides ----
+  window.icon = function () { return ''; };
+  window.TOASTS = [];
+  window.toast = function (m, t) { window.TOASTS.push([m, t]); };
+  window.S = { notes: { docs: [], curDoc: null }, books: [], mode: 'notes' };
+
+  // A tiny "dictionary": every word in GOOD is correct, anything else is wrong.
+  window.GOOD = new Set([]);
+  window.SAVES = [];
+  window.NOTE_HTML = '<p><br></p>';
+  window.SUGGEST = ['تۈزىتىلگەن'];
+  window.FAIL_SAVE = false;
+  const WORD = /[؀-ۿﭐ-﷿ﹰ-﻿]+/g;
+  window.electron = {
+    dbGetSetting: async (k, d) => ({ success: true, value: k === 'notes_spell_check' ? 'on' : (k === 'notes_ref_scan' ? (window.REFSCAN || 'off') : d) }),
+    dbSetSetting: async () => ({ success: true }),
+    notesGetAll: async () => ({ success: true, docs: [{ id: 1, title: 'سىناق', updated_at: '2026-10-22 09:00:00', size: 10 }] }),
+    notesGet: async (id) => ({ success: true, doc: { id, title: 'سىناق', content_html: window.NOTE_HTML, content_text: '' } }),
+    notesUpdate: async (id, title, html, text) => {
+      if (window.FAIL_SAVE) return { success: false, error: 'disk' };
+      window.SAVES.push({ id, title, html, text }); return { success: true };
+    },
+    notesCreate: async () => ({ success: true, id: 2 }),
+    notesDelete: async () => ({ success: true }),
+    spellInit: async () => ({ ready: true, words: 1, loadMs: 1 }),
+    spellCheck: async (text) => {
+      const out = []; let m; WORD.lastIndex = 0;
+      while ((m = WORD.exec(text))) {
+        if (!window.GOOD.has(m[0])) out.push({ word: m[0], start: m.index, end: m.index + m[0].length });
+      }
+      window.LAST_CHECKED = text;
+      return out;
+    },
+    spellSuggest: async () => window.SUGGEST.slice(),
+    spellPersonal: async () => ({ ok: true }),
+    quranGetAya: async () => ({ success: false })
+  };
+</script>
+<script src="purify.min.js"></script>
+<script src="sanitize.js"></script>
+<script src="spellcheck.js"></script>
+<script src="notes.js"></script>
+</body>
+</html>

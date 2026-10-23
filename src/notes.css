@@ -219,12 +219,17 @@
   color: var(--text2); background: var(--bg2);
 }
 .notes-editor mark { background: var(--ab2); color: var(--text); padding: 0 2px; border-radius: 2px; }
-.notes-editor .ref-match {
-  background: rgba(186,117,23,0.12);
-  border-bottom: 1.5px dotted var(--am);
-  cursor: help; padding: 0 1px;
+/* Reference matches are PAINTED, never written into the note (K2): wrapping
+   them in spans moved the caret and saved the spans with the note.
+   ::highlight() takes no border or cursor, so the dotted line is a text
+   decoration and the help cursor goes on the editor while the pointer is
+   over a match (.ref-hover, set by src/notes.js). */
+::highlight(bh-ref-match) {
+  background-color: rgba(186,117,23,0.12);
+  text-decoration: underline dotted #BA7517;
+  text-decoration-skip-ink: none;
 }
-.notes-editor .ref-match:hover { background: rgba(186,117,23,0.22); }
+.notes-editor.ref-hover { cursor: help; }
 
 /* Right panel */
 .notes-right-panel {
@@ -250,6 +255,44 @@
 .notes-right-panel-content { flex: 1; overflow-y: auto; padding: 10px; }
 .notes-right-pane { min-height: 0; }
 
+/* «نەشر تارىخى» and «مۇندەرىجە» — panes of the right panel without a tab of
+   their own; the title-bar buttons open them. */
+.notes-side-pane-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 6px;
+}
+.notes-side-pane-note { font-size: 11px; color: var(--text3); line-height: 1.7; margin-bottom: 10px; }
+.notes-history-item {
+  display: block; width: 100%; text-align: right; cursor: pointer;
+  padding: 8px 10px; margin-bottom: 6px; font-family: inherit;
+  background: var(--bg); color: var(--text);
+  border: 0.5px solid var(--border); border-radius: var(--radius2);
+}
+.notes-history-item:hover { border-color: var(--am); }
+.nh-label { font-size: 11px; font-weight: 600; color: var(--am); }
+.nh-time { font-size: 11px; color: var(--text3); margin-inline-start: 8px; direction: ltr; unicode-bidi: isolate; }
+.nh-first {
+  display: block; margin-top: 3px; font-size: 12px; color: var(--text2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.nh-preview-head { margin-bottom: 8px; }
+.notes-history-preview {
+  max-height: 50vh; overflow-y: auto; padding: 10px 12px; margin-bottom: 10px;
+  background: var(--paper); color: var(--text);
+  border: 0.5px solid var(--border); border-radius: var(--radius2);
+  font-family: 'UKIJ Ekran', var(--jf); font-size: 13.5px; line-height: 1.9;
+  direction: rtl; text-align: right;
+}
+.nh-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.notes-outline-item {
+  display: block; width: 100%; text-align: right; cursor: pointer;
+  padding-top: 6px; padding-bottom: 6px; padding-inline-end: 8px;
+  font-family: inherit; font-size: 13px; color: var(--text);
+  background: none; border: none; border-radius: var(--radius2);
+}
+.notes-outline-item:hover { background: var(--bg); color: var(--am); }
+.notes-outline-item[data-depth="0"] { font-weight: 600; }
+
 /* Quran picker */
 .notes-quran-picker {
   display: flex; gap: 6px; align-items: center;
@@ -274,6 +317,58 @@
   cursor: pointer; font-family: var(--jf); font-size: 12px;
   white-space: nowrap;
 }
+/* «ئەرەبچە / تەرجىمىسى / ئىككىلىسى» (W12): one choice, three segments. */
+.notes-aya-mode {
+  display: flex; margin-bottom: 12px;
+  border: 0.5px solid var(--border2); border-radius: var(--radius2); overflow: hidden;
+}
+.notes-aya-mode label {
+  flex: 1; display: flex; align-items: center; justify-content: center; position: relative;
+  padding: 5px 4px; font-size: 12px; color: var(--text2); cursor: pointer;
+}
+.notes-aya-mode label + label { border-right: 0.5px solid var(--border2); }
+.notes-aya-mode input { position: absolute; opacity: 0; pointer-events: none; }
+.notes-aya-mode label:has(input:checked) { background: var(--ab); color: var(--text); font-weight: 600; }
+.notes-aya-mode label:has(input:focus-visible) { outline: 2px solid var(--am); outline-offset: -2px; }
+
+/* The «مەنبە» search box and its results (W12). */
+.notes-src { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 0.5px solid var(--border); }
+.notes-src-box {
+  display: flex; gap: 6px; align-items: center;
+  padding: 8px; background: var(--bg); border-radius: var(--radius2); margin-bottom: 8px;
+}
+.notes-src-box input {
+  flex: 1; min-width: 0;
+  background: var(--bg2); border: 0.5px solid var(--border);
+  border-radius: var(--radius2); padding: 5px 8px;
+  font-family: 'UKIJ Ekran', var(--jf); font-size: 13px; color: var(--text);
+}
+.notes-src-box input::placeholder { color: var(--text3); opacity: 1; }
+.notes-src-box button {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--am); color: #fff; border: none;
+  border-radius: var(--radius2); padding: 5px 9px; cursor: pointer;
+}
+.notes-src-head { font-size: 11px; font-weight: 700; color: var(--text3); margin: 10px 2px 6px; }
+.notes-src-hit {
+  padding: 10px; background: var(--bg);
+  border: 0.5px solid var(--border); border-radius: var(--radius2); margin-bottom: 8px;
+}
+.notes-src-title {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--am); font-weight: 600; margin-bottom: 4px;
+}
+.notes-src-snippet { font-size: 12px; color: var(--text2); line-height: 1.6; direction: rtl; overflow-wrap: anywhere; }
+.notes-src-snippet[lang="ar"] { font-size: 14px; }
+.notes-src-snippet mark { background: var(--ab2); color: var(--am); padding: 0 2px; }
+.notes-src-more {
+  width: 100%; margin: -2px 0 8px; padding: 4px 8px; cursor: pointer;
+  background: none; border: 0.5px dashed var(--border2); border-radius: var(--radius2);
+  color: var(--text2); font-family: var(--jf); font-size: 11.5px;
+}
+.notes-src-more:hover { color: var(--am); border-color: var(--am); }
+.notes-src-msg { text-align: center; color: var(--text3); font-size: 12px; padding: 10px; }
+
 .notes-quran-preview {
   padding: 10px; background: var(--bg);
   border: 0.5px solid var(--border);
@@ -416,6 +511,30 @@
   padding: 6px; direction: rtl;
 }
 .notes-ai-flyout.on { display: block; }
+
+/* «چىقىرىش ▾» — the export menu in the title bar. */
+.notes-export-wrap { position: relative; display: inline-flex; }
+.notes-export-menu {
+  display: none; position: absolute; top: 100%; inset-inline-end: 0;
+  margin-top: 6px; min-width: 230px; z-index: 200;
+  background-color: var(--bg); background-image: var(--grain);
+  border: 1px solid var(--ab2);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
+  padding: 6px; direction: rtl;
+}
+.notes-export-menu.on { display: block; }
+.notes-export-menu > button {
+  display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
+  text-align: right; background: none; border: none; color: var(--text);
+  font-family: var(--jf); font-size: 12.5px; padding: 8px 10px;
+  border-radius: var(--radius2); cursor: pointer;
+}
+.notes-export-menu > button:hover { background: var(--bg2); color: var(--am); }
+.notes-export-option {
+  display: flex; align-items: center; gap: 6px; cursor: pointer;
+  margin-top: 4px; padding: 8px 10px 4px; border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--text2);
+}
 .notes-ai-item, .notes-ai-item-label {
   display: block; width: 100%; text-align: right; box-sizing: border-box;
   background: none; border: none; color: var(--text);
@@ -472,6 +591,19 @@ button.notes-ai-item:hover, .notes-ai-has-sub:hover > .notes-ai-item-label {
 #nai-result li { margin-bottom: 3px; }
 #nai-result code { font-family: monospace; font-size: 11px; background: var(--bg3); padding: 1px 4px; border-radius: 3px; }
 #nai-actions { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 8px; }
+/* The proofread preview (W13): only the changes, each with a box to untick. */
+#nai-result .nai-proof-head { font-weight: 700; margin-bottom: 4px; }
+#nai-result .nai-proof-note { font-size: 11.5px; color: var(--text3); margin-bottom: 6px; }
+#nai-result .nai-change {
+  display: flex; align-items: flex-start; gap: 8px; padding: 6px 0;
+  border-top: 0.5px solid var(--border); cursor: pointer;
+}
+#nai-result .nai-change input { margin-top: 7px; flex-shrink: 0; accent-color: var(--am); }
+#nai-result .nai-change-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#nai-result .nai-diff-del { color: var(--text3); }
+#nai-result .nai-diff-del del { color: #A32D2D; background: rgba(163,45,45,.08); text-decoration: line-through; }
+#nai-result .nai-diff-ins ins { color: #2E7D32; background: rgba(46,125,50,.10); text-decoration: none; font-weight: 700; }
+#nai-result .nai-change-warn { font-size: 11.5px; color: #A35C00; margin-top: 2px; }
 #nai-actions button { flex: 1; justify-content: center; height: 30px; border: 0.5px solid var(--border); background: var(--bg2); color: var(--text2); border-radius: 7px; cursor: pointer; font: 600 11.5px var(--jf); display: inline-flex; align-items: center; gap: 5px; transition: color .12s, border-color .12s; }
 #nai-actions button:hover { color: var(--am); border-color: var(--border2); }
 #nai-extra textarea {
@@ -516,6 +648,13 @@ button.notes-ai-item:hover, .notes-ai-has-sub:hover > .notes-ai-item-label {
 }
 .notes-find-bar button:hover { background: var(--bg3); color: var(--text); }
 .notes-find-count { font-size: 11px; color: var(--text3); font-family: sans-serif; white-space: nowrap; }
+/* Find hits are PAINTED, never written into the note (K1). ::highlight() takes
+   only colour, background-color, text-decoration, text-shadow and
+   -webkit-text-stroke — the rounded corners of the old <mark> are gone with it. */
+::highlight(bh-find-hit) { background-color: #FFE08A; color: #000; }
+::highlight(bh-find-current) { background-color: #F6A609; color: #000; }
+/* Left for the <mark> elements that notes saved before v3.5 still carry, until
+   putDocument() unwraps them on open. */
 .notes-editor mark.notes-find-hit { background: #FFE08A; color: #000; border-radius: 2px; }
 .notes-editor mark.notes-find-hit.current { background: #F6A609; color: #000; }
 
@@ -587,3 +726,108 @@ button.notes-ai-item:hover, .notes-ai-has-sub:hover > .notes-ai-item-label {
   font-size: 11px;
   color: var(--text2);
 }
+
+/* «▲ ئالدىنقى», «▼ كېيىنكى خاتالىق», «لۇغەت» beside the spellcheck switch (W7, W8). */
+.notes-spell-tools { display: inline-flex; gap: 4px; align-items: center; }
+.notes-spell-tools button {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; cursor: pointer;
+  font-family: var(--jf); font-size: 11.5px; color: var(--text2);
+  background: none; border: 0.5px solid var(--border2); border-radius: var(--radius2);
+}
+.notes-spell-tools button:hover { color: var(--am); border-color: var(--am); }
+
+/* The personal dictionary (W8). */
+.notes-dict-filter {
+  width: 100%; box-sizing: border-box; padding: 6px 8px; font-family: var(--jf); font-size: 12.5px;
+  background: var(--bg); color: var(--text); border: 0.5px solid var(--border2); border-radius: var(--radius2);
+}
+.nd-row {
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px; margin-bottom: 3px;
+  border-radius: var(--radius2); background: var(--bg);
+}
+.nd-word { font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+.nd-glued {
+  font-size: 10.5px; color: #A35F00; background: rgba(186,117,23,.12);
+  padding: 1px 6px; border-radius: 8px; white-space: nowrap;
+}
+.nd-del {
+  margin-inline-start: auto; width: 22px; height: 22px; cursor: pointer; font-size: 15px; line-height: 1;
+  background: none; border: none; color: var(--text3); border-radius: 4px;
+}
+.nd-del:hover { color: #A32D2D; background: rgba(163,45,45,.08); }
+
+/* ===== The list and the trash (W2, W3) ===== */
+.notes-list-tools { padding: 0 12px 8px; }
+.notes-list-tools select {
+  width: 100%; padding: 5px 8px; font-family: var(--jf); font-size: 12px;
+  background: var(--bg); color: var(--text); border: 0.5px solid var(--border2); border-radius: var(--radius2);
+}
+.notes-list-group {
+  font-size: 10.5px; font-weight: 700; color: var(--text3); letter-spacing: .3px;
+  padding: 8px 12px 4px;
+}
+.notes-item-preview {
+  font-size: 11.5px; color: var(--text3); margin: 2px 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.notes-item-pin {
+  position: absolute; top: 50%; left: 32px; transform: translateY(-50%); width: 22px; height: 22px;
+  display: none; align-items: center; justify-content: center; cursor: pointer;
+  background: none; border: none; color: var(--text3); border-radius: 4px;
+}
+.notes-item:hover .notes-item-pin, .notes-item-pin.on { display: flex; }
+.notes-item-pin.on { color: var(--am); }
+.notes-trash { border-top: 0.5px solid var(--border); padding: 6px 8px; }
+.notes-trash-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 8px; cursor: pointer;
+  background: none; border: none; color: var(--text2); font-family: var(--jf); font-size: 12px;
+  border-radius: var(--radius2); text-align: right;
+}
+.notes-trash-toggle:hover { background: var(--bg2); }
+.notes-trash-list { max-height: 40vh; overflow-y: auto; padding: 4px 0; }
+.notes-trash-note { font-size: 11px; color: var(--text3); padding: 2px 8px 8px; line-height: 1.6; }
+.notes-trash-item { padding: 8px; margin-bottom: 6px; border: 0.5px solid var(--border); border-radius: var(--radius2); background: var(--bg); }
+.notes-trash-item .notes-item-title { cursor: pointer; }
+.notes-trash-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.notes-trash-actions button, .notes-trash-empty {
+  padding: 3px 10px; font-family: var(--jf); font-size: 11.5px; cursor: pointer;
+  background: none; color: var(--text2); border: 0.5px solid var(--border2); border-radius: var(--radius2);
+}
+.notes-trash-empty { width: 100%; margin-top: 4px; }
+.notes-trash-actions button.armed, .notes-trash-empty.armed { color: #fff; background: #A32D2D; border-color: #A32D2D; }
+.notes-trashed-banner {
+  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  background: rgba(163,45,45,.08); color: #A32D2D; font-size: 12.5px;
+  border-bottom: 0.5px solid rgba(163,45,45,.3);
+}
+.notes-trashed-banner button {
+  margin-inline-start: auto; padding: 3px 12px; cursor: pointer; font-family: var(--jf); font-size: 12px;
+  background: none; color: #A32D2D; border: 1px solid #A32D2D; border-radius: var(--radius2);
+}
+
+/* The card a link in the note opens (W11, src/notes.js showLinkCard): what
+   it says, where it goes, «ئېچىش» and «ئۇلىنىشنى ئېلىۋېتىش». Placed in window
+   coordinates by the script, which also moves it with its link. */
+.notes-link-card {
+  z-index: 9999; width: min(19rem, calc(100vw - 16px)); max-height: 60vh; overflow-y: auto;
+  background: var(--bg2, #fff); color: var(--text); border: 1px solid var(--border2, var(--border));
+  border-radius: var(--radius, 8px); box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  font-family: var(--jf); font-size: 13px;
+}
+.notes-link-card .nlc-head { display: flex; align-items: flex-start; gap: 6px; padding: 6px 10px 6px 4px; border-bottom: 0.5px solid var(--border); }
+.notes-link-card .nlc-words { flex: 1; min-width: 0; padding: 2px 0; }
+.notes-link-card .nlc-text { font-weight: 700; line-height: 1.7; overflow-wrap: anywhere; }
+.notes-link-card .nlc-where { font-size: 12px; color: var(--text2); line-height: 1.7; overflow-wrap: anywhere; }
+.notes-link-card .nlc-close {
+  flex-shrink: 0; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; color: var(--text3); border-radius: var(--radius2, 5px); cursor: pointer;
+}
+.notes-link-card .nlc-close:hover { background: var(--bg); color: var(--text); }
+.notes-link-card .nlc-blocked { padding: 8px 12px; font-size: 12px; color: var(--text3); border-bottom: 0.5px solid var(--border); }
+.notes-link-card .nlc-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 6px 12px;
+  background: none; border: none; color: var(--text); font-family: var(--jf); font-size: 13px;
+  text-align: right; cursor: pointer;
+}
+.notes-link-card .nlc-row .ic { color: var(--am); flex-shrink: 0; }
+.notes-link-card .nlc-row:hover, .notes-link-card .nlc-row:focus-visible { background: var(--bg); outline: none; }

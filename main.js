@@ -4,8 +4,15 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const database = require('./database');
+const librarySync = require('./library-sync');
+const backup = require('./backup');
+const navigation = require('./navigation');
+const noteExport = require('./note-export');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
+// What counts as one word for the personal dictionary, and what an imported
+// dictionary file may bring — the checker's own rules, never a renderer copy.
+const spellPersonal = require('./src/spellcheck/personal');
 const { cleanOcrPage } = require('./ocr-postprocess');
 const { seedQuran } = require('./scripts/seed-quran');
 const windowStateKeeper = require('electron-window-state');
@@ -40,6 +47,8 @@ const DATA_DIR = path.join(os.homedir(), DATA_FOLDER_NAME);
 const DATA_FILE = path.join(DATA_DIR, 'library.json');
 const CONTENT_DIR = path.join(DATA_DIR, 'content');
 const DB_PATH = path.join(DATA_DIR, 'library.db');
+// Inside JamiyKutupxana, next to the library — nothing in that folder is moved.
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 
 // Ensure directories exist
 function ensureDirs() {
@@ -81,6 +90,33 @@ let dbReady = false;
 async function initDatabase() {
   ensureDirs();
   await database.initDB(DATA_DIR);
+
+  // Schema steps (database.js, MIGRATIONS). Before the first pending one of
+  // this run the library is copied to backups\ — and if that copy fails, no
+  // step runs: the library keeps the schema it had rather than change with no
+  // way back.
+  try {
+    await database.runMigrations({
+      beforeFirst: async (from, to) => {
+        let name = 'library-before-' + app.getVersion() + '.db';
+        if (fs.existsSync(path.join(BACKUP_DIR, name))) {
+          name = 'library-before-' + app.getVersion() + '-' + backup.stamp(new Date()) + '.db';
+        }
+        await backup.backupAtomically(database, path.join(BACKUP_DIR, name));
+        console.log('[migration] backed up to ' + name + ' before schema ' + from + ' → ' + to);
+      }
+    });
+  } catch (e) {
+    console.error('[migration] stopped, the schema is unchanged:', e.message);
+  }
+
+  // Notes that have been in the trash for more than 30 days (W2).
+  try {
+    const purged = database.notesPurgeTrash();
+    if (purged) console.log('[notes] purged ' + purged + ' note(s) from the trash');
+  } catch (e) {
+    console.warn('[notes] trash purge failed:', e.message);
+  }
 
   // One-time cleanup: vacuum DB to reclaim space from removed n-gram table
   try {
@@ -188,16 +224,125 @@ function createWindow() {
     mainWindow.show();
   });
 
+  // A link that asks for a new window: only a real http(s) address goes to
+  // the system browser — the sura footer's Tanzil and QuranEnc links, the
+  // pricing link in the AI settings. Anything else (file:, javascript:, a
+  // custom scheme) used to be handed to Windows as well, and is dropped (K18).
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    const external = navigation.externalUrl(url);
+    if (external) shell.openExternal(external);
     return { action: 'deny' };
   });
+
+  // The window itself never leaves the app: a dropped file, a link in a note,
+  // anything that would navigate it is stopped. Its own page (a reload) is
+  // the one exception.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (navigation.isAppPage(url, path.join(__dirname, 'src', 'index.html'))) return;
+    event.preventDefault();
+  });
+
+  // Closing with unsaved writing in the notebook (K3d).
+  //
+  // The renderer used to fire a save off from beforeunload and hope: the
+  // window can be gone before the message is handled. So the close stops
+  // here, the renderer is asked to flush, and the window goes when the
+  // database has confirmed it. Three seconds without an answer, or a flush
+  // that failed, is the one case worth a question — the alternative is losing
+  // what was typed. The database is closed in before-quit, which is only
+  // reached once the window really closes.
+  mainWindow.on('close', (e) => {
+    if (forceClose || !notebookDirty) return;
+    e.preventDefault();
+    askRendererToFlush(mainWindow).then((ok) => {
+      if (ok === true) {
+        forceClose = true;
+        mainWindow.close();
+        return;
+      }
+      const answer = dialog.showMessageBoxSync(mainWindow, {
+        type: 'warning',
+        title: 'بىلىم خەزىنىسى',
+        message: 'ساقلانمىغان خاتىرە بار. يەنىلا تاقامسىز؟',
+        buttons: ['ھەئە، تاقاڭ', 'ياق'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true
+      });
+      if (answer === 0) {
+        forceClose = true;
+        mainWindow.close();
+      }
+    });
+  });
+}
+
+// ========== UNSAVED WRITING IN THE NOTEBOOK ==========
+// The renderer reports its dirty state whenever it changes, so the close
+// handler above knows whether it has to wait for anything at all.
+let notebookDirty = false;
+let flushAnswer = null;      // resolves the flush we are waiting for
+let forceClose = false;      // the second close(), after the flush
+
+ipcMain.on('notes-dirty', (event, dirty) => { notebookDirty = !!dirty; });
+
+ipcMain.on('app-flush-done', (event, ok) => {
+  if (flushAnswer) flushAnswer(!!ok);
+});
+
+/** true saved, false the database refused, null no answer in three seconds. */
+function askRendererToFlush(win) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { flushAnswer = null; resolve(null); }, 3000);
+    flushAnswer = (ok) => { clearTimeout(timer); flushAnswer = null; resolve(ok); };
+    try {
+      win.webContents.send('app-flush-request');
+    } catch (err) {
+      clearTimeout(timer);
+      flushAnswer = null;
+      resolve(null);
+    }
+  });
+}
+
+// After migration step 5 the book search index is filled a little at a time,
+// once the window is up (database.js, ftsRebuildStep): a large library takes
+// a minute to index, and the window must not wait. Search does not need the
+// index; the notebook's reference scan sees more of it as it fills. A close
+// part-way resumes at the next start.
+function fillSearchIndex() {
+  try { if (!database.ftsRebuildPending()) return; } catch (e) { return; }
+  const started = Date.now();
+  let books = 0;
+  const tick = () => {
+    try {
+      const r = database.ftsRebuildStep();
+      books += r.indexed;
+      if (r.done) {
+        console.log('[search-index] filled: ' + books + ' books in ' + (Date.now() - started) + ' ms');
+        return;
+      }
+    } catch (e) {
+      console.error('[search-index] stopped, it resumes at the next start:', e.message);
+      return;
+    }
+    setTimeout(tick, 25);
+  };
+  setTimeout(tick, 1500);
 }
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   await initDatabase();
   createWindow();
+  fillSearchIndex();
+  // The weekly automatic backup — in the background, a few seconds after the
+  // window is up, so it never delays startup.
+  setTimeout(() => {
+    backup.autoBackupIfDue(database, BACKUP_DIR)
+      .then((r) => { if (r.made) console.log('[backup] automatic backup: ' + path.basename(r.file)); })
+      .catch((e) => console.error('[backup] automatic backup failed:', e.message));
+  }, 5000);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -325,12 +470,15 @@ ipcMain.handle('db-save-content', (event, bookId, content) => {
 });
 
 // Search books with FTS5
-ipcMain.handle('db-search', (event, query, category) => {
+ipcMain.handle('db-search', (event, query, category, opts) => {
   try {
     const results = database.searchBooks(query, category);
-    // Save search history
-    database.addSearchHistory(query, results.length);
-    database.saveDB(DATA_DIR);
+    // Save search history — the reader's. The notebook's «مەنبە» search
+    // (src/notes.js, notesSourceSearch) asks to stay out of it.
+    if (!(opts && opts.history === false)) {
+      database.addSearchHistory(query, results.length);
+      database.saveDB(DATA_DIR);
+    }
     return { success: true, results };
   } catch(e) {
     return { success: false, error: e.message, results: [] };
@@ -344,6 +492,15 @@ ipcMain.handle('db-get-all-snippets', (event, bookId, query) => {
     return { success: true, snippets };
   } catch(e) {
     return { success: false, error: e.message, snippets: [] };
+  }
+});
+
+// Clear the search history (W20, K17).
+ipcMain.handle('db-clear-search-history', () => {
+  try {
+    return { success: true, cleared: database.clearSearchHistory() };
+  } catch(e) {
+    return { success: false, error: e.message };
   }
 });
 
@@ -462,9 +619,10 @@ ipcMain.handle('db-get-progress', (event, bookId) => {
   }
 });
 
-ipcMain.handle('db-save-progress', (event, bookId, position, page) => {
+// charOffset: the exact paragraph (K5) — where it begins in the book's text.
+ipcMain.handle('db-save-progress', (event, bookId, position, page, charOffset) => {
   try {
-    database.saveReadingProgress(bookId, position, page);
+    database.saveReadingProgress(bookId, position, page, charOffset);
     return { success: true };
   } catch(e) {
     return { success: false };
@@ -525,66 +683,218 @@ ipcMain.handle('compute-hash', (event, content) => {
 
 // ========== LEGACY IPC (kept for backward compatibility) ==========
 
-// Load library (returns all data for frontend state)
-ipcMain.handle('load-library', () => {
+// Which parts of the library have loaded at least once in this session.
+// save-library writes only those — see library-sync.js (K4).
+const libraryState = librarySync.createState();
+
+// Load library (returns all data for frontend state). Each part is read on
+// its own; the ones that failed are listed in `loadErrors` instead of being
+// replaced by empty values that the next save would write back.
+ipcMain.handle('load-library', () => librarySync.loadLibrary(database, libraryState));
+
+// Save library (syncs the frontend state to SQLite). It never deletes a book
+// — that is db-delete-book's job alone — refuses an empty book list while the
+// library holds books, and never writes back a part that has not loaded in
+// this session (library-sync.js, K4).
+ipcMain.handle('save-library', (event, data) => {
   try {
-    const books = database.getAllBooks();
-    const cats = database.getCategoryNames();
-    const theme = database.getSetting('theme', 'light');
-    const nid = database.getMaxBookId() + 1;
-    const bookmarks = database.getAllBookmarksGrouped();
-    const notes = database.getAllNotesGrouped();
-    const readPos = database.getAllReadingProgress();
-    const recent = database.getRecentForFrontend();
-    return { books, cats, theme, nid, bookmarks, notes, readPos, recent };
-  } catch(e) {
-    console.error('load-library error:', e);
-    return { books: [], cats: defaultCats(), theme: 'light', nid: 1, bookmarks: {}, notes: {}, readPos: {}, recent: [] };
+    return librarySync.saveLibrary(database, data, libraryState);
+  } catch (e) {
+    console.error('save-library error:', e);
+    return { synced: [], refused: [], failed: ['all'] };
   }
 });
 
-// Save library (syncs all frontend state to SQLite)
-ipcMain.handle('save-library', (event, data) => {
-  try {
-    // Save theme
-    if (data.theme) database.setSetting('theme', data.theme);
+// ========== BACKUP AND RESTORE (audit §4.5) ==========
+// The library holds every book's text, every note and bookmark. These copy
+// it out and back; the file handling is in backup.js, the copies themselves
+// are SQLite's online backup (database.backupTo).
 
-    // Sync books metadata (and clean up disk files for deleted books)
-    if (data.books) {
-      // Find books that will be deleted during sync
-      const existingBooks = database.getAllBooks();
-      const incomingIds = new Set(data.books.map(b => b.id));
-      for (const eb of existingBooks) {
-        if (!incomingIds.has(eb.id)) {
-          cleanupBookFiles(eb.id);
-        }
+const RESTORE_REFUSALS = {
+  missing: 'ھۆججەت تېپىلمىدى',
+  'not-sqlite': 'بۇ ھۆججەت بىلىم خەزىنىسىنىڭ ساندانى ئەمەس',
+  damaged: 'بۇ ساندان بۇزۇلغان',
+  'missing-tables': 'بۇ ھۆججەتتە كۇتۇپخانا جەدۋەللىرى يوق'
+};
+
+ipcMain.handle('backup-info', () => {
+  try { return Object.assign({ success: true }, backup.folderInfo(BACKUP_DIR)); }
+  catch (e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle('backup-now', async () => {
+  try {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const pick = await dialog.showSaveDialog(mainWindow, {
+      title: 'كۇتۇپخانىنى زاپاسلاش',
+      defaultPath: path.join(BACKUP_DIR, backup.manualName(new Date())),
+      filters: [{ name: 'SQLite', extensions: ['db'] }]
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    if (path.resolve(pick.filePath).toLowerCase() === path.resolve(DB_PATH).toLowerCase()) {
+      return { success: false, error: 'كۇتۇپخانىنىڭ ئۆزىنىڭ ئۈستىگە يېزىلمايدۇ' };
+    }
+    await backup.backupAtomically(database, pick.filePath);
+    return { success: true, file: pick.filePath, name: path.basename(pick.filePath) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// «كىتابلارنى تەكشۈرۈش» (W18, K15): books stored as glyph codepoints. The scan
+// changes nothing; the repair backs the library up first — and writes
+// nothing if that fails — then folds each damaged book in its own
+// transaction, after the checks (database.js, presentationFormsFix).
+ipcMain.handle('books-forms-scan', () => {
+  try { return { success: true, ...database.presentationFormsScan() }; }
+  catch (e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle('books-forms-fix', async () => {
+  try {
+    let backupName = null;
+    const r = await database.presentationFormsFix({
+      beforeFirst: async () => {
+        backupName = 'library-before-letters-' + backup.stamp(new Date()) + '.db';
+        fs.mkdirSync(BACKUP_DIR, { recursive: true });
+        await backup.backupAtomically(database, path.join(BACKUP_DIR, backupName));
       }
-      database.syncBooks(data.books);
+    });
+    return { success: true, backup: backupName, fixed: r.fixed, skipped: r.skipped };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('backup-open-folder', async () => {
+  try {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const err = await shell.openPath(BACKUP_DIR);
+    return err ? { success: false, error: err } : { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Restore: check the file before anything is touched, ask, back up the library
+// as it is now, and only then replace library.db and restart. Every step that
+// can fail does so before the library is changed.
+ipcMain.handle('backup-restore', async () => {
+  try {
+    const pick = await dialog.showOpenDialog(mainWindow, {
+      title: 'زاپاستىن ئەسلىگە كەلتۈرۈش',
+      defaultPath: fs.existsSync(BACKUP_DIR) ? BACKUP_DIR : DATA_DIR,
+      filters: [{ name: 'SQLite', extensions: ['db'] }],
+      properties: ['openFile']
+    });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths.length) return { success: false, canceled: true };
+    const file = pick.filePaths[0];
+    if (path.resolve(file).toLowerCase() === path.resolve(DB_PATH).toLowerCase()) {
+      return { success: false, error: 'بۇ ھازىر ئىشلىتىلىۋاتقان كۇتۇپخانىنىڭ ئۆزى' };
     }
 
-    // Sync categories
-    if (data.cats) database.syncCategories(data.cats);
+    const check = backup.validateLibraryFile(file);
+    if (!check.ok) return { success: false, error: RESTORE_REFUSALS[check.reason] || check.reason };
 
-    // Sync bookmarks
-    if (data.bookmarks) database.syncBookmarks(data.bookmarks);
+    const answer = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning',
+      title: 'بىلىم خەزىنىسى',
+      message: 'كۇتۇپخانا مۇشۇ زاپاستىكى ھالىتىگە قايتىدۇ.',
+      detail: 'زاپاستا ' + check.counts.books + ' كىتاب، ' + check.counts.notes + ' خاتىرە بار.\n' +
+              'ھازىرقى كۇتۇپخانا ئاۋۋال «backups» قىسقۇچىغا زاپاسلىنىدۇ، ئاندىن دېتال قايتا قوزغىلىدۇ.',
+      buttons: ['ئەسلىگە كەلتۈرۈش', 'ۋاز كېچىش'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true
+    });
+    if (answer !== 0) return { success: false, canceled: true };
 
-    // Sync notes
-    if (data.notes) database.syncNotes(data.notes);
+    // The library as it is now, first: a restore must be undoable too.
+    const safety = path.join(BACKUP_DIR, 'library-before-restore-' + backup.stamp(new Date()) + '.db');
+    await backup.backupAtomically(database, safety);
 
-    // Sync reading progress
-    if (data.readPos) database.syncReadingProgress(data.readPos);
-
-    // Sync recent reads
-    if (data.recent) database.syncRecent(data.recent);
-
-    // Update nid in settings
-    if (data.nid) database.setSetting('nid', data.nid);
-
-    database.saveDB(DATA_DIR);
-  } catch(e) {
-    console.error('save-library error:', e);
+    database.checkpoint();
+    database.close();
+    try {
+      backup.replaceLibraryFile(file, DB_PATH);
+    } catch (e) {
+      // The copy went to a temporary name first, so the library is intact.
+      await database.initDB(DATA_DIR);
+      return { success: false, error: e.message };
+    }
+    app.relaunch();
+    app.exit(0);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
   }
-  return true;
+});
+
+// ========== EXPORTING A NOTE (W6, K8) ==========
+// The renderer sends what it made: the document model for Word (built into a
+// file here, note-export.js), the note's HTML for PDF (printed here), the
+// finished text for Markdown and TXT. One save dialog, one write.
+const NOTE_EXPORT_FORMATS = {
+  docx: { name: 'Word', extension: 'docx' },
+  pdf: { name: 'PDF', extension: 'pdf' },
+  md: { name: 'Markdown', extension: 'md' },
+  txt: { name: 'تېكىست', extension: 'txt' }
+};
+
+ipcMain.handle('export-note', async (event, format, payload) => {
+  try {
+    const kind = NOTE_EXPORT_FORMATS[format];
+    if (!kind || !payload || typeof payload !== 'object') return { success: false, error: 'unknown format' };
+    const title = String(payload.title || 'خاتىرە');
+    const pick = await dialog.showSaveDialog(mainWindow, {
+      title: 'خاتىرىنى چىقىرىش',
+      defaultPath: path.join(app.getPath('documents'), noteExport.fileNameFor(title, kind.extension)),
+      filters: [{ name: kind.name, extensions: [kind.extension] }]
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+
+    let data;
+    if (format === 'docx') {
+      data = await noteExport.buildDocx(payload.model);
+    } else if (format === 'pdf') {
+      // Sanitized by the renderer; again here, and printed from a page whose
+      // CSP lets no script run and nothing load but the app's fonts.
+      data = await noteExport.renderPdf({
+        title: title,
+        html: coarseSanitizeHtml(String(payload.html || '')),
+        credit: Array.isArray(payload.credit) ? payload.credit.map(String) : null
+      });
+    } else if (format === 'md') {
+      data = Buffer.from(String(payload.text || ''), 'utf8');
+    } else {
+      // Text: UTF-8 with a BOM, so Notepad and Word read the Uyghur right.
+      data = Buffer.from('\uFEFF' + String(payload.text || ''), 'utf8');
+    }
+    fs.writeFileSync(pick.filePath, data);
+    return { success: true, file: pick.filePath, name: path.basename(pick.filePath) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// ========== NOTE VERSIONS (W1) ==========
+// Written in the background by the renderer; a failure here must never touch
+// a save, so every handler answers instead of throwing.
+ipcMain.handle('notes-version-keep', (event, noteId, reason, title, html, text) => {
+  try { return { success: true, outcome: database.noteVersionKeep(noteId, reason, title, html, text) }; }
+  catch (e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle('notes-version-list', (event, noteId) => {
+  try { return { success: true, versions: database.noteVersionList(noteId) }; }
+  catch (e) { return { success: false, error: e.message, versions: [] }; }
+});
+
+ipcMain.handle('notes-version-get', (event, id) => {
+  try {
+    const version = database.noteVersionGet(id);
+    return version ? { success: true, version: version } : { success: false, error: 'not found' };
+  } catch (e) { return { success: false, error: e.message }; }
 });
 
 // Save book content (legacy)
@@ -940,13 +1250,14 @@ ipcMain.handle('export-as-docx', async (event, title, author, content) => {
 });
 
 ipcMain.handle('export-as-pdf', async (event, title, author, content) => {
+  let pdfWin = null;
   try {
     const result = await dialog.showSaveDialog(mainWindow, {
       defaultPath: title + '.pdf',
       filters: [{ name: 'PDF ھۆججىتى', extensions: ['pdf'] }]
     });
     if (result.canceled) return { success: false };
-    const pdfWin = new BrowserWindow({ show: false, width: 800, height: 600 });
+    pdfWin = new BrowserWindow({ show: false, width: 800, height: 600 });
     const escapedTitle = title.replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const escapedAuthor = (author||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const escapedContent = content.replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
@@ -965,10 +1276,13 @@ ipcMain.handle('export-as-pdf', async (event, title, author, content) => {
       margins: { top: 0.6, bottom: 0.6, left: 0.6, right: 0.6 }
     });
     fs.writeFileSync(result.filePath, pdfData);
-    pdfWin.close();
     return { success: true };
   } catch(e) {
     return { success: false, error: e.message };
+  } finally {
+    // A failed print used to leave this hidden window alive until the app
+    // closed (K18).
+    if (pdfWin && !pdfWin.isDestroyed()) pdfWin.destroy();
   }
 });
 
@@ -1100,6 +1414,19 @@ ipcMain.handle('quran-search', (e, query, opts) => {
   try { return { success: true, results: database.quranSearch(query, opts) }; }
   catch(err) { return { success: false, results: [], error: err.message }; }
 });
+// Bookmarked verses (W17). database.js checks that a verse can exist.
+ipcMain.handle('quran-bookmarks', () => {
+  try { return { success: true, bookmarks: database.quranBookmarkList() }; }
+  catch(err) { return { success: false, bookmarks: [], error: err.message }; }
+});
+ipcMain.handle('quran-bookmark-add', (e, sura, aya) => {
+  try { return { success: true, ...database.quranBookmarkAdd(sura, aya) }; }
+  catch(err) { return { success: false, ok: false, error: err.message }; }
+});
+ipcMain.handle('quran-bookmark-remove', (e, sura, aya) => {
+  try { return { success: true, ...database.quranBookmarkRemove(sura, aya) }; }
+  catch(err) { return { success: false, ok: false, error: err.message }; }
+});
 ipcMain.handle('quran-lookup-sura', (e, input) => {
   try { return { success: true, sura: database.quranLookupSura(input) }; }
   catch(err) { return { success: false, sura: null, error: err.message }; }
@@ -1126,16 +1453,46 @@ ipcMain.handle('notes-update', (e, id, title, html, text) => {
     const safeHtml = coarseSanitizeHtml(html || '');
     const safeTitle = String(title || '').slice(0, 500); // length cap
     const safeText = String(text || '');
-    database.notesUpdate(id, safeTitle, safeHtml, safeText);
-    return { success: true };
+    // 0 rows: the note is gone, or in the trash, where it is read-only. The
+    // renderer must hear that it was NOT saved.
+    const written = database.notesUpdate(id, safeTitle, safeHtml, safeText);
+    return written ? { success: true } : { success: false, error: 'not saved: the note is missing or in the trash' };
   } catch(err) { return { success: false, error: err.message }; }
 });
+// Deleting a note moves it to the trash (W2). Nothing deletes a note for good
+// except notes-delete-forever, the emptied trash, the 30-day purge and an
+// untouched new note.
 ipcMain.handle('notes-delete', (e, id) => {
-  try {
-    database.notesDelete(id);
-    database.saveDB(DATA_DIR);
-    return { success: true };
-  } catch(err) { return { success: false, error: err.message }; }
+  try { return { success: database.notesTrash(id) }; }
+  catch(err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('notes-restore', (e, id) => {
+  try { return { success: database.notesRestore(id) }; }
+  catch(err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('notes-trash-list', () => {
+  try { return { success: true, docs: database.notesTrashList() }; }
+  catch(err) { return { success: false, docs: [], error: err.message }; }
+});
+ipcMain.handle('notes-delete-forever', (e, id) => {
+  try { return { success: database.notesDeleteForever(id) }; }
+  catch(err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('notes-empty-trash', () => {
+  try { return { success: true, removed: database.notesEmptyTrash() }; }
+  catch(err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('notes-set-pinned', (e, id, pinned) => {
+  try { return { success: database.notesSetPinned(id, !!pinned) }; }
+  catch(err) { return { success: false, error: err.message }; }
+});
+ipcMain.handle('notes-search', (e, query) => {
+  try { return Object.assign({ success: true }, database.notesSearch(query)); }
+  catch(err) { return { success: false, ok: false, notes: [], error: err.message }; }
+});
+ipcMain.handle('notes-discard-empty', (e, id) => {
+  try { return { success: true, removed: database.notesDiscardIfEmpty(id) }; }
+  catch(err) { return { success: false, removed: false, error: err.message }; }
 });
 
 // ========== NGRAM IPC ==========
@@ -1200,6 +1557,61 @@ ipcMain.handle('spell-suggest', (event, word) => {
 ipcMain.handle('spell-personal', (event, words) => {
   try { return spellEngine.setPersonal(words); }
   catch (e) { return { ok: false }; }
+});
+
+// Is this one word, by the same rules the checker tokenizes with?
+//
+// «لۇغەتكە قوشۇش» writes into the writer's own dictionary, and a word in there
+// is accepted for ever. Before v3.5 the renderer glued the last word of a
+// paragraph to the first of the next, and that glued "word" could be added
+// this way — after which a real misspelling looked correct. The renderer asks
+// here rather than testing the word itself, because a second copy of
+// WORD_PATTERN that drifted by one character would disagree with the checker.
+ipcMain.handle('spell-validate-word', (event, word) => {
+  try { return spellPersonal.validatePersonalWord(String(word == null ? '' : word)); }
+  catch (e) { return { ok: false, reason: 'error' }; }
+});
+
+// The personal-dictionary panel (W8, K12).
+// Which entries look like two words glued together — a hint, never a removal.
+ipcMain.handle('spell-glued', (event, words) => {
+  try { return { success: true, glued: spellEngine.glued(Array.isArray(words) ? words.slice(0, 6000) : []) }; }
+  catch (e) { return { success: false, glued: [] }; }
+});
+
+// Export: a JSON array, the same file the web edition makes.
+ipcMain.handle('spell-dictionary-export', async (event, words) => {
+  try {
+    const pick = await dialog.showSaveDialog(mainWindow, {
+      title: 'شەخسىي لۇغەتنى چىقىرىش',
+      defaultPath: path.join(app.getPath('documents'), spellPersonal.EXPORT_FILE_NAME),
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    });
+    if (pick.canceled || !pick.filePath) return { success: false, canceled: true };
+    fs.writeFileSync(pick.filePath, spellPersonal.exportPersonal(words), 'utf8');
+    return { success: true, name: path.basename(pick.filePath) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Import: an untrusted file. Read here, checked entry by entry with the
+// checker's own rules, merged; only the merged list goes back.
+ipcMain.handle('spell-dictionary-import', async (event, existing) => {
+  try {
+    const pick = await dialog.showOpenDialog(mainWindow, {
+      title: 'شەخسىي لۇغەتنى كىرگۈزۈش',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile']
+    });
+    if (pick.canceled || !pick.filePaths || !pick.filePaths.length) return { success: false, canceled: true };
+    const file = pick.filePaths[0];
+    if (fs.statSync(file).size > spellPersonal.MAX_IMPORT_BYTES) return { success: false, reason: 'too_big' };
+    const merged = spellPersonal.mergeImport(Array.isArray(existing) ? existing.map(String) : [], fs.readFileSync(file, 'utf8'));
+    return merged.ok ? Object.assign({ success: true }, merged) : { success: false, reason: merged.reason };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 });
 
 // ========== AI (GEMINI) — see ai.js ==========
