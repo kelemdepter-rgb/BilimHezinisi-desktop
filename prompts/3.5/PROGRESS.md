@@ -22,7 +22,7 @@ Read prompts/3.5/PROMPT-3.5.md in full, then prompts/3.5/PROGRESS.md, and contin
 | 5 | List, trash, spelling: W2, W3, W7–W10, K12, K13 | **done** — waiting for the owner's check | `828150e` feat(notes): the trash, pinning and content search - storage (W2, W3, K13) · `ce94748` feat(notes): the list sorts, pins, previews and searches; deleting can be undone (W2, W3, K13) · `4544b0d` feat(spellcheck): one error at a time, and words ignored in one note (W7, W9, W10) · `7bd1aef` feat(spellcheck): the personal dictionary can be seen, cleaned, moved (W8, K12) · docs(progress) | 75 in all (with the syntax gate), every one green |
 | 6 | Citations, sources, AI that keeps formatting: W11–W13, K9 | **done** — waiting for the owner's check | `4733c8b` feat(notes): citations lead back to the book or the verse; links open a card (W11) · `1861260` feat(notes): search the library and the Qur'an from «مەنبە»; three-way verse choice (W12) · `dd7beb4` feat(ai): notebook proofreading by units, never sending quoted material, undoable (W13, K9) · `bd80d97` feat(ai): notebook OCR cleanup works on the selection, undoable; the whole-note rebuild is gone · docs(progress) | 98 in all (with the syntax gate), every one green |
 | 7 | Reader, Qur'an, search: K5, K15, K17, W16–W18, W20 | **done** — waiting for the owner's check | `725d820` feat(reader): bookmarks, notes and the reading position keep their paragraph (K5, W16) · `f9dc84b` feat(quran): bookmark verses; the last verse read is offered again (W17) · `8c50274` feat(import): books come in as letters, never as glyph codepoints (W18, K15) · `13dda38` feat(search): the search history can be cleared (W20, K17) · `d013b14` fix(search): the book search index is built right; search finds what it found, and changed text too · `1f1dff6` feat(settings): «كىتابلارنى تەكشۈرۈش» finds books stored as glyph codepoints and repairs them (W18, K15) · docs(progress) | 114 in all (with the syntax gate), every one green |
-| 8 | Release 3.5.0 (no publishing) | not started | — | — |
+| 8 | Release 3.5.0 (no publishing) | **done** — merged into `main`; not tagged, not pushed, no Store build | `ffaf738` chore(release): version 3.5.0 · `ad4408d` docs(release): privacy, notices and the Store's «What's new» for 3.5.0 · `0694902` docs(claude): the feature list as 3.5 ships it; the roadmap without what shipped · docs(progress) · merge | 114 in all (with the syntax gate over 104 files), every one green |
 
 ## Phase 0 — what was built
 
@@ -351,6 +351,32 @@ Two deliberate departures from the work order:
 6. تەڭشەكلەردىكى «كىتابلارنى تەكشۈرۈش» ← «تەكشۈرۈش» نى بېسىڭ ← نەتىجە چىقىدۇ (ھېچنېمە ئۆزگەرمەيدۇ). ئوڭشايدىغان كىتاب بولسا «ئوڭشاش» نى ئىككى قېتىم بېسىڭ ← ئالدى بىلەن زاپاسلىنىپ، ئاندىن ئوڭشىلىدۇ.
 7. ئىزدەش رامكىسىنى چېكىپ يېقىنقى ئىزدەشلەرنى ئېچىڭ ← «تارىخنى تازىلاش» نى ئىككى قېتىم بېسىڭ ← تارىخ تازىلىنىدۇ.
 8. ئىزدەش ئىلگىرىكىدەك ئىشلەيدۇ: سۆزنىڭ بىر قىسمىنى يازسىڭىزمۇ تاپىدۇ. بىر كىتابنىڭ تېكىستى ئۆزگەرگەن بولسا (OCR ياكى بەت تۈزىتىش)، يېڭى سۆزلەرمۇ تېپىلىدۇ.
+
+## Phase 8 — done (no publishing)
+
+| Step | Result |
+|---|---|
+| 1. Tests | `npm test`: 114 in all, every one green. The syntax gate: 104 files parse, the inline scripts of `index.html` included. |
+| 2. Version | `npm version 3.5.0 --no-git-tag-version`: `package.json` and both lockfile fields (`version`, `packages[""].version`) at 3.5.0, CRLF kept. The app shows «V3.5» from major.minor (`get-version`). `build.appx` is **byte-identical** to `main` (the block compared as text, line ends normalized, and as JSON). |
+| 3. Release notes | `RELEASE-NOTES-v3.5.0.md` (16,965 bytes): Uyghur first, then English; fixes before features; «زاپاسلار قەيەردە؟» names the folder and every backup file. It stays **untracked**: `.gitignore` excludes `RELEASE-NOTES-*.md` because the release body lives on GitHub. |
+| 3. Store texts | `prompts/3.5/STORE-WHATS-NEW-v3.5.0.md` — Partner Center «What's new in this version». **Uyghur 1,159, English 1,127 characters** (a line break counted once; about 20 more each if counted twice), both inside 1,500. |
+| 4. PRIVACY.md | Nothing new leaves the machine: AI stays opt-in and sends LESS (no verses, quoted passages or links); a link in a note opens only on the reader's «ئېچىش». What 3.5 stores locally did change, so §2 now lists the earlier versions of notes, the trash and `JamiyKutupxana\backups\` — both languages, date updated. |
+| 4. THIRD-PARTY-NOTICES.md | Nothing new is bundled: `assets/` is unchanged from `main` and no dependency was added. `sql.js`, removed in Phase 2, is marked «shipped up to v3.2.0», kept for the record as SymSpell's notice was. |
+| 5. CLAUDE.md | The feature list as 3.5 ships it, search described as the owner decided. The 3.5 rules were written phase by phase. In the roadmap, the AI single-step undo is gone (shipped), backup/sync became sync, a ranked word search is listed as an option, and the items left out of 3.5 are named. |
+| 6. Merge | `release/3.5` merged into `main` with a merge commit, as v3.2.0 was. **No tag, no push, no Store package.** |
+
+Not done here, on purpose:
+- **The owner's release step** (Cowork, `bilim-store-release`): `npm run fetch-ocr-models` on a networked machine, `npm run dist-win` and the Store package, the tag, the push, the GitHub release and Partner Center.
+- **`BUILD-GUIDE.md`.** It is docs-only and has not been kept in step since v2.7.0, and the work order does not ask for it.
+
+### Before publishing — once more with `npm start` on the real library
+
+The first start of 3.5.0 backs the library up to `JamiyKutupxana\backups\library-before-3.5.0.db`, then runs schema steps 1–5. Step 5 lays the search index down; it fills in the background during the first minute or two. Then:
+1. **What is already there.** The books, notes and bookmarks are all there. Old bookmarks are listed under «كونا خەتكۈچلەر — ئورنى ساقلانمىغان».
+2. **Search** finds what it found before, a part of a word included.
+3. **The notebook.** Open a note, write, switch to the Qur'an and back: the writing is there. «نەشر تارىخى» shows an «ئاچقاندا» version.
+4. **The books check.** Settings → «كىتابلارنى تەكشۈرۈش» → «تەكشۈرۈش»: the number of damaged books; repair them if there are any.
+5. **The checklists.** Phases 1–7, as far as you want to go.
 
 ## Measurements
 
