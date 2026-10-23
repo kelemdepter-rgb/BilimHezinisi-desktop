@@ -1007,6 +1007,9 @@
     editorEl.addEventListener('click', onEditorRefClick);
     editorEl.addEventListener('mousemove', onEditorRefHover);
     editorEl.addEventListener('mouseleave', () => setRefHover(false));
+    // Links — citations among them — show their card; nothing navigates (W11).
+    editorEl.addEventListener('click', onEditorLinkClick);
+    editorEl.addEventListener('auxclick', onEditorLinkAuxClick);
 
     // Sanitize pasted HTML — XSS defense-in-depth
     editorEl.addEventListener('paste', (e) => {
@@ -1717,7 +1720,19 @@
       </div>`;
   };
 
-  window.notesInsertAya = async function(sura, aya, withTr) {
+  /**
+   * How a verse goes into a note: «ئەرەبچە» 'ar', «تەرجىمىسى» 'ug' or
+   * «ئىككىلىسى» 'both'. The old checkbox passed true / false, which still
+   * means what it meant.
+   */
+  const AYA_MODES = ['ar', 'ug', 'both'];
+  function ayaMode(mode) {
+    if (mode === true) return 'both';
+    if (mode === false) return 'ar';
+    return AYA_MODES.indexOf(mode) !== -1 ? mode : 'both';
+  }
+
+  window.notesInsertAya = async function(sura, aya, mode) {
     if (!editorEl) {
       toast('تەھرىرلىگۈچ ئېچىلمىغان', 'e');
       return;
@@ -1725,22 +1740,25 @@
     const r = await window.electron.quranGetAya(sura, aya);
     if (!r.success || !r.aya) return;
     const a = r.aya;
+    mode = ayaMode(mode);
 
     const AR_STYLE = "font-family:'UthmanicHafs',serif;font-size:18pt;line-height:1.9";
     const UG_STYLE = "font-family:'UKIJ Ekran',sans-serif;font-size:13pt;line-height:1.7;color:#555";
 
-    let insertHtml;
-    if (withTr && a.text_ug) {
-      insertHtml = `<p dir="rtl">` +
-        `<span style="${AR_STYLE}">\uFD3F${escHtml(a.text_ar)}\uFD3E</span>` +
-        `<br>` +
-        `<span style="${UG_STYLE}">\u00AB${escHtml(a.text_ug)}\u00BB</span>` +
-      `</p><p><br></p>`;
-    } else {
-      insertHtml = `<p dir="rtl">` +
-        `<span style="${AR_STYLE}">\uFD3F${escHtml(a.text_ar)}\uFD3E</span>` +
-      `</p><p><br></p>`;
+    // The translation is marked as quoted, like the verse (the Uthmani face)
+    // and the citation (a link): none of it is the writer's to spell-check,
+    // paint or send to the AI. The marker sits on the span, not on the
+    // paragraph — Enter at the end of a paragraph copies its attributes into
+    // the next one, and the writer's own next line would be «quoted» too.
+    const lines = [];
+    if (mode !== 'ug' || !a.text_ug) {
+      lines.push(`<span style="${AR_STYLE}">\uFD3F${escHtml(a.text_ar)}\uFD3E</span>`);
     }
+    if (mode !== 'ar' && a.text_ug) {
+      lines.push(`<span data-ref-insert="1" style="${UG_STYLE}">\u00AB${escHtml(a.text_ug)}\u00BB</span>`);
+    }
+    lines.push(citeLinkHtml(quranHref(sura, aya), 'قۇرئان كەرىم، ' + Number(sura) + ':' + Number(aya)));
+    const insertHtml = `<p dir="rtl">` + lines.join('<br>') + `</p><p><br></p>`;
 
     editorEl.focus();
     const safeInsert = (window.SafeHTML && window.SafeHTML.sanitize)
@@ -2029,7 +2047,10 @@
             .replace(/§MARK_OPEN§/g, '<mark>')
             .replace(/§MARK_CLOSE§/g, '</mark>');
           // Pass raw snippet (with markers) to insert; we'll strip markers there.
-          const encSnip = encodeURIComponent(sn.snip || '');
+          // An apostrophe would end the quoted onclick argument: encArg.
+          const encSnip = encArg(sn.snip || '');
+          const posArg = (typeof sn.pos === 'number' && sn.pos >= 0) ? sn.pos : 'null';
+          const verseArgs = (isQuran && sn.sura && sn.aya) ? `, ${sn.sura | 0}, ${sn.aya | 0}` : '';
           const itemId = `ref_${bm.bookId}_${(sn.pos|0)}_${i++}`;
 
           // "Go to" button: Quran → switch to Quran mode at sura:aya; Book → openReader
@@ -2056,7 +2077,7 @@
                 onclick="window.notesToggleSnippet('${itemId}')">＋</button>
               ${gotoBtn}
               <button class="notes-ref-act notes-ref-insert"
-                onclick="window.notesInsertRef(${bm.bookId}, '${encSnip}')">${icon('plus')} قىستۇرۇش</button>
+                onclick="window.notesInsertRef(${bm.bookId}, '${encSnip}', ${posArg}, '${encArg(word)}'${verseArgs})">${icon('plus')} قىستۇرۇش</button>
             </div>
           </div>`;
         }
@@ -2073,7 +2094,9 @@
     if (btn) btn.textContent = expanded ? '－' : '＋';
   };
 
-  window.notesGoToBook = async function (bookId, encodedHighlight) {
+  // targetPos: a character offset into the book's content — the reader picks
+  // the occurrence of the highlight that starts there (updateMatchNav).
+  window.notesGoToBook = async function (bookId, encodedHighlight, targetPos) {
     if (!await flushOrWarn()) return;
     let highlight = '';
     try { highlight = decodeURIComponent(encodedHighlight || ''); } catch(e) {}
@@ -2082,7 +2105,7 @@
       if (typeof window.setMode === 'function' && window.S.mode !== 'library') {
         window.setMode('library');
       }
-      window.openReader(bookId, highlight);
+      window.openReader(bookId, highlight, (typeof targetPos === 'number' && targetPos >= 0) ? targetPos : null);
     }
   };
 
@@ -2122,19 +2145,35 @@
     renderRefsPanel();
   };
 
-  window.notesInsertRef = function(bookId, encodedSnip) {
+  /**
+   * Insert a library passage as a quotation that ends with its citation.
+   *
+   * pos is the snippet's character offset into the book's content
+   * (database.js, getAllSnippetsForBook) and encodedWord the word it was
+   * found by, so the citation opens the reader at that very occurrence. The
+   * n-gram index answers for the Qur'an too, as two «books» (-1, -2,
+   * database.js QURAN_BOOK_ID_UG / _AR): then sura and aya say which verse.
+   */
+  window.notesInsertRef = function(bookId, encodedSnip, pos, encodedWord, sura, aya) {
     if (!editorEl) return;
     let snip = '';
     try { snip = decodeURIComponent(encodedSnip); } catch(e) {}
     // Strip internal markers (we keep plain text in the inserted blockquote)
     snip = snip.replace(/§MARK_OPEN§|§MARK_CLOSE§/g, '');
+    let word = '';
+    try { word = decodeURIComponent(encodedWord || ''); } catch(e) {}
 
-    const book = (window.S.books || []).find(b => b.id === bookId);
-    const bookTitle = book ? book.title : '';
+    let cite = '';
+    if (bookId === -1 || bookId === -2) {
+      if (sura > 0 && aya > 0) cite = citeLinkHtml(quranHref(sura, aya), 'قۇرئان كەرىم، ' + Number(sura) + ':' + Number(aya));
+    } else {
+      const book = (window.S.books || []).find(b => b.id === bookId);
+      if (book) cite = citeLinkHtml(bookHref(bookId, pos, word), book.title);
+    }
 
-    const insertHtml = `<blockquote class="notes-inserted-ref" data-ref-insert="1" dir="rtl" contenteditable="true">` +
+    const insertHtml = `<blockquote class="notes-inserted-ref" data-ref-insert="1" dir="rtl">` +
       `<span>${escHtml(snip)}</span>` +
-      (bookTitle ? `<br><span style="font-size:0.85em;color:#888">— ${escHtml(bookTitle)}</span>` : '') +
+      (cite ? `<br>${cite}` : '') +
     `</blockquote><p><br></p>`;
 
     editorEl.focus();
@@ -2144,6 +2183,314 @@
     document.execCommand('insertHTML', false, safeInsert);
     markDirty();
     toast('مەنبە قىستۇرۇلدى', 's');
+  };
+
+  // ========== CITATIONS AND THE LINK CARD (W11) ==========
+  // An inserted passage or verse ends with a link back to where it came from:
+  // bh://book/<id>?o=<offset>&q=<word> or bh://quran/<sura>/<aya>. The scheme
+  // is the app's own and goes nowhere by itself — the sanitizer keeps it only
+  // on a.bh-cite (src/sanitize.js) — and nothing in the note ever navigates
+  // the window: a click on any link shows a small card anchored to it, and
+  // «ئېچىش» opens the reader or the Qur'an here, or hands an http(s) address
+  // to the main process. Ported from the web edition's lib/notes/insert.ts,
+  // lib/notes/links.ts, components/notes/link-popover.tsx and anchored.ts.
+
+  const CITE_STYLE = 'font-size:0.85em;color:#888';
+  const BOOK_CITE = /^bh:\/\/book\/([1-9]\d{0,8})(?:\?([^#\s]*))?$/;
+  const QURAN_CITE = /^bh:\/\/quran\/([1-9]\d{0,2})\/([1-9]\d{0,2})$/;
+  /** A blocked address is shown, not opened — but a page of it helps nobody. */
+  const SHOWN_CHARS = 200;
+
+  /** For a value inside a quoted onclick argument: encodeURIComponent leaves ' alone. */
+  function encArg(s) {
+    return encodeURIComponent(String(s == null ? '' : s)).replace(/'/g, '%27');
+  }
+
+  function bookHref(bookId, offset, word) {
+    const params = [];
+    if (Number.isInteger(offset) && offset >= 0) params.push('o=' + offset);
+    const w = String(word || '').trim();
+    if (w) params.push('q=' + encodeURIComponent(w));
+    return 'bh://book/' + Number(bookId) + (params.length ? '?' + params.join('&') : '');
+  }
+
+  function quranHref(sura, aya) {
+    return 'bh://quran/' + Number(sura) + '/' + Number(aya);
+  }
+
+  /** The «— source» line, as a citation link. */
+  function citeLinkHtml(href, label) {
+    return `<a class="bh-cite" href="${escAttr(href)}" style="${CITE_STYLE}">— ${escHtml(label)}</a>`;
+  }
+
+  /** The book a citation names in its own words: «— title» (or a «…» in them). */
+  function citedTitle(text) {
+    const plain = String(text || '').replace(/\s+/g, ' ').replace(/^\s*—\s*/, '').trim();
+    const quoted = /«([^«»]+)»/.exec(plain);
+    return (quoted ? quoted[1].trim() : plain) || null;
+  }
+
+  /**
+   * What a link in the note points to, and whether it may be opened:
+   * { kind: 'book' | 'quran' | 'external' | 'blocked', label, target }.
+   * Only a citation of a book or a verse, or an http(s) address without a
+   * user name in it, has a target; everything else is shown as written.
+   */
+  function describeLink(href, text) {
+    const written = String(href || '').trim();
+    const blocked = {
+      kind: 'blocked',
+      label: written.length > SHOWN_CHARS ? written.slice(0, SHOWN_CHARS) + '…' : written,
+      target: null
+    };
+
+    let m = BOOK_CITE.exec(written);
+    if (m) {
+      const bookId = Number(m[1]);
+      const params = new URLSearchParams(m[2] || '');
+      const o = params.get('o') || '';
+      const book = ((window.S && window.S.books) || []).find(b => b.id === bookId);
+      const title = book ? book.title : citedTitle(text);
+      return {
+        kind: 'book',
+        label: title ? 'كىتاب: «' + title + '»' : 'كىتاب',
+        target: { bookId: bookId, offset: /^\d{1,10}$/.test(o) ? Number(o) : null, word: (params.get('q') || '').trim() }
+      };
+    }
+
+    m = QURAN_CITE.exec(written);
+    if (m) {
+      const sura = Number(m[1]);
+      const aya = Number(m[2]);
+      if (sura > 114) return blocked;
+      return { kind: 'quran', label: 'قۇرئان: ' + sura + ':' + aya, target: { sura: sura, aya: aya } };
+    }
+
+    let url;
+    try { url = new URL(written); } catch (e) { return blocked; }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return blocked;
+    // https://bilimhezinisi.com@elsewhere.example/ goes to elsewhere.example.
+    if (url.username || url.password || !url.hostname) return blocked;
+    return { kind: 'external', label: url.hostname, target: { url: url.href } };
+  }
+
+  /** Go where a described link points. The note is saved first (notesGoTo*). */
+  async function openLink(where) {
+    if (!where || !where.target) return false;
+    closeLinkCard();
+    const target = where.target;
+    if (where.kind === 'book') {
+      if (!((window.S && window.S.books) || []).some(b => b.id === target.bookId)) {
+        toast('بۇ كىتاب كۈتۈپخانىدا يوق', 'e');
+        return false;
+      }
+      await window.notesGoToBook(target.bookId, encodeURIComponent(target.word || ''), target.offset);
+      return true;
+    }
+    if (where.kind === 'quran') {
+      await window.notesGoToQuranAya(target.sura, target.aya);
+      return true;
+    }
+    if (where.kind === 'external') {
+      // The main process gives a parsed http(s) address to the system browser
+      // (setWindowOpenHandler → navigation.externalUrl) and opens no window.
+      window.open(target.url, '_blank', 'noopener,noreferrer');
+      return true;
+    }
+    return false;
+  }
+
+  /** The link a click inside the editor landed on, if it landed on one. */
+  function linkAt(target) {
+    const el = target && (target.nodeType === 1 ? target : target.parentElement);
+    const link = el && el.closest ? el.closest('a[href]') : null;
+    return (link && editorEl && link !== editorEl && editorEl.contains(link)) ? link : null;
+  }
+
+  // Ctrl+click opens at once; a click shows the card. Either way the browser
+  // is not allowed to follow the link — in a read-only (trashed) note it
+  // otherwise would.
+  function onEditorLinkClick(e) {
+    const link = linkAt(e.target);
+    if (!link) return;
+    e.preventDefault();
+    const where = describeLink(link.getAttribute('href'), link.textContent);
+    if (e.ctrlKey || e.metaKey) {
+      closeLinkCard();
+      openLink(where);
+      return;
+    }
+    // The end of a drag that selected text is not a click on the link.
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && editorEl.contains(sel.anchorNode)) return;
+    showLinkCard(link, where);
+  }
+
+  function onEditorLinkAuxClick(e) {
+    if (linkAt(e.target)) e.preventDefault();
+  }
+
+  // { el, link, editor, onMove, onDown, onKey } while a card is open.
+  let linkCard = null;
+  const CARD_EDGE = 8;
+  const CARD_GAP = 6;
+
+  function closeLinkCard() {
+    const c = linkCard;
+    if (!c) return;
+    linkCard = null;
+    window.removeEventListener('scroll', c.onMove, true);
+    window.removeEventListener('resize', c.onMove);
+    document.removeEventListener('pointerdown', c.onDown, true);
+    document.removeEventListener('keydown', c.onKey, true);
+    c.editor.removeEventListener('input', closeLinkCard);
+    c.el.remove();
+  }
+
+  /**
+   * Put the card under its link — above it when there is no room below —
+   * inside the window. It goes when the link has left the part of the editor
+   * that can be seen, or the page.
+   */
+  function placeLinkCard() {
+    const c = linkCard;
+    if (!c) return;
+    const box = c.link.isConnected ? c.link.getBoundingClientRect() : null;
+    const area = c.editor.isConnected ? c.editor.getBoundingClientRect() : null;
+    if (!box || !area || (box.width === 0 && box.height === 0) ||
+        box.bottom <= area.top || box.top >= area.bottom) {
+      closeLinkCard();
+      return;
+    }
+    const size = c.el.getBoundingClientRect();
+    const viewH = window.innerHeight;
+    const viewW = window.innerWidth;
+    let top = box.bottom + CARD_GAP;
+    if (top + size.height > viewH - CARD_EDGE) {
+      const above = box.top - CARD_GAP - size.height;
+      top = above >= CARD_EDGE ? above : Math.max(CARD_EDGE, viewH - CARD_EDGE - size.height);
+    }
+    // Centred on the link, pulled inside the window. Physical left: this is a
+    // window coordinate, not a text direction.
+    let left = box.left + box.width / 2 - size.width / 2;
+    left = Math.min(Math.max(left, CARD_EDGE), Math.max(CARD_EDGE, viewW - size.width - CARD_EDGE));
+    c.el.style.top = Math.round(top) + 'px';
+    c.el.style.left = Math.round(left) + 'px';
+    c.el.style.visibility = 'visible';
+  }
+
+  function cardButton(action, iconName, label, onClick) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'nlc-row';
+    b.dataset.action = action;
+    b.innerHTML = icon(iconName);
+    const span = document.createElement('span');
+    span.textContent = label;
+    b.appendChild(span);
+    // The note keeps its focus and its selection.
+    b.addEventListener('mousedown', ev => ev.preventDefault());
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  function showLinkCard(link, where) {
+    closeLinkCard();
+    if (!editorEl) return;
+    const editable = editorEl.isContentEditable;
+
+    const el = document.createElement('div');
+    el.className = 'notes-link-card';
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-label', 'ئۇلىنىش');
+    el.setAttribute('dir', 'rtl');
+    el.dataset.kind = where.kind;
+    el.style.position = 'fixed';
+    el.style.top = '-9999px';
+    el.style.left = '0';
+    el.style.visibility = 'hidden';
+
+    const head = document.createElement('div');
+    head.className = 'nlc-head';
+    const words = document.createElement('div');
+    words.className = 'nlc-words';
+    const text = document.createElement('div');
+    text.className = 'nlc-text';
+    text.textContent = (link.textContent || '').replace(/\s+/g, ' ').trim() || '—';
+    const whereEl = document.createElement('div');
+    whereEl.className = 'nlc-where';
+    whereEl.textContent = where.label;
+    // An address shown as written reads left to right; a description is Uyghur.
+    if (where.kind === 'blocked' || where.kind === 'external') whereEl.setAttribute('dir', 'ltr');
+    words.appendChild(text);
+    words.appendChild(whereEl);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'nlc-close';
+    close.setAttribute('aria-label', 'تاقاش');
+    close.innerHTML = icon('x');
+    close.addEventListener('click', closeLinkCard);
+    head.appendChild(words);
+    head.appendChild(close);
+    el.appendChild(head);
+
+    if (!where.target) {
+      const note = document.createElement('div');
+      note.className = 'nlc-blocked';
+      note.textContent = 'بۇ ئۇلىنىشنى ئاچقىلى بولمايدۇ.';
+      el.appendChild(note);
+    } else {
+      el.appendChild(cardButton('open', where.kind === 'external' ? 'globe' : 'book-open', 'ئېچىش', () => openLink(where)));
+    }
+    if (editable) {
+      el.appendChild(cardButton('unlink', 'scissors', 'ئۇلىنىشنى ئېلىۋېتىش', () => unlinkLink(link)));
+    }
+
+    document.body.appendChild(el);
+    const c = {
+      el: el, link: link, editor: editorEl,
+      // A scroll or a resize moves the link: follow it. Chromium sends both
+      // events at most once a frame already, so no frame of our own is needed.
+      onMove: () => { if (linkCard === c) placeLinkCard(); },
+      onDown: (ev) => { if (!el.contains(ev.target)) closeLinkCard(); },
+      onKey: (ev) => {
+        if (ev.key !== 'Escape') return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeLinkCard();
+      }
+    };
+    linkCard = c;
+    window.addEventListener('scroll', c.onMove, true);
+    window.addEventListener('resize', c.onMove);
+    document.addEventListener('pointerdown', c.onDown, true);
+    document.addEventListener('keydown', c.onKey, true);
+    // An edit can move or remove the link the card describes.
+    editorEl.addEventListener('input', closeLinkCard);
+    placeLinkCard();
+  }
+
+  /** Take the link away and keep its words — one editing command, so Ctrl+Z puts it back. */
+  function unlinkLink(link) {
+    closeLinkCard();
+    if (!editorEl || !editorEl.isContentEditable || !link.isConnected || !editorEl.contains(link)) return;
+    editorEl.focus();
+    const range = document.createRange();
+    range.selectNode(link);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.execCommand('unlink');
+    if (sel.rangeCount) sel.collapseToEnd();
+    markDirty();
+  }
+
+  window.NotesCite = {
+    describe: describeLink,
+    bookHref: bookHref,
+    quranHref: quranHref,
+    open: openLink,
+    closeCard: closeLinkCard
   };
 
   // ========== QUALITY EXTRAS (Phase 5) ==========
@@ -2526,6 +2873,7 @@
   // Reset transient editor tools when (re-)mounting a document.
   function resetEditorTools() {
     clearRefMatches();
+    closeLinkCard();
     findState = { hits: [], idx: -1, map: null, query: '' };
     findUndo = null;
     showUndoAll(false);

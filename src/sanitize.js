@@ -96,9 +96,25 @@
     return kept.join('; ');
   }
 
+  // The app's own scheme, for a citation's way back to what it quotes
+  // (src/notes.js, W11): a book at a place, or a verse. Kept on a.bh-cite in
+  // exactly these two shapes and nowhere else, so a pasted or imported note
+  // cannot dress anything else up as one.
+  const CITATION_HREF = /^bh:\/\/(?:book\/[1-9]\d{0,8}(?:\?[^#\s"'<>\\]*)?|quran\/[1-9]\d{0,2}\/[1-9]\d{0,2})$/;
+
+  function isCitationLink(node) {
+    return node.localName === 'a' &&
+      String(node.getAttribute('class') || '').split(/\s+/).indexOf('bh-cite') !== -1;
+  }
+
   // DOMPurify's hook for each attribute. Added for the duration of OUR call
   // only — the web-page import calls DOMPurify directly and is not filtered.
   function onAttribute(node, data) {
+    if (data.attrName === 'href') {
+      if (/^\s*bh:/i.test(data.attrValue) &&
+          !(isCitationLink(node) && CITATION_HREF.test(data.attrValue))) data.keepAttr = false;
+      return;
+    }
     if (data.attrName !== 'style') return;
     const kept = filterStyle(data.attrValue);
     if (kept) data.attrValue = kept;
@@ -131,7 +147,9 @@
         FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onmouseout', 'onfocus', 'onblur', 'onsubmit', 'onchange', 'onkeydown', 'onkeyup', 'onkeypress'],
         ALLOW_DATA_ATTR: false,
         ADD_DATA_URI_TAGS: [],
-        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+        // bh: passes here only to meet onAttribute, which keeps it on a
+        // citation and drops it everywhere else.
+        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|bh):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
         KEEP_CONTENT: true,
         RETURN_DOM: false,
         RETURN_DOM_FRAGMENT: false
