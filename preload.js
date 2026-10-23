@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld('electron', {
   // Backup and restore — the files are handled in the main process (backup.js).
   backupInfo: () => ipcRenderer.invoke('backup-info'),
   backupNow: () => ipcRenderer.invoke('backup-now'),
+  booksFormsScan: () => ipcRenderer.invoke('books-forms-scan'),
+  booksFormsFix: () => ipcRenderer.invoke('books-forms-fix'),
   backupOpenFolder: () => ipcRenderer.invoke('backup-open-folder'),
   backupRestore: () => ipcRenderer.invoke('backup-restore'),
   saveBookContent: (id, content) => ipcRenderer.invoke('save-book-content', id, content),

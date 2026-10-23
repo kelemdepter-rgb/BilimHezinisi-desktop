@@ -740,6 +740,109 @@ function checkDuplicateHash(hash) {
   return !!row;
 }
 
+// ========== BOOKS STORED AS GLYPH CODEPOINTS (W18, K15) ==========
+// «كىتابلارنى تەكشۈرۈش» in the settings. Text that comes in now is folded on
+// the way (letters() above); these repair what was stored before that.
+
+/** A book's four text fields as stored now. */
+function bookTextFields(id) {
+  const book = db.prepare('SELECT title, author, description FROM books WHERE id=?').get(id);
+  if (!book) return null;
+  const row = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(id);
+  return {
+    title: book.title || '',
+    author: book.author || '',
+    description: book.description || '',
+    content: row ? (row.content || '') : '',
+    hasContent: !!row
+  };
+}
+
+/**
+ * Read-only. `candidates`: books with a field that is CANDIDATE_SHARE or more
+ * glyph codepoints — damaged, and what a repair rewrites (only those fields).
+ * `nearMisses`: books with a stray form or two, left alone — a book about the
+ * letters' shapes may hold them on purpose.
+ */
+function presentationFormsScan() {
+  const candidates = [];
+  const nearMisses = [];
+  const ids = db.prepare('SELECT id FROM books ORDER BY id').all().map(r => r.id);
+  for (const id of ids) {
+    const fields = bookTextFields(id);
+    if (!fields) continue;
+    let forms = 0;
+    const damaged = [];
+    for (const name of ['title', 'author', 'description', 'content']) {
+      const share = textNormalize.presentationFormShare(fields[name]);
+      if (!share.forms) continue;
+      forms += share.forms;
+      if (share.share >= textNormalize.CANDIDATE_SHARE) damaged.push(name);
+    }
+    if (!forms) continue;
+    (damaged.length ? candidates : nearMisses).push({ id: id, title: fields.title, forms: forms, fields: damaged });
+  }
+  return { candidates: candidates, nearMisses: nearMisses };
+}
+
+/**
+ * Repair every candidate. `opts.beforeFirst()` is awaited before anything is
+ * written — main.js backs the library up there, and if that fails, nothing
+ * is. Each book is folded in its own transaction and only after its fold
+ * passes the web repair script's checks (text-normalize.js, verifyFold); a
+ * book that fails is skipped and listed with the reasons. Its search row is
+ * rebuilt with it. `opts.fold` replaces the fold (the tests use it to make a
+ * repair fail its checks).
+ *
+ * @returns {Promise<{fixed: Array, skipped: Array}>}
+ */
+async function presentationFormsFix(opts) {
+  const options = opts || {};
+  const fold = options.fold || textNormalize.foldPresentationForms;
+  const scan = presentationFormsScan();
+  const fixed = [];
+  const skipped = [];
+  if (!scan.candidates.length) return { fixed: fixed, skipped: skipped };
+  if (typeof options.beforeFirst === 'function') await options.beforeFirst(scan.candidates.length);
+
+  for (const candidate of scan.candidates) {
+    const current = bookTextFields(candidate.id);
+    if (!current) continue;
+    const next = Object.assign({}, current);
+    const problems = [];
+    for (const name of candidate.fields) {
+      next[name] = fold(current[name]);
+      for (const problem of textNormalize.verifyFold(current[name], next[name])) problems.push(name + ': ' + problem);
+    }
+    if (problems.length) {
+      skipped.push({ id: candidate.id, title: current.title, problems: problems });
+      continue;
+    }
+    try {
+      db.transaction(() => {
+        db.prepare(`UPDATE books SET title=?, author=?, description=?, updated_at=datetime('now') WHERE id=?`)
+          .run(next.title, next.author, next.description, candidate.id);
+        if (current.hasContent) {
+          db.prepare('UPDATE book_content SET content=? WHERE book_id=?').run(next.content, candidate.id);
+        }
+        if (hasFTS5) {
+          db.prepare('DELETE FROM book_fts WHERE rowid=?').run(candidate.id);
+          if (next.content) {
+            db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
+              .run(candidate.id, next.title, next.author, next.content);
+          }
+        }
+      })();
+    } catch (e) {
+      skipped.push({ id: candidate.id, title: current.title, problems: [e.message] });
+      continue;
+    }
+    contentCache.delete(candidate.id);
+    fixed.push({ id: candidate.id, title: next.title, author: next.author, description: next.description, forms: candidate.forms });
+  }
+  return { fixed: fixed, skipped: skipped };
+}
+
 // ========== SEARCH ==========
 
 /**
@@ -1961,6 +2064,8 @@ module.exports = {
   normalizeArabicQuery, isArabicScript,
   addBook, addBooksBatch, updateBook, deleteBook, getBook, getAllBooks, getBooksByCategory,
   getBookContent, saveBookContent, checkDuplicateHash,
+  // Books stored as glyph codepoints (W18, K15)
+  presentationFormsScan, presentationFormsFix,
   searchBooks, getAllSnippetsForBook,
   getCategories, getCategoryNames, addCategory, renameCategory, deleteCategory, ensureDefaultCategories,
   getBookmarks, addBookmark, deleteBookmark,

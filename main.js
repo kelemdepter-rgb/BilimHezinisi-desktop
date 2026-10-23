@@ -741,6 +741,31 @@ ipcMain.handle('backup-now', async () => {
   }
 });
 
+// «كىتابلارنى تەكشۈرۈش» (W18, K15): books stored as glyph codepoints. The scan
+// changes nothing; the repair backs the library up first — and writes
+// nothing if that fails — then folds each damaged book in its own
+// transaction, after the checks (database.js, presentationFormsFix).
+ipcMain.handle('books-forms-scan', () => {
+  try { return { success: true, ...database.presentationFormsScan() }; }
+  catch (e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle('books-forms-fix', async () => {
+  try {
+    let backupName = null;
+    const r = await database.presentationFormsFix({
+      beforeFirst: async () => {
+        backupName = 'library-before-letters-' + backup.stamp(new Date()) + '.db';
+        fs.mkdirSync(BACKUP_DIR, { recursive: true });
+        await backup.backupAtomically(database, path.join(BACKUP_DIR, backupName));
+      }
+    });
+    return { success: true, backup: backupName, fixed: r.fixed, skipped: r.skipped };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('backup-open-folder', async () => {
   try {
     fs.mkdirSync(BACKUP_DIR, { recursive: true });

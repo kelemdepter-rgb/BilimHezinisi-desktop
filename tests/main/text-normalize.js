@@ -131,4 +131,51 @@ module.exports = function (suite, assert, ctx) {
     database.close();
   });
 
+  suite.test('forms-scan-and-fix', async function () {
+    const database = await fresh(ctx, 'forms-fix');
+    // Books stored before the fold existed: written past it, as 3.4 did.
+    const Sqlite = require(path.join(ctx.root, 'node_modules', 'better-sqlite3'));
+    const clean = Number(database.addBook('ساغلام كىتاب', '', 'باشقا', 'TXT', '', '', 'ئادەتتىكى تېكىست', null));
+    const damaged = Number(database.addBook('ۋاقىتلىق', '', 'باشقا', 'DOCX', '', '', 'ۋاقىتلىق', null));
+    const stray = Number(database.addBook('بىر بەلگە', '', 'باشقا', 'TXT', '', '', 'ۋاقىتلىق', null));
+    const raw = new Sqlite(path.join(ctx.tmpDir, 'forms-fix', 'library.db'));
+    raw.prepare('UPDATE books SET title=?, author=? WHERE id=?').run(DAMAGED_UYGHUR, DAMAGED_UYGHUR, damaged);
+    raw.prepare('UPDATE book_content SET content=? WHERE book_id=?').run(DAMAGED_UYGHUR + ' ﷲ ﻻ', damaged);
+    // A book about letter shapes: one form in a long healthy text is left alone.
+    raw.prepare('UPDATE book_content SET content=? WHERE book_id=?').run('ھەرپنىڭ شەكلى: ﺏ ' + 'ساغلام تېكىست '.repeat(40), stray);
+    raw.close();
+
+    const scan = database.presentationFormsScan();
+    assert.deepEqual(scan.candidates.map(function (c) { return c.id; }), [damaged], 'the damaged book was not found, or a healthy one was: ' + JSON.stringify(scan));
+    assert.ok(scan.candidates[0].forms > 30, 'the forms were not counted');
+    assert.deepEqual(scan.nearMisses.map(function (c) { return c.id; }), [stray], 'a stray form is not listed as left alone');
+    assert.equal(database.getBook(damaged).title, DAMAGED_UYGHUR, 'the scan changed something');
+
+    let backups = 0;
+    const r = await database.presentationFormsFix({ beforeFirst: async function () { backups++; } });
+    assert.equal(backups, 1, 'nothing was backed up before the repair');
+    assert.deepEqual(r.fixed.map(function (f) { return f.id; }), [damaged], 'the damaged book was not repaired: ' + JSON.stringify(r.skipped));
+    assert.deepEqual(r.skipped, []);
+    assert.equal(database.getBook(damaged).title, 'ئۇيغۇر تىلى بىلەن يېزىلغان كىتاب دۆلەت');
+    assert.equal(database.getBookContent(damaged), 'ئۇيغۇر تىلى بىلەن يېزىلغان كىتاب دۆلەت ﷲ لا',
+      'the text was not repaired, or a religious ligature was touched');
+    assert.ok(database.searchBooks('يېزىلغان').some(function (x) { return x.book.id === damaged; }), 'the search row was not rebuilt');
+    assert.equal(database.getBookContent(clean), 'ئادەتتىكى تېكىست');
+    assert.ok(database.getBookContent(stray).indexOf('ﺏ') !== -1, 'a book below the threshold was rewritten');
+    assert.deepEqual(database.presentationFormsScan().candidates, [], 'a second scan still finds something');
+
+    // A book whose repair fails its own check is skipped, and said so.
+    const again = Number(database.addBook('ئىككىنچى', '', 'باشقا', 'DOCX', '', '', 'x', null));
+    const raw2 = new Sqlite(path.join(ctx.tmpDir, 'forms-fix', 'library.db'));
+    raw2.prepare('UPDATE book_content SET content=? WHERE book_id=?').run(DAMAGED_UYGHUR, again);
+    raw2.close();
+    const broken = function (s) { return String(s).normalize('NFKC') + 'ﺍ'; };
+    const r2 = await database.presentationFormsFix({ beforeFirst: async function () {}, fold: broken });
+    assert.deepEqual(r2.fixed, []);
+    assert.equal(r2.skipped.length, 1);
+    assert.equal(r2.skipped[0].id, again);
+    assert.ok(r2.skipped[0].problems.length > 0, 'a skipped book does not say why');
+    assert.equal(database.getBookContent(again), DAMAGED_UYGHUR, 'a book that failed its check was written');
+    database.close();
+  });
 };
