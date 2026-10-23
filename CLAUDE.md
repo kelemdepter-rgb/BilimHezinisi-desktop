@@ -38,16 +38,17 @@ offline; AI is an OPTIONAL, opt-in online layer (see Architecture).
 - A companion **mobile app** (BilimHezinisi-Mobile) shares this AI/parser logic; `_mobile-ai-reference/` is the read-only port source.
 
 ## Feature Set
-1. Book Management — single/bulk import, metadata edit, export. Formats: PDF, TXT, DOCX, DOC, HTML, Markdown, web URL.
-2. OCR — auto-detect scanned PDFs → offline Uyghur OCR; image & clipboard OCR; optional AI cleanup of recognition errors.
+1. Book Management — single/bulk import, metadata edit, export. Formats: PDF, TXT, DOCX, DOC, HTML, Markdown, web URL. Text is stored as letters, never as presentation-form glyphs; «كىتابلارنى تەكشۈرۈش» (Settings) repairs older books.
+2. OCR — auto-detect scanned PDFs → offline Uyghur OCR; image & clipboard OCR; optional AI cleanup of recognition errors (in the notebook: on the selection, undoable).
 3. Category System — hierarchical tree, drag-and-drop, tags.
-4. Search Engine — cross-book FTS5, phrase/wildcard/Boolean operators; target <3s over 500 books.
-5. Book Reader — RTL, themes, bookmarks, notes, print; plus AI panel (summarize, explain, translate, term-explain, ask).
-6. Quran Module — mushaf view, FTS over ayas, copy.
-7. Notebook — rich-text editor, format painter, find/replace, word count, DOCX export, collapsible panels; plus AI menu (translate, Uyghur proofread, chat, page Q&A).
-8. Spellcheck — morphology-aware Uyghur checker (see below).
+4. Search Engine — cross-book search for any part of a word in title, author and text (substring — the owner's decision for 3.5; the FTS5 index serves the notebook's reference scan); search history, clearable; target <3s over 500 books.
+5. Book Reader — RTL, themes, print; bookmarks (named, renamable) and in-book notes that keep their paragraph; the reading position restored to the paragraph; plus AI panel (summarize, explain, translate, term-explain, ask).
+6. Quran Module — mushaf view, FTS over ayas, copy; verse bookmarks with a sidebar list; the last verse read offered again.
+7. Notebook — rich-text editor, format painter, find/replace, block style, outline, undo/redo buttons, word count; version history, trash, a sortable/pinnable list with content search; export to Word, PDF, Markdown and text; citation links and a link card; a source search over the library and the Qur'an; collapsible panels; plus AI menu (translate, Uyghur proofread by units, chat, page Q&A).
+8. Spellcheck — morphology-aware Uyghur checker (see below); F7 step-through, a personal-dictionary panel, ignore-in-this-note.
 9. Optional Gemini AI — bring-your-own-key, content-type-aware prompts, OCR cleanup, metadata autofill; fully gated/hidden when disabled or no key.
-10. .EXE Installer — NSIS + portable.
+10. Backup and restore — weekly automatic backups, one before every schema step, restore from Settings; all in `JamiyKutupxana\backups\`.
+11. .EXE Installer — NSIS + portable.
 
 ## Language & Content
 Primary UI = Uyghur, **RTL mandatory**. Content languages: Uyghur, Arabic, English, Turkish.
@@ -113,6 +114,7 @@ Edit only in the source folder → `npm test` (the syntax gate — `node --check
 ## Roadmap / Future Direction
 - Desktop ↔ mobile feature parity from shared AI/parser logic.
 - Deepen AI usefulness for classical Uyghur/Arabic texts; add usage/quota visibility; investigate an offline/local model option to restore fully-offline AI.
-- Reliable single-step (native) undo for AI-applied text edits (proofread / OCR-cleanup).
 - More import formats (e.g. EPUB) and expanded OCR coverage.
-- Optional backup/sync for the library and notes.
+- Optional sync of the library and notes (backup and restore shipped in 3.5).
+- A ranked word search on the rebuilt FTS5 index, if the owner wants one beside the substring search.
+- Left out of 3.5 on purpose: the Electron upgrade (K14, its own release), Markdown rendering and in-book links (K16/W22), notebook page typography (W15), quote image (W19), on-screen keyboard (W21), browse by author (W23).
