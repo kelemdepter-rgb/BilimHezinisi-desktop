@@ -212,12 +212,13 @@ function createTables() {
     CREATE INDEX IF NOT EXISTS idx_note_updated ON note_documents(updated_at DESC);
   `);
 
-  // Book FTS5
+  // Book FTS5. Libraries made before 3.5 have this table declared with
+  // content_rowid='book_id' and no content table, which FTS5 cannot read
+  // back; migration step 5 rebuilds it in this shape.
   try {
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS book_fts USING fts5(
         title, author, content,
-        content_rowid='book_id',
         tokenize='unicode61'
       )
     `);
@@ -371,8 +372,88 @@ const MIGRATIONS = [
         );
       `);
     }
+  },
+  {
+    // The book search index, built right. book_fts was declared with
+    // content_rowid='book_id' and no external content table, so FTS5 read its
+    // own content through a column that does not exist: a row could not be
+    // deleted or counted, snippet() failed, and every book whose text or
+    // title changed kept its OLD words in the index. The index is derived
+    // data — it is dropped and built again, and no user data is touched (the
+    // library is backed up before the step).
+    //
+    // The step only lays the table down and leaves a marker: indexing takes
+    // about 12 s per 90 MB of text (measured), a large library a minute, and
+    // the window must not wait for that. main.js fills the index afterwards,
+    // a little at a time (ftsRebuildStep).
+    version: 5,
+    name: 'book_fts_rebuild',
+    up(db) {
+      if (!hasFTS5) return;
+      db.exec(`
+        DROP TABLE IF EXISTS book_fts;
+        CREATE VIRTUAL TABLE book_fts USING fts5(title, author, content, tokenize='unicode61');
+      `);
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(FTS_FILL_KEY, '0');
+    }
   }
 ];
+
+// ========== FILLING THE BOOK SEARCH INDEX (migration step 5) ==========
+
+/** The settings key that says the index is still being filled: books after this id. */
+const FTS_FILL_KEY = 'fts_fill_after';
+/** Characters of book text indexed per step — about a tenth of a second. */
+const FTS_FILL_CHARS = 500000;
+
+/** Is the index still waiting to be filled (after step 5, or after a close part-way)? */
+function ftsRebuildPending() {
+  return !!db.prepare('SELECT 1 FROM settings WHERE key=?').get(FTS_FILL_KEY);
+}
+
+/**
+ * Index the next books, in id order, until about `maxChars` of text — at
+ * least one book — in one transaction that also moves the marker on, so a
+ * close part-way resumes where it stopped. Each book is indexed as it is NOW
+ * (its row deleted and written again), so one changed meanwhile, already
+ * indexed by its own write, comes out right; a deleted one is simply not
+ * found.
+ *
+ * @returns {{done: boolean, indexed: number}}
+ */
+function ftsRebuildStep(maxChars) {
+  const marker = db.prepare('SELECT value FROM settings WHERE key=?').get(FTS_FILL_KEY);
+  if (!marker) return { done: true, indexed: 0 };
+  const limit = Math.max(1, maxChars || FTS_FILL_CHARS);
+  const next = db.prepare(`
+    SELECT b.id, b.title, b.author, c.content FROM books b
+    LEFT JOIN book_content c ON c.book_id = b.id
+    WHERE b.id > ? ORDER BY b.id LIMIT 1
+  `);
+  let after = Number(marker.value) || 0;
+  let indexed = 0;
+  let done = false;
+  db.transaction(() => {
+    let chars = 0;
+    while (chars < limit) {
+      const book = next.get(after);
+      if (!book) { done = true; break; }
+      if (hasFTS5) {
+        db.prepare('DELETE FROM book_fts WHERE rowid=?').run(book.id);
+        if (book.content) {
+          db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
+            .run(book.id, book.title || '', book.author || '', book.content);
+          chars += book.content.length;
+        }
+      }
+      after = book.id;
+      indexed++;
+    }
+    if (done) db.prepare('DELETE FROM settings WHERE key=?').run(FTS_FILL_KEY);
+    else db.prepare('UPDATE settings SET value=? WHERE key=?').run(String(after), FTS_FILL_KEY);
+  })();
+  return { done: done, indexed: indexed };
+}
 
 /** The last migration step applied to this library (0: none yet). */
 function schemaVersion() {
@@ -661,81 +742,21 @@ function checkDuplicateHash(hash) {
 
 // ========== SEARCH ==========
 
+/**
+ * Search the library: every book whose title, author or text holds `query`
+ * anywhere, a part of a word included («كتاب» finds «الكتاب»), without regard
+ * to case.
+ *
+ * The owner's decision (2026-10-23, Phase 7): search finds what it has always
+ * found. It used to try the full-text index first; snippet() failed on the
+ * index as it was declared, and a search that found anything fell back to
+ * this. One that found nothing in the index came back empty — so a word only
+ * in a book's changed text was never found. The index is built right now
+ * (migration step 5) and serves the notebook's reference scan (ngramFindWord);
+ * a ranked word search on it would find less, and is a decision of its own.
+ */
 function searchBooks(query, category) {
-  if (!hasFTS5) return searchBooksSimple(query, category);
-
-  const results = [];
-
-  try {
-    let ftsQuery = query;
-    if (!ftsQuery.includes('"')) {
-      ftsQuery = ftsQuery.split(/\s+/).filter(Boolean).map(w => w + '*').join(' ');
-    }
-
-    let sql = `
-      SELECT b.*, snippet(book_fts, 2, '<mark>', '</mark>', '...', 40) as snippet, rank
-      FROM book_fts
-      JOIN books b ON b.id = book_fts.rowid
-      WHERE book_fts MATCH ?
-    `;
-    const params = [ftsQuery];
-
-    if (category && category !== 'all') {
-      sql += ' AND b.category = ?';
-      params.push(category);
-    }
-    sql += ' ORDER BY rank LIMIT 200';
-
-    const rows = db.prepare(sql).all(...params);
-    const lcQuery = query.toLowerCase();
-    for (const row of rows) {
-      const book = { ...row };
-      book.desc = book.description || '';
-      // First-occurrence char offset, used by the reader to scroll directly
-      // to the match on click. Cached content reads make this cheap.
-      let pos = -1;
-      try {
-        const content = getBookContent(book.id);
-        if (content) pos = content.toLowerCase().indexOf(lcQuery);
-      } catch(e) {}
-      results.push({
-        book,
-        snip: book.snippet || '',
-        pos: pos >= 0 ? pos : null,
-        inT: (book.title || '').toLowerCase().includes(lcQuery),
-        inA: (book.author || '').toLowerCase().includes(lcQuery),
-        inC: true
-      });
-    }
-  } catch (e) {
-    return searchBooksSimple(query, category);
-  }
-
-  // Title/author matches FTS5 might miss
-  try {
-    let likeSql = 'SELECT * FROM books WHERE (title LIKE ? OR author LIKE ?)';
-    const likeParams = ['%' + query + '%', '%' + query + '%'];
-    if (category && category !== 'all') {
-      likeSql += ' AND category = ?';
-      likeParams.push(category);
-    }
-    const rows = db.prepare(likeSql).all(...likeParams);
-    const existingIds = new Set(results.map(r => r.book.id));
-    for (const row of rows) {
-      const book = rowToBook(row);
-      if (!existingIds.has(book.id)) {
-        results.push({
-          book,
-          snip: '',
-          inT: (book.title || '').toLowerCase().includes(query.toLowerCase()),
-          inA: (book.author || '').toLowerCase().includes(query.toLowerCase()),
-          inC: false
-        });
-      }
-    }
-  } catch (e) { /* ignore */ }
-
-  return results;
+  return searchBooksSimple(query, category);
 }
 
 function searchBooksSimple(query, category) {
@@ -1936,6 +1957,7 @@ module.exports = {
   initDB, saveDB, vacuum, close,
   // Schema migrations and backup
   MIGRATIONS, schemaVersion, runMigrations, backupTo, checkpoint,
+  ftsRebuildPending, ftsRebuildStep,
   normalizeArabicQuery, isArabicScript,
   addBook, addBooksBatch, updateBook, deleteBook, getBook, getAllBooks, getBooksByCategory,
   getBookContent, saveBookContent, checkDuplicateHash,

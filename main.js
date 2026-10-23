@@ -305,10 +305,37 @@ function askRendererToFlush(win) {
   });
 }
 
+// After migration step 5 the book search index is filled a little at a time,
+// once the window is up (database.js, ftsRebuildStep): a large library takes
+// a minute to index, and the window must not wait. Search does not need the
+// index; the notebook's reference scan sees more of it as it fills. A close
+// part-way resumes at the next start.
+function fillSearchIndex() {
+  try { if (!database.ftsRebuildPending()) return; } catch (e) { return; }
+  const started = Date.now();
+  let books = 0;
+  const tick = () => {
+    try {
+      const r = database.ftsRebuildStep();
+      books += r.indexed;
+      if (r.done) {
+        console.log('[search-index] filled: ' + books + ' books in ' + (Date.now() - started) + ' ms');
+        return;
+      }
+    } catch (e) {
+      console.error('[search-index] stopped, it resumes at the next start:', e.message);
+      return;
+    }
+    setTimeout(tick, 25);
+  };
+  setTimeout(tick, 1500);
+}
+
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   await initDatabase();
   createWindow();
+  fillSearchIndex();
   // The weekly automatic backup — in the background, a few seconds after the
   // window is up, so it never delays startup.
   setTimeout(() => {
