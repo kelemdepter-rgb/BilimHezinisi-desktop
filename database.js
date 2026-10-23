@@ -5,6 +5,17 @@
  */
 const path = require('path');
 const fs = require('fs');
+const textNormalize = require('./text-normalize');
+
+/**
+ * Text as the library stores it: letters, never glyph codepoints (W18, K15).
+ * Every write of a book's title, author, description or text goes through
+ * this, whichever way it came in — import, edit, the renderer's whole-library
+ * save, the reader's page fix.
+ */
+function letters(value) {
+  return textNormalize.normalizeImportedText(value);
+}
 
 let db = null;
 let hasFTS5 = false;
@@ -277,6 +288,9 @@ function close() {
     }
     db = null;
   }
+  // Cached text belongs to the library it was read from (a restore, or the
+  // tests, open another one).
+  contentCache.clear();
 }
 
 // ========== SCHEMA MIGRATIONS ==========
@@ -420,6 +434,10 @@ function checkpoint() {
 // ========== BOOKS ==========
 
 function addBook(title, author, category, format, date, description, content, fileHash) {
+  title = letters(title);
+  author = letters(author);
+  description = letters(description);
+  content = letters(content);
   const stmt = db.prepare(`
     INSERT INTO books (title, author, category, format, date, description, file_hash)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -487,7 +505,9 @@ function addBooksBatch(books) {
 
   const tx = db.transaction(() => {
     for (const b of books) {
-      const title = String(b.title || '').trim();
+      const title = letters(String(b.title || '').trim());
+      const author = letters(b.author);
+      const content = letters(b.content);
       if (!title) {
         skipped.push({ title: b.title || '(empty)', reason: 'empty_title' });
         continue;
@@ -506,20 +526,20 @@ function addBooksBatch(books) {
       try {
         const info = insertBook.run(
           title,
-          b.author || '',
+          author,
           b.category || '',
           b.format || 'TXT',
           date,
-          b.description || '',
+          letters(b.description),
           fileHash
         );
         const bookId = info.lastInsertRowid;
 
-        if (b.content) {
-          insertContent.run(bookId, b.content);
+        if (content) {
+          insertContent.run(bookId, content);
           if (insertFts) {
             try {
-              insertFts.run(bookId, title, b.author || '', b.content);
+              insertFts.run(bookId, title, author, content);
             } catch (e) { /* skip FTS insert error per book */ }
           }
         }
@@ -536,6 +556,9 @@ function addBooksBatch(books) {
 }
 
 function updateBook(id, title, author, category, description) {
+  title = letters(title);
+  author = letters(author);
+  description = letters(description);
   db.prepare(`
     UPDATE books SET title=?, author=?, category=?, description=?, updated_at=datetime('now')
     WHERE id=?
@@ -613,6 +636,7 @@ function getBookContent(bookId) {
 }
 
 function saveBookContent(bookId, content) {
+  content = letters(content);
   contentCache.delete(bookId);
   db.prepare('INSERT OR REPLACE INTO book_content (book_id, content) VALUES (?, ?)')
     .run(bookId, content);
@@ -1714,6 +1738,11 @@ function migrateFromJSON(jsonData, contentDir) {
 // ========== UPSERT / SYNC (frontend compatibility) ==========
 
 function upsertBook(id, title, author, category, format, date, description) {
+  // The renderer sends the title it holds, which may be the one it imported
+  // before the fold existed: it is stored as letters all the same.
+  title = letters(title);
+  author = letters(author);
+  description = letters(description);
   const existing = getBook(id);
   if (existing) {
     db.prepare(`

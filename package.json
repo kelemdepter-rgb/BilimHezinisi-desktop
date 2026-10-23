@@ -81,6 +81,7 @@
       "navigation.js",
       "note-export.js",
       "ocr-postprocess.js",
+      "text-normalize.js",
       "src/**/*",
       "assets/ukijekran.ttf",
       "assets/icon.*",
