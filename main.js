@@ -1353,6 +1353,19 @@ ipcMain.handle('quran-search', (e, query, opts) => {
   try { return { success: true, results: database.quranSearch(query, opts) }; }
   catch(err) { return { success: false, results: [], error: err.message }; }
 });
+// Bookmarked verses (W17). database.js checks that a verse can exist.
+ipcMain.handle('quran-bookmarks', () => {
+  try { return { success: true, bookmarks: database.quranBookmarkList() }; }
+  catch(err) { return { success: false, bookmarks: [], error: err.message }; }
+});
+ipcMain.handle('quran-bookmark-add', (e, sura, aya) => {
+  try { return { success: true, ...database.quranBookmarkAdd(sura, aya) }; }
+  catch(err) { return { success: false, ok: false, error: err.message }; }
+});
+ipcMain.handle('quran-bookmark-remove', (e, sura, aya) => {
+  try { return { success: true, ...database.quranBookmarkRemove(sura, aya) }; }
+  catch(err) { return { success: false, ok: false, error: err.message }; }
+});
 ipcMain.handle('quran-lookup-sura', (e, input) => {
   try { return { success: true, sura: database.quranLookupSura(input) }; }
   catch(err) { return { success: false, sura: null, error: err.message }; }

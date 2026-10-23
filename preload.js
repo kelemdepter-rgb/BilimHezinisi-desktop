@@ -82,6 +82,9 @@ contextBridge.exposeInMainWorld('electron', {
   quranGetAyas: (n) => ipcRenderer.invoke('quran-get-ayas', n),
   quranGetAya: (sura, aya) => ipcRenderer.invoke('quran-get-aya', sura, aya),
   quranSearch: (q, opts) => ipcRenderer.invoke('quran-search', q, opts),
+  quranBookmarks: () => ipcRenderer.invoke('quran-bookmarks'),
+  quranBookmarkAdd: (sura, aya) => ipcRenderer.invoke('quran-bookmark-add', sura, aya),
+  quranBookmarkRemove: (sura, aya) => ipcRenderer.invoke('quran-bookmark-remove', sura, aya),
   quranLookupSura: (input) => ipcRenderer.invoke('quran-lookup-sura', input),
   // Notes API (new documents module)
   notesGetAll: () => ipcRenderer.invoke('notes-get-all'),

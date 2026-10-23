@@ -340,6 +340,23 @@ const MIGRATIONS = [
         ALTER TABLE reading_progress ADD COLUMN char_offset INTEGER;
       `);
     }
+  },
+  {
+    // W17 — bookmarks in the Qur'an: one per verse.
+    version: 4,
+    name: 'quran_bookmarks',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS quran_bookmarks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sura INTEGER NOT NULL,
+          aya INTEGER NOT NULL,
+          note TEXT DEFAULT '',
+          created_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(sura, aya)
+        );
+      `);
+    }
   }
 ];
 
@@ -841,6 +858,35 @@ function quranGetAya(sura, aya) {
     SELECT id, sura, aya, text_ar, text_ar_simple, text_ug
     FROM quran_ayas WHERE sura=? AND aya=?
   `).get(sura, aya) || null;
+}
+
+// ========== QURAN BOOKMARKS (W17) ==========
+
+/** The longest sura has 286 verses; a seeded library knows each sura's own count. */
+const LONGEST_SURA = 286;
+
+/** Is (sura, aya) a verse that can exist? */
+function isVerse(sura, aya) {
+  if (!Number.isInteger(sura) || !Number.isInteger(aya) || sura < 1 || sura > 114 || aya < 1) return false;
+  const row = db.prepare('SELECT aya_count FROM quran_suras WHERE number=?').get(sura);
+  return aya <= (row && row.aya_count ? row.aya_count : LONGEST_SURA);
+}
+
+/** Every bookmarked verse, in the order of the mushaf. */
+function quranBookmarkList() {
+  return db.prepare('SELECT id, sura, aya, note, created_at FROM quran_bookmarks ORDER BY sura, aya').all();
+}
+
+function quranBookmarkAdd(sura, aya) {
+  if (!isVerse(sura, aya)) return { ok: false };
+  const info = db.prepare('INSERT OR IGNORE INTO quran_bookmarks (sura, aya) VALUES (?, ?)').run(sura, aya);
+  return { ok: true, added: info.changes > 0 };
+}
+
+function quranBookmarkRemove(sura, aya) {
+  if (!isVerse(sura, aya)) return { ok: false };
+  const info = db.prepare('DELETE FROM quran_bookmarks WHERE sura=? AND aya=?').run(sura, aya);
+  return { ok: true, removed: info.changes > 0 };
 }
 
 /**
@@ -1875,6 +1921,7 @@ module.exports = {
   getRecentForFrontend, getMaxBookId, getBookCount,
   // Quran
   quranSuraExists, quranSeedBulk, quranGetSuras, quranGetAyas, quranGetAya, quranSearch, quranLookupSura,
+  quranBookmarkList, quranBookmarkAdd, quranBookmarkRemove,
   migrationStripBasmalaAyah1,
   // Notes (documents)
   notesGetAll, notesGet, notesCreate, notesUpdate, notesDelete,

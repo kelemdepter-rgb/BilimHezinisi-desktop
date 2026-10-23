@@ -22,6 +22,123 @@
     return false;
   }
 
+  // ========== BOOKMARKS AND THE LAST VERSE READ (W17) ==========
+  // Bookmarked verses live in quran_bookmarks (database.js), one per verse.
+  // They are loaded once and kept here as keys «sura:aya», so the sidebar,
+  // the verse marks and the menu all answer from the same set.
+
+  function bmKey(sura, aya) { return sura + ':' + aya; }
+
+  async function ensureBookmarksLoaded() {
+    if (_s().bookmarks) return;
+    let r = null;
+    try { r = await window.electron.quranBookmarks(); } catch (e) { r = null; }
+    _s().bookmarks = (r && r.success && Array.isArray(r.bookmarks)) ? r.bookmarks : [];
+  }
+
+  function isBookmarked(sura, aya) {
+    return (_s().bookmarks || []).some(b => b.sura === sura && b.aya === aya);
+  }
+
+  function markVerse(sura, aya, on) {
+    const el = document.querySelector(`.quran-aya[data-sura="${sura}"][data-aya="${aya}"]`);
+    if (!el) return;
+    el.classList.toggle('bookmarked', on);
+    const mark = el.querySelector('.quran-aya-bm');
+    if (on && !mark) el.insertAdjacentHTML('afterbegin', bmMarkHtml());
+    if (!on && mark) mark.remove();
+  }
+
+  function bmMarkHtml() {
+    return `<span class="quran-aya-bm" title="خەتكۈچ">${icon('bookmark')}</span>`;
+  }
+
+  async function setBookmark(sura, aya, on) {
+    let r = null;
+    try {
+      r = on ? await window.electron.quranBookmarkAdd(sura, aya) : await window.electron.quranBookmarkRemove(sura, aya);
+    } catch (e) { r = null; }
+    if (!r || !r.success || !r.ok) { toast('خەتكۈچ ساقلانمىدى', 'e'); return false; }
+    _s().bookmarks = null;
+    await ensureBookmarksLoaded();
+    markVerse(sura, aya, on);
+    if (window.S.mode === 'quran' && typeof renderSide === 'function') renderSide();
+    return true;
+  }
+
+  window.quranToggleBookmark = async function(sura, aya, ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    document.querySelectorAll('.quran-aya-menu').forEach(el => el.remove());
+    await ensureBookmarksLoaded();
+    const on = !isBookmarked(sura, aya);
+    if (await setBookmark(sura, aya, on)) toast(on ? 'خەتكۈچ قوشۇلدى' : 'خەتكۈچ ئېلىۋېتىلدى', on ? 's' : 'i');
+  };
+
+  // From the sidebar: taken away at once, and «قايتۇرۇش» puts it back.
+  window.quranRemoveBookmark = async function(sura, aya, ev) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    if (!(await setBookmark(sura, aya, false))) return;
+    toast('خەتكۈچ ئېلىۋېتىلدى', 'i', { action: { label: 'قايتۇرۇش', run: () => setBookmark(sura, aya, true) }, ms: 8000 });
+  };
+
+  // The last verse read: the one at the top of the page once scrolling
+  // stops, a verse clicked, a verse gone to. Offered once, when the Qur'an
+  // first opens in a session at its default page.
+  let rememberTimer = null;
+  function rememberVerse(sura, aya) {
+    if (!Number.isInteger(sura) || !Number.isInteger(aya)) return;
+    _s().lastRead = { sura: sura, aya: aya };
+    clearTimeout(rememberTimer);
+    rememberTimer = setTimeout(() => {
+      try {
+        const p = window.electron.dbSetSetting('quran_last_aya', sura + ':' + aya);
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch (e) { /* only a convenience */ }
+    }, 600);
+  }
+
+  async function storedLastVerse() {
+    try {
+      const r = await window.electron.dbGetSetting('quran_last_aya', '');
+      const value = (r && typeof r === 'object' && 'value' in r) ? r.value : r;
+      const m = /^(\d{1,3}):(\d{1,3})$/.exec(String(value || ''));
+      return m ? { sura: Number(m[1]), aya: Number(m[2]) } : null;
+    } catch (e) { return null; }
+  }
+
+  // A verse gone to is scrolled to the middle of the page: that scroll is the
+  // app's, not the reader's, and the verse gone to stays the one remembered.
+  let scrollTimer = null;
+  let ownScrollUntil = 0;
+  function onContentScroll() {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      if (Date.now() < ownScrollUntil) return;
+      if (_s().searchResults || window.S.mode !== 'quran') return;
+      const box = document.getElementById('quran-content');
+      if (!box) return;
+      const top = box.getBoundingClientRect().top + 4;
+      const first = Array.from(box.querySelectorAll('.quran-aya')).find(el => el.getBoundingClientRect().bottom > top);
+      if (first) rememberVerse(Number(first.dataset.sura), Number(first.dataset.aya));
+    }, 1000);
+  }
+
+  function renderBookmarkSection() {
+    const list = _s().bookmarks || [];
+    if (!list.length) return '';
+    let h = `<div class="quran-bm-section"><div class="quran-bm-head">${icon('bookmark')} خەتكۈچلەر</div>`;
+    for (const b of list) {
+      const sura = _s().suras.find(s => s.number === b.sura);
+      h += `<div class="quran-bm-item" onclick="window.quranOpenAya(${b.sura}, ${b.aya})">
+        <span class="quran-bm-where">${escHtml(sura ? sura.name_ug : String(b.sura))} — ${b.aya}-ئايەت</span>
+        <span class="quran-bm-ref">${b.sura}:${b.aya}</span>
+        <button type="button" class="quran-bm-del" title="خەتكۈچنى ئېلىۋېتىش" aria-label="خەتكۈچنى ئېلىۋېتىش"
+          onclick="window.quranRemoveBookmark(${b.sura}, ${b.aya}, event)">${icon('x', 'ic-sm')}</button>
+      </div>`;
+    }
+    return h + '</div>';
+  }
+
   // ========== SIDEBAR ==========
 
   window.renderQuranSidebar = function renderQuranSidebar() {
@@ -34,6 +151,12 @@
       return `<div class="quran-sidebar-inner"><div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">يۈكلىنىۋاتىدۇ...</div></div>`;
     }
 
+    if (!_s().bookmarks) {
+      ensureBookmarksLoaded().then(() => {
+        if (window.S.mode === 'quran' && typeof renderSide === 'function') renderSide();
+      });
+    }
+
     const filter = (_s().sidebarFilter || '').trim();
     const filtered = filterSuras(_s().suras, filter);
 
@@ -43,6 +166,7 @@
           placeholder="سۈرە ئىزدەش..."
           oninput="window.quranOnSidebarFilterInput(this.value)">
       </div>
+      ${renderBookmarkSection()}
       <div class="quran-sura-list">`;
 
     for (const s of filtered) {
@@ -118,10 +242,33 @@
       </div>
     </div>`;
 
+    const content = document.getElementById('quran-content');
+    if (content) content.addEventListener('scroll', onContentScroll, { passive: true });
+
+    // The first time the Qur'an opens in a session, at its default page,
+    // the last verse read is offered — and that first page is not taken
+    // for the reader's place.
+    let offer = null;
+    const firstOpen = !_s().lastOffered;
+    if (firstOpen) {
+      _s().lastOffered = true;
+      const atDefault = !_s().searchResults && (_s().curSura || 1) === 1 && (_s().curAya || 1) === 1;
+      const last = atDefault ? await storedLastVerse() : null;
+      if (last && !(last.sura === 1 && last.aya === 1) && _s().suras.some(s => s.number === last.sura)) offer = last;
+    }
+
     if (_s().searchResults) {
       renderSearchResults();
     } else {
-      await renderSura(_s().curSura || 1);
+      await renderSura(_s().curSura || 1, { remember: !firstOpen });
+    }
+
+    if (offer) {
+      const sura = _s().suras.find(s => s.number === offer.sura);
+      toast('ئالدىنقى قېتىم: ' + (sura ? sura.name_ug : offer.sura) + ' — ' + offer.aya + '-ئايەت', 'i', {
+        action: { label: 'شۇ يەرگە بېرىش', run: () => window.quranOpenAya(offer.sura, offer.aya) },
+        ms: 12000
+      });
     }
   };
 
@@ -165,9 +312,10 @@
     </div>`;
   }
 
-  async function renderSura(suraNumber) {
+  async function renderSura(suraNumber, opts) {
     const container = document.getElementById('quran-content-inner');
     if (!container) return;
+    await ensureBookmarksLoaded();
 
     const r = await window.electron.quranGetAyas(suraNumber);
     if (!r.success || !r.ayas.length) {
@@ -192,8 +340,9 @@
 
     for (const a of r.ayas) {
       const numDisplay = toArabicNumerals(a.aya);
-      h += `<div class="quran-aya" data-sura="${a.sura}" data-aya="${a.aya}"
-        onclick="window.quranOnAyaClick(event, ${a.sura}, ${a.aya})">
+      const marked = isBookmarked(a.sura, a.aya);
+      h += `<div class="quran-aya${marked ? ' bookmarked' : ''}" data-sura="${a.sura}" data-aya="${a.aya}"
+        onclick="window.quranOnAyaClick(event, ${a.sura}, ${a.aya})">${marked ? bmMarkHtml() : ''}
         <div class="quran-aya-ar">${escHtml(a.text_ar)}<span class="quran-aya-num">${numDisplay}</span></div>
         ${a.text_ug ? `<div class="quran-aya-ug"><span class="quran-aya-ug-prefix">تەرجىمە</span>${escHtml(a.text_ug)}</div>` : ''}
       </div>`;
@@ -210,7 +359,9 @@
     container.innerHTML = h;
 
     const targetAya = _s().curAya || 1;
+    if (!opts || opts.remember !== false) rememberVerse(suraNumber, targetAya);
     if (targetAya > 1) {
+      ownScrollUntil = Date.now() + 2000;
       setTimeout(() => {
         const el = container.querySelector(`.quran-aya[data-aya="${targetAya}"]`);
         if (el) {
@@ -392,6 +543,7 @@
     document.querySelectorAll('.quran-aya.selected').forEach(el => el.classList.remove('selected'));
     target.classList.add('selected');
     _s().curAya = aya;
+    rememberVerse(sura, aya);
 
     if (typeof window.quranShowAyaMenu === 'function') {
       window.quranShowAyaMenu(target, sura, aya);
@@ -422,9 +574,11 @@
 
     const menu = document.createElement('div');
     menu.className = 'quran-aya-menu';
+    const marked = isBookmarked(sura, aya);
     menu.innerHTML = `
       <button onclick="window.quranMenuCopy(${sura}, ${aya}, false, event)">${icon('copy')}يالغۇز ئايەتنى كۆچۈرۈش</button>
       <button onclick="window.quranMenuCopy(${sura}, ${aya}, true, event)">${icon('copy')}تەرجىمىسى بىلەن كۆچۈرۈش</button>
+      <button onclick="window.quranToggleBookmark(${sura}, ${aya}, event)">${icon('bookmark')}${marked ? 'خەتكۈچنى ئېلىۋېتىش' : 'خەتكۈچ قوشۇش'}</button>
     `;
 
     // Append first so we can measure its real size
