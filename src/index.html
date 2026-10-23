@@ -3295,7 +3295,7 @@ function raiMdToHtml(text) { return aiMdToHtml(text); }
 const NAI = {
   streamHandle: null, lastReq: null, mode: null, answerText: '',
   scopeWasSelection: false, selText: '', selRange: null,
-  lastSel: null, proofreadBlocks: null, proofreadMap: null, pageNoteText: ''
+  lastSel: null, proofread: null, pageNoteText: ''
 };
 
 async function naiAvailable() {
@@ -3507,16 +3507,14 @@ function naiReplaceSelection() {
 }
 
 // --- (2) Punctuation & spelling correction (segmented ⟦N⟧) -------------------
-function naiCollectBlocks(ed) {
-  const selector = 'p, div, h1, h2, h3, h4, h5, h6, li, blockquote';
-  const blocks = Array.from(ed.querySelectorAll(selector)).filter(el => {
-    const txt = (el.textContent || '').trim();
-    if (!txt) return false;
-    return !el.querySelector(selector);   // leaf text blocks only (avoid nesting double-count)
-  });
-  if (!blocks.length && (ed.textContent || '').trim()) return [ed];
-  return blocks;
-}
+// By units (W13, K9). src/note-units.js reads the note into the lines the
+// writer sees, never sends quoted material (verses, quoted passages,
+// citations, links), and writes back only what changed — each change
+// through an editing command, so the formatting around it survives and
+// Ctrl+Z takes it back. The preview lists every change with a box to untick;
+// one that would run across formatting says so. «يېنىۋېلىش» puts the whole
+// note back. (This used to rebuild the note as one <div> per line, after a
+// confirm() warning that it would.)
 function naiParseSegments(text) {
   const map = {};
   const re = /⟦(\d+)⟧/g; let m; const marks = [];
@@ -3554,50 +3552,44 @@ function naiSetEditorBlocks(ed, arr) {
   // re-reads the counts, the spelling and the references.
   window.notesPutDocument(html || '<div><br></div>');
 }
+function naiCurrentNoteId() { return (S.notes && S.notes.curDoc) ? S.notes.curDoc.id : null; }
+// A message in the AI tab, as text.
+function naiMessage(text) {
+  const r = document.getElementById('nai-result'); if (!r) return;
+  r.style.whiteSpace = ''; r.innerHTML = '';
+  const p = document.createElement('p'); p.className = 'nai-msg'; p.textContent = text;
+  r.appendChild(p);
+}
 function naiProofread() {
   naiGate(() => {
-    const ed = naiEditor(); if (!ed) return;
-    // Work on VISUAL lines (one numbered segment per non-blank line) so that
-    // every paragraph and line break survives the round-trip.
-    const lines = naiEditorLines(ed);
-    const segByLine = {}; const segs = []; let count = 0;
-    lines.forEach(function (ln, idx) {
-      if (ln.trim()) {
-        count++; segByLine[idx] = count;
-        segs.push({ num: count, text: ln.replace(/[ \t ]+/g, ' ').trim() });
-      }
-    });
-    if (!count) { naiOpenPanel('ئىملا تۈزىتىش'); naiStatus('تۈزىتىدىغان تېكىست يوق.'); return; }
-    if (!confirm('تۈزىتىشتە ئابزاس ئىچىدىكى ئىنچىكە فورماتلار ئاددىيلىشىدۇ، ئەمما قۇر ۋە ئابزاس بۆلىنىشى ساقلىنىدۇ. داۋاملاشتۇرامسىز؟')) return;
-    NAI.proofreadLines = lines;
-    NAI.proofreadSegByLine = segByLine;
-    NAI.proofreadCount = count;
+    const ed = naiEditor(); const NU = window.NoteUnits;
+    if (!ed || !NU) return;
+    if (!ed.isContentEditable) { toast('بۇ خاتىرە ئەخلەت ساندۇقىدا — پەقەت ئوقۇشقا بولىدۇ.', 'e'); return; }
+    const collected = NU.collect(ed);
+    naiAbort();
+    naiOpenPanel('ئىملا تۈزىتىش'); naiActions(); naiExtra(null); naiChatbar(false); naiResult('');
+    if (!collected.lines.length) {
+      naiStatus(collected.quoted
+        ? 'بۇ خاتىرىدە نەقىل، ئايەت ۋە ئۇلىنىشتىن باشقا تۈزىتىدىغان تېكىست يوق.'
+        : 'تۈزىتىدىغان تېكىست يوق.');
+      return;
+    }
     NAI.mode = 'proofread';
     NAI.lastReq = () => naiProofread();
+    NAI.proofread = { collected: collected, noteId: naiCurrentNoteId(), changes: null };
 
     // Long notes go out in BATCHES (≈6000 chars of segments per request) so
     // every reply fits the model's output budget — one giant request used to
     // truncate mid-text, losing the tail and breaking the ⟦N⟧ format.
-    const batches = []; let cur = []; let curLen = 0;
-    segs.forEach(function (s) {
-      const len = s.text.length + 8;
-      if (cur.length && curLen + len > 6000) { batches.push(cur); cur = []; curLen = 0; }
-      cur.push(s); curLen += len;
-    });
-    if (cur.length) batches.push(cur);
-
-    naiAbort();
-    naiOpenPanel('ئىملا تۈزىتىش'); naiActions(); naiExtra(null); naiChatbar(false);
-    naiResult('');
+    const batches = NU.buildBatches(collected.lines.map(l => ({ num: l.num, text: l.text })));
     let cancelled = false; let inner = null;
     NAI.streamHandle = { abort: function () { cancelled = true; if (inner) { try { inner.abort(); } catch (e) {} inner = null; } } };
 
-    const mergedMap = {};
+    const corrected = new Map();
     let shownPrev = '';   // accumulated raw replies of finished batches
     const show = function (liveBuf) {
       const r = document.getElementById('nai-result'); if (!r) return;
-      // Live view: every ⟦N⟧ marker starts its line — the user sees the SAME
-      // line structure the final text will have (pre-wrap keeps the breaks).
+      // Live view: every ⟦N⟧ marker starts its line.
       const txt = (shownPrev + liveBuf).replace(/[ \t]*⟦\d+⟧[ \t]*/g, '\n').replace(/^\n+/, '');
       r.style.whiteSpace = 'pre-wrap';
       r.textContent = txt;
@@ -3606,35 +3598,32 @@ function naiProofread() {
     const runBatch = function (bi) {
       if (cancelled) return;
       const batch = batches[bi];
-      const segmented = batch.map(function (s) { return '⟦' + s.num + '⟧ ' + s.text; }).join('\n');
       naiBusy(() => { naiAbort(); naiStatus('توختىتىلدى'); });
       if (batches.length > 1) {
         const st = document.getElementById('nai-status');
         if (st && st.firstChild) st.firstChild.textContent = 'جاۋاب يېزىلىۋاتىدۇ… (' + (bi + 1) + '/' + batches.length + ')';
       }
       let buffer = '';
-      inner = window.AI.askStream({ type: 'uy_proofread', context: segmented },
+      inner = window.AI.askStream({ type: 'uy_proofread', context: NU.formatBatch(batch) },
         (delta) => { if (cancelled) return; buffer += delta; show(buffer); },
         (full, model) => {
           inner = null;
           if (cancelled) return;
-          const map = naiParseSegments(full);
-          // Every segment of THIS batch must come back — never apply partially.
-          let ok = true;
-          for (let i = 0; i < batch.length && ok; i++) if (typeof map[batch[i].num] !== 'string') ok = false;
-          if (!ok) {
+          // The same segments, in the same order — or nothing is applied.
+          const checked = NU.checkBatch(batch, full);
+          if (!checked.ok) {
             NAI.streamHandle = null;
             naiStatus('');
-            naiResult('<p style="color:var(--text2);font-size:12px">جاۋاب فورماتى خاتا — قايتا سىناڭ</p>');
+            naiMessage(NU.malformedMessage(checked.reason));
             const a = naiActions(); if (a) { a.style.display = 'flex'; a.appendChild(naiBtn('قايتا سىناش', () => naiProofread())); }
             return;
           }
-          batch.forEach(function (s) { mergedMap[s.num] = map[s.num]; });
+          checked.segments.forEach(function (s) { corrected.set(s.num, s.text); });
           shownPrev = (shownPrev + full).replace(/\s+$/, '') + '\n';
           if (bi + 1 < batches.length) { runBatch(bi + 1); return; }
           NAI.streamHandle = null;
           naiStatus(model ? ('مودېل: ' + model) : '');
-          naiProofreadFinish(mergedMap);
+          naiProofreadFinish(corrected);
         },
         (res) => { inner = null; NAI.streamHandle = null; naiStatus(''); naiRenderError(res); },
         // Restarted on another key: drop this batch's partial text.
@@ -3644,38 +3633,93 @@ function naiProofread() {
     runBatch(0);
   });
 }
-function naiProofreadFinish(map) {
-  const lines = NAI.proofreadLines || [];
-  const segByLine = NAI.proofreadSegByLine || {};
-  NAI.proofreadMap = map;
-  // Preview mirrors the FINAL layout exactly: corrected text line-by-line,
-  // blank lines kept — the user can verify every break survives before apply.
-  const previewText = lines.map(function (ln, idx) {
-    const seg = segByLine[idx];
-    return (seg != null && typeof map[seg] === 'string') ? map[seg] : ln;
-  }).join('\n');
-  naiResult('<div style="font-size:11px;color:var(--text3);margin-bottom:6px">تۈزىتىلگەن نۇسخا (كۆرۈنۈش):</div>'
-    + '<div style="white-space:pre-wrap">' + sanitize(previewText) + '</div>');
-  const a = naiActions(); if (a) {
-    a.style.display = 'flex';
-    a.appendChild(naiBtn('قوللىنىش', naiProofreadApply));
-    a.appendChild(naiBtn('ۋاز كېچىش', naiClose));
+// One line of the preview: the part that changes marked as <del> or <ins>.
+function naiDiffLine(text, p, s, tag) {
+  const div = document.createElement('div'); div.className = 'nai-diff-' + tag;
+  div.appendChild(document.createTextNode(text.slice(0, p)));
+  const mid = document.createElement(tag); mid.textContent = text.slice(p, text.length - s);
+  div.appendChild(mid);
+  div.appendChild(document.createTextNode(text.slice(text.length - s)));
+  return div;
+}
+// Only what would change, each with a box to untick — a list of four changes
+// is something a writer reads; two hundred unchanged lines they accept blind.
+function naiProofreadFinish(corrected) {
+  const st = NAI.proofread; if (!st) return;
+  const changes = window.NoteUnits.planChanges(st.collected, corrected);
+  st.changes = changes;
+  const r = document.getElementById('nai-result'); if (!r) return;
+  r.style.whiteSpace = ''; r.innerHTML = '';
+  const head = document.createElement('div'); head.className = 'nai-proof-head';
+  head.textContent = changes.length ? (changes.length + ' يەردە تۈزىتىش بار — قوللىنىدىغانلىرىنى تاللاڭ:') : 'خاتالىق تېپىلمىدى. خاتىرە ئۆزگەرتىلمىدى.';
+  r.appendChild(head);
+  if (st.collected.quoted) {
+    const q = document.createElement('div'); q.className = 'nai-proof-note';
+    q.textContent = 'نەقىل، ئايەت ۋە ئۇلىنىشلار ئەۋەتىلمىدى (' + st.collected.quoted + ').';
+    r.appendChild(q);
   }
+  changes.forEach(function (ch, i) {
+    const row = document.createElement('label'); row.className = 'nai-change';
+    const box = document.createElement('input'); box.type = 'checkbox'; box.checked = true; box.dataset.index = String(i);
+    const body = document.createElement('div'); body.className = 'nai-change-body';
+    body.appendChild(naiDiffLine(ch.before, ch.p, ch.s, 'del'));
+    body.appendChild(naiDiffLine(ch.after, ch.p, ch.s, 'ins'));
+    if (ch.flattens) {
+      const w = document.createElement('div'); w.className = 'nai-change-warn';
+      w.textContent = 'بۇ ئابزاستىكى فورمات ئاددىيلىشىدۇ';
+      body.appendChild(w);
+    }
+    row.appendChild(box); row.appendChild(body);
+    r.appendChild(row);
+  });
+  const a = naiActions(); if (!a) return;
+  a.style.display = 'flex';
+  if (changes.length) a.appendChild(naiBtn('قوللىنىش', naiProofreadApply));
+  a.appendChild(naiBtn(changes.length ? 'ۋاز كېچىش' : 'تاقاش', naiClose));
 }
 function naiProofreadApply() {
-  const ed = naiEditor();
-  const lines = NAI.proofreadLines, segByLine = NAI.proofreadSegByLine || {}, map = NAI.proofreadMap || {};
-  if (!ed || !lines) return;
-  // Rebuild the editor line-by-line: corrected text for each numbered line,
-  // blank lines kept blank — paragraph / line breaks are preserved.
-  const out = lines.map(function (ln, idx) {
-    const seg = segByLine[idx];
-    return (seg != null && typeof map[seg] === 'string') ? map[seg] : ln;
+  const ed = naiEditor(); const st = NAI.proofread;
+  if (!ed || !st || !st.changes) return;
+  if (naiCurrentNoteId() !== st.noteId) {
+    toast('باشقا خاتىرە ئېچىلغان — تۈزىتىش قوللىنىلمىدى', 'e');
+    NAI.proofread = null; naiClose(); return;
+  }
+  const r = document.getElementById('nai-result');
+  const picked = st.changes.filter(function (ch, i) {
+    const box = r && r.querySelector('input[data-index="' + i + '"]');
+    return !box || box.checked;
   });
-  naiSetEditorBlocks(ed, out);
+  if (!picked.length) { toast('ھېچقانداق تۈزىتىش تاللانمىدى', 'i'); return; }
+  // The note as it is, first: «AI تۈزىتىشتىن بۇرۇن» in «نەشر تارىخى», and «يېنىۋېلىش».
+  if (!window.notesBeforeAi || !window.notesBeforeAi()) return;
+  const res = window.NoteUnits.applyChanges(ed, picked);
+  NAI.proofread = null;
   naiMarkDirty();
-  toast('تۈزىتىش قوللىنىلدى', 's');
-  naiClose();
+  if (!res.applied) {
+    naiMessage('ھېچقانداق تۈزىتىش قوللىنىلمىدى — بۇ قۇرلار ئارىدا ئۆزگەرتىلگەن.');
+    const a = naiActions(); if (a) { a.style.display = 'flex'; a.appendChild(naiBtn('قايتا تەكشۈرۈش', () => naiProofread())); }
+    return;
+  }
+  naiAfterAiApply(res.applied + ' تۈزىتىش قوللىنىلدى' + (res.skipped ? '؛ ئارىدا ئۆزگەرتىلگەن ' + res.skipped + ' قۇرغا تېگىلمىدى' : '') + '.');
+}
+// After an AI change: say what was done and offer «يېنىۋېلىش» — the whole
+// note back as it was — in the AI tab and in the toast.
+function naiUndoAi() {
+  if (window.notesUndoAi && window.notesUndoAi()) {
+    toast('AI ئۆزگەرتىشى يېنىۋېلىندى. ئۆزگەرتىلگەن ھالىتى «نەشر تارىخى» دا ساقلاندى.', 's');
+    naiClose();
+  } else {
+    toast('يېنىۋالغىلى بولمايدۇ — «نەشر تارىخى» دىن ئەسلىگە قايتۇرۇڭ.', 'e');
+  }
+}
+function naiAfterAiApply(message) {
+  naiStatus(''); naiExtra(null); naiChatbar(false);
+  naiMessage(message);
+  toast(message, 's', { action: { label: 'يېنىۋېلىش', run: naiUndoAi }, ms: 10000 });
+  const a = naiActions(); if (!a) return;
+  a.style.display = 'flex';
+  a.appendChild(naiBtn('يېنىۋېلىش', naiUndoAi));
+  a.appendChild(naiBtn('تاقاش', naiClose));
 }
 
 // --- (3) Free chatbot --------------------------------------------------------
@@ -5332,6 +5376,7 @@ init();
 <script src="quran.js"></script>
 <!-- The notebook's export: the document model, Markdown and text (W6). -->
 <script src="notes-export.js"></script>
+<script src="note-units.js"></script>
 <script src="notes.js"></script>
 </body>
 </html>

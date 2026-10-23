@@ -3106,6 +3106,36 @@
   }
   window.notesKeepVersion = keepVersion;
 
+  // The AI tab's «يېنىۋېلىش» (W13): the note as it was right before an AI
+  // change — kept as a «AI تۈزىتىشتىن بۇرۇن» version, and held here to be
+  // put back in one click. It belongs to its note: another note never gets it.
+  let aiUndo = null;   // { noteId, html }
+
+  window.notesBeforeAi = function () {
+    const doc = _s().curDoc;
+    if (!doc || !editorEl || !editorEl.isContentEditable) return false;
+    const html = snapshotHtml();
+    keepVersion('before-ai', html);
+    aiUndo = { noteId: doc.id, html: html };
+    return true;
+  };
+
+  window.notesCanUndoAi = function () {
+    const doc = _s().curDoc;
+    return !!(aiUndo && doc && editorEl && editorEl.isContentEditable && aiUndo.noteId === doc.id);
+  };
+
+  /** Put the note back as it was before the AI change — itself a restore, so the corrected note is kept first. */
+  window.notesUndoAi = function () {
+    if (!window.notesCanUndoAi()) return false;
+    const html = aiUndo.html;
+    aiUndo = null;
+    keepVersion('before-restore');
+    putDocument(html);
+    markDirty();
+    return true;
+  };
+
   function pad2(n) { return String(n).padStart(2, '0'); }
 
   /** «بۈگۈن 15:40», «تۈنۈگۈن 09:12», otherwise «2026-10-07 15:40» — local time. */

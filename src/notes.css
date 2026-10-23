@@ -591,6 +591,19 @@ button.notes-ai-item:hover, .notes-ai-has-sub:hover > .notes-ai-item-label {
 #nai-result li { margin-bottom: 3px; }
 #nai-result code { font-family: monospace; font-size: 11px; background: var(--bg3); padding: 1px 4px; border-radius: 3px; }
 #nai-actions { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 8px; }
+/* The proofread preview (W13): only the changes, each with a box to untick. */
+#nai-result .nai-proof-head { font-weight: 700; margin-bottom: 4px; }
+#nai-result .nai-proof-note { font-size: 11.5px; color: var(--text3); margin-bottom: 6px; }
+#nai-result .nai-change {
+  display: flex; align-items: flex-start; gap: 8px; padding: 6px 0;
+  border-top: 0.5px solid var(--border); cursor: pointer;
+}
+#nai-result .nai-change input { margin-top: 7px; flex-shrink: 0; accent-color: var(--am); }
+#nai-result .nai-change-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+#nai-result .nai-diff-del { color: var(--text3); }
+#nai-result .nai-diff-del del { color: #A32D2D; background: rgba(163,45,45,.08); text-decoration: line-through; }
+#nai-result .nai-diff-ins ins { color: #2E7D32; background: rgba(46,125,50,.10); text-decoration: none; font-weight: 700; }
+#nai-result .nai-change-warn { font-size: 11.5px; color: #A35C00; margin-top: 2px; }
 #nai-actions button { flex: 1; justify-content: center; height: 30px; border: 0.5px solid var(--border); background: var(--bg2); color: var(--text2); border-radius: 7px; cursor: pointer; font: 600 11.5px var(--jf); display: inline-flex; align-items: center; gap: 5px; transition: color .12s, border-color .12s; }
 #nai-actions button:hover { color: var(--am); border-color: var(--border2); }
 #nai-extra textarea {
