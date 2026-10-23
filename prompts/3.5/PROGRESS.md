@@ -21,7 +21,7 @@ Read prompts/3.5/PROMPT-3.5.md in full, then prompts/3.5/PROGRESS.md, and contin
 | 4 | Export: W6, K8 | **done** — waiting for the owner's check | `a0c2c90` test: keep the runner alive when a suite closes its only window · `2ec60da` feat(export): a note keeps its shape in Word, PDF, Markdown and text (W6, K8) · `5972048` feat(export): «چىقىرىش ▾» in the notebook - Word, PDF, Markdown, text (W6, K8) · docs(progress) | 55 in all (with the syntax gate), every one green |
 | 5 | List, trash, spelling: W2, W3, W7–W10, K12, K13 | **done** — waiting for the owner's check | `828150e` feat(notes): the trash, pinning and content search - storage (W2, W3, K13) · `ce94748` feat(notes): the list sorts, pins, previews and searches; deleting can be undone (W2, W3, K13) · `4544b0d` feat(spellcheck): one error at a time, and words ignored in one note (W7, W9, W10) · `7bd1aef` feat(spellcheck): the personal dictionary can be seen, cleaned, moved (W8, K12) · docs(progress) | 75 in all (with the syntax gate), every one green |
 | 6 | Citations, sources, AI that keeps formatting: W11–W13, K9 | **done** — waiting for the owner's check | `4733c8b` feat(notes): citations lead back to the book or the verse; links open a card (W11) · `1861260` feat(notes): search the library and the Qur'an from «مەنبە»; three-way verse choice (W12) · `dd7beb4` feat(ai): notebook proofreading by units, never sending quoted material, undoable (W13, K9) · `bd80d97` feat(ai): notebook OCR cleanup works on the selection, undoable; the whole-note rebuild is gone · docs(progress) | 98 in all (with the syntax gate), every one green |
-| 7 | Reader, Qur'an, search: K5, K15, K17, W16–W18, W20 | **in progress** — the W18 repair tool waits for the owner's decision on the search index (see «Phase 7 — so far») | `725d820` feat(reader): bookmarks, notes and the reading position keep their paragraph (K5, W16) · `f9dc84b` feat(quran): bookmark verses; the last verse read is offered again (W17) · `8c50274` feat(import): books come in as letters, never as glyph codepoints (W18, K15) · `13dda38` feat(search): the search history can be cleared (W20, K17) · docs(progress) | 110 in all (with the syntax gate), every one green |
+| 7 | Reader, Qur'an, search: K5, K15, K17, W16–W18, W20 | **done** — waiting for the owner's check | `725d820` feat(reader): bookmarks, notes and the reading position keep their paragraph (K5, W16) · `f9dc84b` feat(quran): bookmark verses; the last verse read is offered again (W17) · `8c50274` feat(import): books come in as letters, never as glyph codepoints (W18, K15) · `13dda38` feat(search): the search history can be cleared (W20, K17) · `d013b14` fix(search): the book search index is built right; search finds what it found, and changed text too · `1f1dff6` feat(settings): «كىتابلارنى تەكشۈرۈش» finds books stored as glyph codepoints and repairs them (W18, K15) · docs(progress) | 114 in all (with the syntax gate), every one green |
 | 8 | Release 3.5.0 (no publishing) | not started | — | — |
 
 ## Phase 0 — what was built
@@ -309,7 +309,7 @@ Checked in `npm run dev` over the DevTools protocol, nothing on the real library
 6. «يېنىۋېلىش» نى بېسىڭ (AI بەتكۈچىدە ياكى ئاستىدىكى ئۇچۇردا) ← خاتىرە AI دىن بۇرۇنقى ھالىتىگە قايتىدۇ. Ctrl+Z بىلەن تۈزىتىشلەرنى بىر-بىرلەپ قايتۇرۇشقىمۇ بولىدۇ.
 7. OCR تېكىستىنى تاللاپ «OCR نەتىجىسىنى AI بىلەن تۈزىتىش» نى بېسىڭ ← پەقەت تاللانغان قىسىم تۈزىتىلىدۇ. ماۋزۇ ياكى ئايەت بار خاتىرىدە ھېچنېمە تاللىماي باسسىڭىز ← «OCR تېكىستىنى تاللاپ ئاندىن تۈزىتىڭ» دېگەن ئۇچۇر چىقىدۇ.
 
-## Phase 7 — so far
+## Phase 7 — done
 
 | Item | What changed | Tests |
 |---|---|---|
@@ -325,13 +325,32 @@ Checked in `npm run dev` over the DevTools protocol, on test books added and rem
 - **Saved and restored.** The bookmarks came back from the database with their places. The exact paragraph returned after close and reopen. A number search left all 900 `data-off` attributes whole.
 - **Qur'an.** The offer «ئالدىنقى قېتىم: بەقەرە — 255-ئايەت», the mark, the sidebar list, the menu label, and remove then «قايتۇرۇش» all worked. The history cleared on the second click.
 
-### Waiting for the owner: the book search index
+| Item | What changed | Tests |
+|---|---|---|
+| The book search index (found under W18) | `book_fts` was declared with `content_rowid='book_id'` and no content table:<br>• rows could not be deleted or counted, and `snippet()` failed;<br>• a book whose text or title changed kept its OLD words, and a deleted one stayed;<br>• search fell back to substring search when the index found something, and returned no text results when it found nothing — so words only in changed text were never found.<br>**Owner's decision, 2026-10-23 — option B:** fix the index, keep the results. Migration step 5 lays the index down again in the right shape after the usual backup (derived data; no user data touched). Filling it takes about 12 s per 90 MB of text (measured), so main.js fills it a little at a time once the window is up, in one transaction per step with a marker, resumable after a close (`ftsRebuildStep`). `searchBooks` is the substring search, so a part of a word is found exactly as before («كتاب» → «الكتاب»), and it no longer misses changed text. The index serves the notebook's reference scan; a ranked word search on it would be a decision of its own. | main: `fts-rebuilt-from-the-broken-table`, `fts-fill-resumes-and-keeps-changes`, `search-unchanged-and-sees-changed-text` |
+| «كىتابلارنى تەكشۈرۈش» (W18, K15) | In the settings. The check is read-only: it lists books with a field that is 20% or more glyph codepoints, and counts books with a stray form, which are left alone. «ئوڭشاش» asks with a second click, then:<br>• backs up to `backups\library-before-letters-<time>.db`, writing nothing if that fails;<br>• folds each damaged field of each book in its own transaction, only after the checks pass;<br>• rebuilds that book's search row.<br>A book that fails a check is skipped and listed with the reason. The library in memory takes the repaired titles. | main: `forms-scan-and-fix` |
 
-The W18 repair tool («كىتابلارنى تەكشۈرۈش»: scan, backup, fold each book in its own transaction with the checks, rebuild the book's search row) is written and tested. It cannot rebuild the search row: `book_fts` was created with `content_rowid='book_id'` and no external content table, so measured on the bundled SQLite (3.49.2):
-- **Rows cannot be deleted.** `DELETE FROM book_fts WHERE rowid=?` fails with «no such column: T.book_id», and so does `COUNT(*)`. updateBook / saveBookContent / upsertBook swallow the error, so their insert never runs and a book whose text changes keeps its OLD words in the index.
-- **Search never uses the index.** `snippet()` fails («SQL logic error»). Whenever the index finds a book, searchBooks falls back to the substring search over every book's text. When it finds none (the words exist only in changed text), it returns no content results at all.
+Checked in `npm run dev`:
+- **The index.** Step 5 ran after its backup and the fill finished.
+- **The repair.** A test book was written as glyph codepoints past the app and could not be found.
+  - «تەكشۈرۈش» listed it with 66 forms; «ئوڭشاش» armed, then made `library-before-letters-…db` and repaired 1 book.
+  - The text came back as letters with ﷲ untouched; the book was found again and its title changed in memory.
+  - The test book was removed afterwards.
 
-This is the same defect as the failing `PRAGMA integrity_check` (Phase 2). The fix is a migration step that rebuilds `book_fts` correctly from `books` + `book_content`. That is derived data with a backup first, and no user data is touched. But once the index works, search can either use it, which changes what is found, or keep today's substring search. That choice is the owner's. The repair tool's code is held until then.
+Two deliberate departures from the work order:
+- **Order of the fold.** The fold is applied before NFC, as the web edition does, rather than NFC first. NFC does not touch presentation forms, so the order only matters for what the fold emits, which should be composed too.
+- **The threshold.** The repair uses the web's 20% threshold, not «any form at all», for the reason above.
+
+### Phase 7 checklist for the owner (`npm run dev`)
+
+1. بىر كىتابنى ئېچىپ 30-بەتكە بېرىڭ، سەل پەسكە سىيرىپ «خەتكۈچلەر» ← «بۇ يەرگە خەتكۈچ قوشۇش» نى بېسىڭ ← «30-بەت» دېگەن خەتكۈچ چىقىدۇ. 2-بەتكە بېرىپ يەنە بىرنى قوشۇڭ.
+2. خەتكۈچلەرنى بىر-بىرلەپ چېكىڭ ← ھەر قېتىم دەل شۇ ئابزاسقا بارىدۇ ۋە ئابزاس بىردەم يورۇيدۇ. قەلەم بەلگىسىنى بېسىپ بىرىنىڭ ئىسمىنى ئۆزگەرتىڭ (Enter بىلەن ساقلىنىدۇ).
+3. ئىلگىرى قويغان كونا خەتكۈچلەر بولسا «كونا خەتكۈچلەر — ئورنى ساقلانمىغان» دېگەن يەردە كۆرۈنىدۇ؛ چەكسىڭىز 1-بەت ئېچىلىدۇ، ئۆچۈرۈشكىمۇ بولىدۇ.
+4. كىتابنى ئوقۇۋاتقان يېرىڭىزدە يېپىپ قايتا ئېچىڭ ← دەل شۇ ئابزاستىن داۋاملىشىدۇ.
+5. قۇرئاندا بىر ئايەتنى چېكىپ «خەتكۈچ قوشۇش» نى بېسىڭ ← ئايەت بەلگىلىنىدۇ، سول تەرەپتىكى «خەتكۈچلەر» دە كۆرۈنىدۇ. دېتالنى قايتا ئېچىپ قۇرئانغا كىرسىڭىز، ئالدىنقى قېتىم ئوقۇغان ئايەت تەۋسىيە قىلىنىدۇ.
+6. تەڭشەكلەردىكى «كىتابلارنى تەكشۈرۈش» ← «تەكشۈرۈش» نى بېسىڭ ← نەتىجە چىقىدۇ (ھېچنېمە ئۆزگەرمەيدۇ). ئوڭشايدىغان كىتاب بولسا «ئوڭشاش» نى ئىككى قېتىم بېسىڭ ← ئالدى بىلەن زاپاسلىنىپ، ئاندىن ئوڭشىلىدۇ.
+7. ئىزدەش رامكىسىنى چېكىپ يېقىنقى ئىزدەشلەرنى ئېچىڭ ← «تارىخنى تازىلاش» نى ئىككى قېتىم بېسىڭ ← تارىخ تازىلىنىدۇ.
+8. ئىزدەش ئىلگىرىكىدەك ئىشلەيدۇ: سۆزنىڭ بىر قىسمىنى يازسىڭىزمۇ تاپىدۇ. بىر كىتابنىڭ تېكىستى ئۆزگەرگەن بولسا (OCR ياكى بەت تۈزىتىش)، يېڭى سۆزلەرمۇ تېپىلىدۇ.
 
 ## Measurements
 
@@ -352,7 +371,8 @@ confirmed here goes into `CLAUDE.md`.
 | `insertText` with `\n` | each `\n` starts a new paragraph (`<p>` in this editor), `\n\n` leaves an empty `<p><br></p>`; replacing a selection with it is **one** undo step | probe, then `ocr-scope-selection`, Phase 6 |
 | `Selection.toString()` | follows layout: a `<p>` with its bottom margin gives `\n\n`, an empty one more — so it is not used to find paragraphs (the text map is) | probe, Phase 6 |
 | A window behind another one (the dev app during a check) | `document.visibilityState` is «hidden» and `requestAnimationFrame` never fires. A place to restore is therefore scrolled to at once after the reader is shown (scrollIntoView lays it out itself), not in a frame | probe, Phase 7 |
-| `book_fts` | `content_rowid='book_id'` without `content=`: rows cannot be deleted or counted («no such column: T.book_id»), and `snippet()` fails («SQL logic error»). search falls back to substring search, and changed text stays unindexed | probe, Phase 7 |
+| `book_fts` before step 5 | `content_rowid='book_id'` without `content=`: rows cannot be deleted or counted («no such column: T.book_id»), and `snippet()` fails («SQL logic error»). Search fell back to substring search, and changed text stayed unindexed. Rebuilt by migration step 5 | probe, then `fts-rebuilt-from-the-broken-table`, Phase 7 |
+| Filling the search index | about 12 s for 300 books / 90 MB of text — too long for startup, so it is filled after the window is up | timing probe, Phase 7 |
 | A hidden test window | draws no frames: `requestAnimationFrame` never fires and a scroll never sends its `scroll` event. The link card therefore follows scroll events directly (Chromium sends them at most once a frame anyway), and its test sends the event itself | `cite-card-follows-scroll`, Phase 6 |
 | Leaving a heading or a quote | `formatBlock <p>` turns a heading, or a quote of text lines, into normal text; a quote of blocks needs `outdent` over its whole content (formatBlock leaves it); each is ONE undo step and comes back with redo. Matches the web's Chromium 151 findings | `block-style-transitions`, Phase 3.2 |
 
