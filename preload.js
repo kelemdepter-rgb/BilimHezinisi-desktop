@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electron', {
   dbSearch: (query, category, opts) => ipcRenderer.invoke('db-search', query, category, opts),
   dbGetAllSnippets: (bookId, query) => ipcRenderer.invoke('db-get-all-snippets', bookId, query),
   dbSearchHistory: () => ipcRenderer.invoke('db-search-history'),
+  dbClearSearchHistory: () => ipcRenderer.invoke('db-clear-search-history'),
   dbGetCategories: () => ipcRenderer.invoke('db-get-categories'),
   dbAddCategory: (name, parentId) => ipcRenderer.invoke('db-add-category', name, parentId),
   dbRenameCategory: (oldName, newName) => ipcRenderer.invoke('db-rename-category', oldName, newName),

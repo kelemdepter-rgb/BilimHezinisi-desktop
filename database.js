@@ -1632,6 +1632,11 @@ function getSearchHistory(limit) {
   return db.prepare('SELECT * FROM search_history ORDER BY searched_at DESC LIMIT ?').all(limit || 20);
 }
 
+/** «تارىخنى تازىلاش» (W20, K17): every search kept is deleted. Returns how many. */
+function clearSearchHistory() {
+  return db.prepare('DELETE FROM search_history').run().changes;
+}
+
 // ========== STATS ==========
 
 function getStats() {
@@ -1941,7 +1946,7 @@ module.exports = {
   getReadingProgress, saveReadingProgress,
   addRecentRead, getRecentReads,
   getSetting, setSetting,
-  addSearchHistory, getSearchHistory,
+  addSearchHistory, getSearchHistory, clearSearchHistory,
   getStats, migrateFromJSON,
   // Sync functions for frontend compatibility
   upsertBook, syncBooks, syncCategories, syncBookmarks, syncNotes,

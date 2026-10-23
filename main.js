@@ -468,6 +468,15 @@ ipcMain.handle('db-get-all-snippets', (event, bookId, query) => {
   }
 });
 
+// Clear the search history (W20, K17).
+ipcMain.handle('db-clear-search-history', () => {
+  try {
+    return { success: true, cleared: database.clearSearchHistory() };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+});
+
 // Get search history
 ipcMain.handle('db-search-history', () => {
   try {
