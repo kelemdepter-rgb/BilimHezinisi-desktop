@@ -8,6 +8,7 @@ const librarySync = require('./library-sync');
 const backup = require('./backup');
 const navigation = require('./navigation');
 const noteExport = require('./note-export');
+const ocrEngine = require('./ocr-engine');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
 // What counts as one word for the personal dictionary, and what an imported
@@ -975,11 +976,11 @@ ipcMain.handle('ocr-recognize', async (event, opts) => {
   let langs = (typeof opts.langs === 'string' && opts.langs.trim()) ? opts.langs.trim() : 'ukij';
   if (!images.length) return { success: false, error: 'رەسىم تېپىلمىدى' };
 
-  // Verify at least the first requested model exists, else fail clearly
-  // (offline-friendly: tells the user to fetch the models, never a stack trace).
-  const firstLang = langs.split('+')[0];
+  // Every requested model must be there, else fail clearly (offline-friendly:
+  // tells the user to fetch the models, never a stack trace) — a missing one
+  // would send tesseract to an address lookup that never answers.
   const tessdata = ocrTessdataDir();
-  if (!fs.existsSync(path.join(tessdata, firstLang + '.traineddata'))) {
+  if (ocrEngine.missingModels(tessdata, langs).length) {
     return { success: false, error: 'OCR مودېلى تېپىلمىدى. تەرەققىياتچى: «npm run fetch-ocr-models» نى ئىجرا قىلىڭ.' };
   }
 
@@ -988,15 +989,9 @@ ipcMain.handle('ocr-recognize', async (event, opts) => {
   const pages = [];
   try {
     const { createWorker } = require('tesseract.js');
-    // LSTM-only (OEM 1). Local langPath + cacheMethod:'none' + gzip:false ⇒
-    // models are read straight from disk, never fetched or cached over network.
-    worker = await createWorker(langs, 1, {
-      workerPath: ocrWorkerPath(),
-      langPath: tessdata,
-      cacheMethod: 'none',
-      gzip: false,
-      logger: () => {}
-    });
+    // LSTM-only (OEM 1). The models are read straight from disk, never
+    // fetched, never written (ocr-engine.js says why it takes a cache).
+    worker = await createWorker(langs, 1, ocrEngine.workerOptions(tessdata, ocrWorkerPath()));
     // PSM 3 (auto) by default — matches UyghurOCR's "PSM Auto for full pages".
     // Overridable (e.g. '6' = uniform block) via opts.psm for experimentation.
     const psm = (opts.psm && /^\d+$/.test(String(opts.psm))) ? String(opts.psm) : '3';
