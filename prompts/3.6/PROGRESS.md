@@ -19,7 +19,7 @@ Read prompts/3.6/PROMPT-3.6.md in full, then prompts/3.6/PROGRESS.md, and contin
 | 1 | Qur'an: readable verse numbers; [n] and [n _ m] after each translation | **done** — waiting for the owner's check | `b587603` fix(quran): verse markers out of the translation; each verse knows its translation group · `e7cd6b9` feat(quran): readable verse numbers; every translation ends with [n] or [n _ m] · docs(progress) | 126 in all (with the syntax gate), every one green |
 | 2 | PDF import keeps every page; page starts and the original file remembered | **done** — waiting for the owner's check | `fd67dd2` fix(ocr): the offline OCR engine answers inside Electron · `cadff79` feat(import): a PDF keeps every page; each page's place and the PDF's location are kept · docs(progress) | 138 in all (with the syntax gate), every one green |
 | 3 | Search that understands Uyghur suffixes | **done** — waiting for the owner's check | `ed1d6bd` feat(search): a word's Uyghur forms — bases, stem changes, suffixes — for the library search · `2f9d911` feat(search): «قوشۇمچىلىرى بىلەن» in the search bar; the forms found are marked and counted · docs(progress) | 144 in all (with the syntax gate), every one green |
-| 4 | One search across the books, the Qur'an and the notebook | not started | | |
+| 4 | One search across the books, the Qur'an and the notebook | **done** — waiting for the owner's check | `f888a53` feat(search): the Qur'an translation and the notebook searched through the Uyghur forms too · `0228555` feat(search): one search across the books, the Qur'an and the notebook · docs(progress) | 149 in all (with the syntax gate), every one green |
 | 5 | «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» | not started | | |
 | 6 | Two books side by side | not started | | |
 | 7 | The PDF page beside its text: compare and correct | not started | | |
@@ -176,6 +176,38 @@ header at the window's minimum width (900 px) fits: no overflow, the input
 5. بىر نەتىجىنى ئېچىڭ ← تېپىلغان ھەممە شەكىل بەلگىلەنگەن، ساننى («1/6» دەك) ئوقلار بىلەن بىرمۇبىر ماڭسىڭىز ھەر بىرىگە بارىدۇ.
 6. نەتىجىدىكى «+ بۇ كىتابتىكى بارلىق ئورۇنلارنى كۆرۈش» ← شەكىللەرمۇ تىزىلىدۇ؛ بىرىنى چەكسىڭىز شۇ ئورۇندا ئېچىلىدۇ.
 7. بىلىپ قويۇڭ: «ئاتا» دەپ ئىزدىسىڭىز «ئاتىكە» (ئىسىم) دەك ناھايىتى ئاز خاتا سۆز چىقىشى مۇمكىن (ئۆلچىگەندە %3 ئەتراپىدا). خاتا نەتىجە كۆپ چىقسا، سۆزنى ۋە كىتابنى ئېيتىڭ.
+
+## Phase 4 — done
+
+| Item | What changed | Tests (red before → green after) |
+|---|---|---|
+| The Qur'an | `quranSearch` = `quranSearchRows` (today's search, one row per verse) + with `opts.forms` `quranFormRows` (FTS `text_ug : (…)` names the candidates, the matcher decides; the snippet marks the word found, its text escaped), then `collapseQuranGroups` once. `lang: 'ar'` and Arabic queries get nothing added. | `search-all-quran-groups-once` — red: «the group came back 0 times» (today's prefix search cannot reach «يالغانچىلاردۇر» from «يالغانچىلىرى») |
+| The notebook | `notesSearch(q, opts)`: with `opts`, `notesSearchForLibrary` — every note not in the trash, title and text through the matcher (forms when `opts.forms`), pinned first, newest first, at most 50; `snip`, `mark`, `titleMark`, `words`; the note's whole text never crosses the IPC. Without `opts` the notebook list's own search, unchanged. | `search-all-three-sources` — red: «the note through «پەيغەمبىرىمىز» — got []»; `search-all-only-in-a-note`, `search-all-never-the-trash` (guards); `notes-search-content`, `list-search-content` still green |
+| The page | `doSearch`: three requests at once (books through `searchBooksPart`), each section drawn as it arrives, stale answers dropped (`S.srchSeq`). `renderSearch`: chips with counts, the category note, the forms line, three sections with counts and «ئىزدەۋاتىدۇ...» / «نەتىجە يوق»; «ھەممىسى» shows five per section and «يەنە كۆرسىتىش»; a chip shows a section whole, the books paginated as before. Cards: `bookHitHtml` (the old card + «كىتاب»), `quranHitHtml` (sura, verses, each verse's Arabic, the translation once with «[n _ m]»), `noteHitHtml` (title, date, the words around the one found). | checked in the dev app (below) |
+| Opening | `openQuranHit` → the Qur'an at the verse, selected (`S.quran.selectAya`, also verse 1). `openNoteHit` → `notesOpen`, then `notesShowFound(query, words)` (notes.js): the find bar, find only, every word found painted by the find highlight; another query or Ctrl+H is the plain find bar. `setMode` returns the view's promise. | `notes-show-found-paints-without-markup` — red: «notesShowFound is missing» |
+
+Checked in `npm run dev` over the DevTools protocol, with a test book (in
+«تارىخ») and a test note added and removed again (the DEV library is
+empty again): «پەيغەمبەرلەر» gave «كىتابلار (1)», «قۇرئان كەرىم (349)»,
+«خاتىرە دەپتىرىم (1)» with their labels, «يەنە كۆرسىتىش (344)» under the
+Qur'an; the first verse (15:80) opened selected; the note opened with
+«پەيغەمبىرىمىزنىڭ» painted, «1 / 1», no markup in the editor; with the
+category «تارىخ» the page said ««تارىخ» تۈرى پەقەت كىتابلارغا قوللىنىلدى».
+
+Not checked by a test: the page itself (it lives in `src/index.html`,
+which the test page does not load) — the owner's checklist below.
+
+### Phase 4 checklist for the owner (`npm run dev`)
+
+ئالدى بىلەن سىناق كۇتۇپخانىسىغا بىر سۆز (مەسىلەن «پەيغەمبەر») بار بىر كىتاب، ۋە شۇ سۆز بار بىر خاتىرە قوشۇڭ.
+
+1. ئىزدەش رامكىسىغا «پەيغەمبەرلەر» دەپ ئىزدەڭ ← ئۈچ بۆلەك چىقىدۇ: «كىتابلار (…)»، «قۇرئان كەرىم (…)»، «خاتىرە دەپتىرىم (…)»، ھەر بىرىدە سانى بار. ھەر كارتىنىڭ بېشىدا كىچىك بەلگە: «كىتاب»، «قۇرئان كەرىم»، «خاتىرە دەپتىرىم».
+2. ئۈستىدىكى «ھەممىسى · كىتابلار · قۇرئان كەرىم · خاتىرە دەپتىرىم» نى بىر-بىرلەپ بېسىڭ ← پەقەت شۇ بۆلەك چىقىدۇ. «ھەممىسى» دە ھەر بۆلەكتە 5 نەتىجە ۋە «يەنە كۆرسىتىش» بار.
+3. قۇرئان نەتىجىسىنى بېسىڭ ← قۇرئان شۇ ئايەتتە ئېچىلىدۇ، ئايەت بەلگىلەنگەن. تەرجىمىنىڭ ئاخىرىدا [n] ياكى [n _ m] بار، بىر گۇرۇپپا بىرلا قېتىم چىقىدۇ.
+4. خاتىرە نەتىجىسىنى بېسىڭ ← خاتىرە دەپتىرى شۇ خاتىرىدە ئېچىلىدۇ، تېپىلغان سۆز سېرىق رەڭدە، ئىزدەش بالدىقىدا «1 / 1». خاتىرىگە ھېچنېمە يېزىلمايدۇ.
+5. كىتاب نەتىجىسىنى بېسىڭ ← كىتاب بۇرۇنقىدەك شۇ ئورۇندا ئېچىلىدۇ.
+6. سول تەرەپتىن بىر تۈرنى (مەسىلەن «تارىخ») تاللاپ ئىزدەڭ ← «تۈرى پەقەت كىتابلارغا قوللىنىلدى» دېگەن خەت چىقىدۇ؛ قۇرئان ۋە خاتىرە يەنىلا ئىزدىلىدۇ.
+7. ئەخلەت ساندۇقىدىكى خاتىرە ھەرگىز چىقمايدۇ.
 
 ## Measurements
 
