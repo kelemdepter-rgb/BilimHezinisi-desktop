@@ -1567,8 +1567,9 @@ ipcMain.handle('notes-set-pinned', (e, id, pinned) => {
   try { return { success: database.notesSetPinned(id, !!pinned) }; }
   catch(err) { return { success: false, error: err.message }; }
 });
-ipcMain.handle('notes-search', (e, query) => {
-  try { return Object.assign({ success: true }, database.notesSearch(query)); }
+// opts (3.6): the library's search — snippets, and the forms when opts.forms.
+ipcMain.handle('notes-search', (e, query, opts) => {
+  try { return Object.assign({ success: true }, database.notesSearch(query, opts && typeof opts === 'object' ? opts : undefined)); }
   catch(err) { return { success: false, ok: false, notes: [], error: err.message }; }
 });
 ipcMain.handle('notes-discard-empty', (e, id) => {

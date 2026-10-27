@@ -1430,7 +1430,69 @@ function quranLookupSura(input) {
   return null;
 }
 
+/**
+ * Search the Qur'an: the Arabic with its normalisation, the Uyghur
+ * translation as typed — and, with `opts.forms` (3.6), the translation also
+ * through the Uyghur forms of the typed words (search-forms.js). One result
+ * per translation group (collapseQuranGroups).
+ */
 function quranSearch(query, opts) {
+  const o = opts || {};
+  let rows = quranSearchRows(query, o);
+  if (o.forms) rows = rows.concat(quranFormRows(query, o, rows));
+  return collapseQuranGroups(rows);
+}
+
+function escapeHtmlText(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** About 60 characters either side of a hit, the hit in <mark>, the rest escaped. */
+function markedSnippetHtml(text, span) {
+  const s = Math.max(0, span.start - 60);
+  const e = Math.min(text.length, span.end + 60);
+  return (s > 0 ? '...' : '') + escapeHtmlText(text.slice(s, span.start)) + '<mark>' +
+    escapeHtmlText(text.slice(span.start, span.end)) + '</mark>' + escapeHtmlText(text.slice(span.end, e)) +
+    (e < text.length ? '...' : '');
+}
+
+/**
+ * The verses whose translation holds a form of the typed words that the
+ * search as typed did not find (`have`). The full-text index names the
+ * candidates; an Arabic query has no forms and adds nothing.
+ */
+function quranFormRows(query, opts, have) {
+  if ((opts.lang || 'auto') === 'ar') return [];
+  const m = searchForms.compile(query);
+  const fts = m.ftsQuery();
+  if (!fts) return [];
+  const limit = Math.max(1, Math.min(500, opts.limit || 200));
+  const cols = `a.id, a.sura, a.aya, a.text_ar, a.text_ug, ${quranGroupSql('a')}`;
+  let candidates = null;
+  if (hasQuranFTS) {
+    try {
+      candidates = db.prepare(`SELECT ${cols} FROM quran_fts JOIN quran_ayas a ON a.id=quran_fts.rowid
+        WHERE quran_fts MATCH ? ORDER BY a.sura, a.aya`).all('text_ug : (' + fts + ')');
+    } catch (e) {
+      candidates = null;
+    }
+  }
+  if (candidates === null) candidates = db.prepare(`SELECT ${cols} FROM quran_ayas a ORDER BY a.sura, a.aya`).all();
+  const seen = new Set(have.map(r => r.id));
+  const out = [];
+  for (const r of candidates) {
+    if (out.length >= limit) break;
+    if (seen.has(r.id)) continue;
+    const text = r.text_ug || '';
+    const span = m.findAll(searchForms.lowered(text), 1)[0];
+    if (!span) continue;
+    out.push(Object.assign(r, { snip_ar: '', snip_ug: markedSnippetHtml(text, span) }));
+  }
+  return out;
+}
+
+/** The Qur'an search as typed, one row per verse. */
+function quranSearchRows(query, opts) {
   opts = opts || {};
   const lang = opts.lang || 'auto';
   const limit = Math.max(1, Math.min(500, opts.limit || 200));
@@ -1470,7 +1532,7 @@ function quranSearch(query, opts) {
                FROM quran_fts JOIN quran_ayas a ON a.id=quran_fts.rowid
                WHERE quran_fts MATCH ? ORDER BY rank LIMIT ?`;
       }
-      return collapseQuranGroups(db.prepare(sql).all(ftsQuery, limit));
+      return db.prepare(sql).all(ftsQuery, limit);
     } catch (e) {
       console.log('Quran FTS5 query failed, using LIKE fallback:', e.message);
     }
@@ -1499,7 +1561,7 @@ function quranSearchSimple(q, lang, limit) {
     params = ['%' + qAr + '%', '%' + qAr + '%', '%' + qUg + '%', limit];
   }
   const rows = db.prepare(sql).all(...params);
-  return collapseQuranGroups(rows.map(r => ({ ...r, snip_ar: '', snip_ug: '' })));
+  return rows.map(r => ({ ...r, snip_ar: '', snip_ug: '' }));
 }
 
 // ========== NOTES (DOCUMENTS) ==========
@@ -1608,9 +1670,10 @@ function notesSetPinned(id, pinned) {
  * characters), case-insensitive for the letters that have case, 2–100
  * characters, at most 50 results, pinned first, never the trash.
  */
-function notesSearch(query) {
+function notesSearch(query, opts) {
   const q = String(query == null ? '' : query).trim();
   if (q.length < 2 || q.length > 100) return { ok: false, reason: 'length', notes: [] };
+  if (opts) return notesSearchForLibrary(q, opts);
   const notes = db.prepare(`
     SELECT id, title, created_at, updated_at, pinned, length(content_text) AS size,
            ${NOTE_PREVIEW_SQL} AS preview
@@ -1619,6 +1682,48 @@ function notesSearch(query) {
     ORDER BY pinned DESC, updated_at DESC, id DESC
     LIMIT 50
   `).all(q, q);
+  return { ok: true, notes: notes };
+}
+
+/**
+ * The notebook as the library's search sees it (3.6): the same notes — title
+ * and text, never the trash, pinned first, newest first, at most 50 — and,
+ * with `opts.forms`, also through the Uyghur forms of the typed words. A
+ * note carries `snip` and `mark` (the word found), `titleMark`, and `words`,
+ * every word the forms found in it, which the notebook paints when the note
+ * is opened. Notes are few and short, so each is read through the matcher.
+ */
+function notesSearchForLibrary(q, opts) {
+  const m = searchForms.compile(q, { forms: !!opts.forms });
+  const rows = db.prepare(`
+    SELECT id, title, created_at, updated_at, pinned, length(content_text) AS size,
+           ${NOTE_PREVIEW_SQL} AS preview, content_text
+    FROM note_documents
+    WHERE deleted_at IS NULL
+    ORDER BY pinned DESC, updated_at DESC, id DESC
+  `).all();
+  const notes = [];
+  for (const row of rows) {
+    const text = row.content_text || '';
+    const lower = searchForms.lowered(text);
+    const inTitle = m.findAll(searchForms.lowered(row.title), 1)[0];
+    const first = m.findAll(lower, 1)[0];
+    if (!inTitle && !first) continue;
+    const note = Object.assign({}, row);
+    delete note.content_text;
+    note.titleMark = inTitle ? [inTitle.start, inTitle.end] : null;
+    note.snip = '';
+    note.mark = null;
+    if (first) {
+      const s = Math.max(0, first.start - 60);
+      const e = Math.min(text.length, first.end + 60);
+      note.snip = text.slice(s, e).replace(/\s/g, ' ');
+      note.mark = [first.start - s, first.end - s];
+    }
+    note.words = m.foundWords(lower, text);
+    notes.push(note);
+    if (notes.length >= 50) break;
+  }
   return { ok: true, notes: notes };
 }
 
