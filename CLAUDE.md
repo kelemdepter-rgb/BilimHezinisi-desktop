@@ -108,6 +108,9 @@ Kept as tests in `tests/notebook/suite-engine.js`, so an Electron upgrade that c
 - **Risky testing uses `npm run dev`** (`JamiyKutupxana-DEV`); `npm test` uses a fresh temp directory. The real library is for a final check only.
 - **Nothing new reaches the network:** the renderer CSP stays `connect-src 'self'`, `will-navigate` allows only the app's own `index.html`, and `setWindowOpenHandler` hands only parsed `http:`/`https:` URLs to `shell.openExternal`.
 
+## 3.6
+Rules written by the 3.6 phases (work order: `prompts/3.6/PROMPT-3.6.md`, status: `prompts/3.6/PROGRESS.md`).
+
 ## Build / Release Workflow
 Edit only in the source folder → `npm test` (the syntax gate — `node --check` over every `.js` and the inline scripts of `index.html` — plus the main-process and notebook suites; `npm run check-syntax` runs the gate alone) → test with `npm run dev` (`npm start` only for a final check on the real library) → bump `version` in `package.json` → `npm run fetch-ocr-models` on a networked machine (BEFORE dist, so models ship) → `npm run dist-win` → commit per change.
 
