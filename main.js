@@ -9,6 +9,7 @@ const backup = require('./backup');
 const navigation = require('./navigation');
 const noteExport = require('./note-export');
 const pdfOriginal = require('./pdf-original');
+const searchForms = require('./search-forms');
 const ocrEngine = require('./ocr-engine');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
@@ -489,28 +490,42 @@ ipcMain.handle('db-save-content', (event, bookId, content) => {
 });
 
 // Search books with FTS5
+// opts.forms (3.6): the Uyghur forms of the typed words too (search-forms.js);
+// `forms` in the answer lists what they added, for «ئىزدەلگەن شەكىللەر».
 ipcMain.handle('db-search', (event, query, category, opts) => {
   try {
-    const results = database.searchBooks(query, category);
+    const withForms = !!(opts && opts.forms);
+    const results = database.searchBooks(query, category, { forms: withForms });
     // Save search history — the reader's. The notebook's «مەنبە» search
     // (src/notes.js, notesSourceSearch) asks to stay out of it.
     if (!(opts && opts.history === false)) {
       database.addSearchHistory(query, results.length);
       database.saveDB(DATA_DIR);
     }
-    return { success: true, results };
+    return { success: true, results, forms: withForms ? searchForms.compile(query).forms : [] };
   } catch(e) {
     return { success: false, error: e.message, results: [] };
   }
 });
 
-// Get ALL occurrences of a query inside ONE book (for the "+" expand feature)
-ipcMain.handle('db-get-all-snippets', (event, bookId, query) => {
+// Get ALL occurrences of a query inside ONE book (for the "+" expand feature);
+// opts.forms as in db-search.
+ipcMain.handle('db-get-all-snippets', (event, bookId, query, opts) => {
   try {
-    const snippets = database.getAllSnippetsForBook(bookId, query, 200, 70);
+    const snippets = database.getAllSnippetsForBook(bookId, query, 200, 70, { forms: !!(opts && opts.forms) });
     return { success: true, snippets };
   } catch(e) {
     return { success: false, error: e.message, snippets: [] };
+  }
+});
+
+// The words the Uyghur forms of a query found in one book (3.6) — what the
+// reader marks and counts besides the query as typed.
+ipcMain.handle('db-search-words', (event, bookId, query) => {
+  try {
+    return { success: true, words: database.searchWordsInBook(bookId, query) };
+  } catch(e) {
+    return { success: false, error: e.message, words: [] };
   }
 });
 

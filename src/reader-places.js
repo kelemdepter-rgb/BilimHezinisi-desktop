@@ -116,5 +116,21 @@
     return typeof value === 'number' && Number.isInteger(value) && value >= 0;
   }
 
-  return { PER_PAGE: PER_PAGE, paginate: paginate, paragraphs: paragraphs, pageOf: pageOf, paragraphAt: paragraphAt, isPlace: isPlace };
+  /**
+   * What the reader marks for a search (3.6): every word the search found
+   * through the Uyghur forms (search-forms.js), as a WHOLE word, and the
+   * query as typed, anywhere — which is exactly what the search matched, so
+   * the marks and their count agree with it. null when there is nothing.
+   */
+  function searchRe(query, words) {
+    const escape = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const parts = [];
+    const list = (words || []).filter(Boolean).map(String).sort((a, b) => b.length - a.length).map(escape);
+    if (list.length) parts.push('(?<![\\p{L}\\p{M}])(?:' + list.join('|') + ')(?![\\p{L}\\p{M}])');
+    const q = String(query == null ? '' : query).replace(/\s+/g, ' ').trim();
+    if (q) parts.push(escape(q));
+    return parts.length ? new RegExp(parts.join('|'), 'giu') : null;
+  }
+
+  return { PER_PAGE: PER_PAGE, paginate: paginate, paragraphs: paragraphs, pageOf: pageOf, paragraphAt: paragraphAt, isPlace: isPlace, searchRe: searchRe };
 });

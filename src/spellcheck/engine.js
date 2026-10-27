@@ -147,4 +147,10 @@ function glued(words) {
   return words.filter((word) => typeof word === 'string' && looksGlued(dictionary, word));
 }
 
-module.exports = { init, isReady, setPersonal, checkText, suggest, check, glued };
+/** The loaded dictionary, for search-forms.js (3.6); null when it cannot load. */
+function getDictionary() {
+  load();
+  return dictionary;
+}
+
+module.exports = { init, isReady, setPersonal, checkText, suggest, check, glued, getDictionary };

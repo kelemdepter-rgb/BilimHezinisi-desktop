@@ -82,6 +82,7 @@
       "note-export.js",
       "pdf-original.js",
       "ocr-engine.js",
+      "search-forms.js",
       "ocr-postprocess.js",
       "text-normalize.js",
       "src/**/*",

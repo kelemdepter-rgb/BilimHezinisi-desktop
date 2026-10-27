@@ -6,6 +6,7 @@
 const path = require('path');
 const fs = require('fs');
 const textNormalize = require('./text-normalize');
+const searchForms = require('./search-forms');
 
 /**
  * Text as the library stores it: letters, never glyph codepoints (W18, K15).
@@ -995,8 +996,81 @@ async function presentationFormsFix(opts) {
  * (migration step 5) and serves the notebook's reference scan (ngramFindWord);
  * a ranked word search on it would find less, and is a decision of its own.
  */
-function searchBooks(query, category) {
+function searchBooks(query, category, opts) {
+  if (opts && opts.forms) return searchBooksWithForms(query, category);
   return searchBooksSimple(query, category);
+}
+
+/**
+ * The search with the Uyghur forms (3.6, search-forms.js): every book today's
+ * search finds, and every book where a form of a typed word starts a word.
+ * When the full-text index is ready, it names the books where a form can be
+ * (a prefix query per form), and only those are scanned for the forms; the
+ * exact query is still looked for in every book, as before.
+ *
+ * A result also carries `mark`, where the word found lies in `snip`, and
+ * `titleMark`, where it lies in the title. The words the forms found in a
+ * book, which the reader marks, come with searchWordsInBook when the book is
+ * opened: listing them here would mean finding every hit in every book.
+ */
+function searchBooksWithForms(query, category) {
+  const m = searchForms.compile(query);
+  if (!m.query) return [];
+  let candidates = null;
+  const fts = m.ftsQuery();
+  if (fts && hasFTS5 && !ftsRebuildPending()) {
+    try {
+      candidates = new Set(db.prepare('SELECT rowid FROM book_fts WHERE book_fts MATCH ?').all(fts).map(r => r.rowid));
+    } catch (e) {
+      candidates = null;   // a query the index cannot read: scan every book
+    }
+  }
+  const exactOnly = searchForms.compile(query, { forms: false });
+
+  let sql = 'SELECT * FROM books';
+  const params = [];
+  if (category && category !== 'all') {
+    sql += ' WHERE category = ?';
+    params.push(category);
+  }
+  const results = [];
+  for (const row of db.prepare(sql).all(...params)) {
+    const book = rowToBook(row);
+    const scan = (candidates === null || candidates.has(row.id)) ? m : exactOnly;
+    const inTitle = scan.findAll(searchForms.lowered(book.title), 1)[0];
+    const inT = !!inTitle;
+    const inA = scan.findAll(searchForms.lowered(book.author), 1).length > 0;
+
+    let inC = false;
+    let snip = '';
+    let pos = null;
+    let mark = null;
+    const content = getBookContent(book.id);
+    if (content) {
+      const first = scan.findAll(searchForms.lowered(content), 1)[0];
+      if (first) {
+        inC = true;
+        pos = first.start;
+        const s = Math.max(0, first.start - 60);
+        const e = Math.min(content.length, first.end + 60);
+        snip = content.slice(s, e).replace(/\n/g, ' ');
+        mark = [first.start - s, first.end - s];
+      }
+    }
+    const titleMark = inTitle ? [inTitle.start, inTitle.end] : null;
+    if (inT || inA || inC) results.push({ book, snip, pos, mark, titleMark, inT, inA, inC });
+  }
+  return results;
+}
+
+/**
+ * Every different word the Uyghur forms of `query` found in one book, as
+ * written there — what the reader marks and counts with the query (3.6).
+ */
+function searchWordsInBook(bookId, query) {
+  const content = getBookContent(bookId);
+  if (!content || !query) return [];
+  return searchForms.compile(query).foundWords(searchForms.lowered(content), content);
 }
 
 function searchBooksSimple(query, category) {
@@ -1013,15 +1087,15 @@ function searchBooksSimple(query, category) {
   const rows = db.prepare(sql).all(...params);
   for (const row of rows) {
     const book = rowToBook(row);
-    const inT = (book.title || '').toLowerCase().includes(lq);
-    const inA = (book.author || '').toLowerCase().includes(lq);
+    const inT = searchForms.lowered(book.title).includes(lq);
+    const inA = searchForms.lowered(book.author).includes(lq);
 
     let inC = false;
     let snip = '';
     let pos = null;
     const content = getBookContent(book.id);
     if (content) {
-      const lcContent = content.toLowerCase();
+      const lcContent = searchForms.lowered(content);
       const idx = lcContent.indexOf(lq);
       if (idx !== -1) {
         inC = true;
@@ -1043,7 +1117,7 @@ function searchBooksSimple(query, category) {
  * Pure JS string-scan: returns marked snippets for every occurrence of `query`
  * in the book content. Used by the Notes auto-reference scanner.
  */
-function getAllSnippetsForBook(bookId, query, maxResults, ctx) {
+function getAllSnippetsForBook(bookId, query, maxResults, ctx, opts) {
   const MAX = Math.max(1, Math.min(1000, maxResults || 200));
   const CTX = Math.max(10, Math.min(400, ctx || 70));
 
@@ -1057,13 +1131,26 @@ function getAllSnippetsForBook(bookId, query, maxResults, ctx) {
   if (!needle) return [];
 
   const lcNeedle  = needle.toLowerCase();
-  const lcContent = content.toLowerCase();
-  const nLen = needle.length;
+  const lcContent = searchForms.lowered(content);
+
+  // With the Uyghur forms (3.6): each hit is the span search-forms.js found.
+  const spans = (opts && opts.forms) ? searchForms.compile(needle).findAll(lcContent, MAX) : null;
+  let spanAt = 0;
 
   const snippets = [];
   let cursor = 0;
   while (snippets.length < MAX) {
-    const hit = lcContent.indexOf(lcNeedle, cursor);
+    let hit;
+    let nLen;
+    if (spans) {
+      if (spanAt >= spans.length) break;
+      hit = spans[spanAt].start;
+      nLen = spans[spanAt].end - spans[spanAt].start;
+      spanAt++;
+    } else {
+      hit = lcContent.indexOf(lcNeedle, cursor);
+      nLen = needle.length;
+    }
     if (hit === -1) break;
 
     // Expand context outward to the nearest whitespace/newline for a clean cut.
@@ -2281,7 +2368,7 @@ module.exports = {
   getPageMap, getBookOriginal, setBookOriginal,
   // Books stored as glyph codepoints (W18, K15)
   presentationFormsScan, presentationFormsFix,
-  searchBooks, getAllSnippetsForBook,
+  searchBooks, getAllSnippetsForBook, searchWordsInBook,
   getCategories, getCategoryNames, addCategory, renameCategory, deleteCategory, ensureDefaultCategories,
   getBookmarks, addBookmark, deleteBookmark,
   getNotes, addNoteDB, deleteNoteDB,
