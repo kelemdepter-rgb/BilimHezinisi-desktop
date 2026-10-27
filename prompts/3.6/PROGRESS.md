@@ -17,7 +17,7 @@ Read prompts/3.6/PROMPT-3.6.md in full, then prompts/3.6/PROGRESS.md, and contin
 |---|---|---|---|---|
 | 0 | Groundwork: branch, `npm test`, this file, CLAUDE.md «3.6» | **done** | `7fec54b` docs: add the 3.6 work order · docs(progress): this file and the «3.6» section | 114 green before anything changed |
 | 1 | Qur'an: readable verse numbers; [n] and [n _ m] after each translation | **done** — waiting for the owner's check | `b587603` fix(quran): verse markers out of the translation; each verse knows its translation group · `e7cd6b9` feat(quran): readable verse numbers; every translation ends with [n] or [n _ m] · docs(progress) | 126 in all (with the syntax gate), every one green |
-| 2 | PDF import keeps every page; page starts and the original file remembered | not started | | |
+| 2 | PDF import keeps every page; page starts and the original file remembered | **done** — waiting for the owner's check | `fd67dd2` fix(ocr): the offline OCR engine answers inside Electron · `cadff79` feat(import): a PDF keeps every page; each page's place and the PDF's location are kept · docs(progress) | 138 in all (with the syntax gate), every one green |
 | 3 | Search that understands Uyghur suffixes | not started | | |
 | 4 | One search across the books, the Qur'an and the notebook | not started | | |
 | 5 | «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» | not started | | |
@@ -86,6 +86,35 @@ Found in the source text, left as it is (no letter is ever changed):
   after the marker. 15:97 begins with «:» once its leading marker «(97)» is
   gone; 11:54 ends «جۇدامەن،.».
 
+## Phase 2 — done
+
+| Item | What changed | Tests (red before → green after) |
+|---|---|---|
+| Every page | `src/pdf-text.js` (UMD): `extract` reads every page of the text layer with progress («PDF ئوقۇلىۋاتىدۇ: بەت 120 / 512»), yielding every 10 pages; `joinPages` keeps today's joins exactly ('\n' after each text-layer page; OCR pages with '\n\n', the whole trimmed) and gives each page's range. The single import (`handleFileResult`) and the batch import (`confirmBatchImport`) both use it. | `pdf-no-page-cap` — red: «got ["Math.min(pdf.numPages,100)","Math.min(pdf.numPages, 200)"]»; `pdf-extract-every-page` (a generated 150-page PDF read by the bundled pdf.js) — red: «src/pdf-text.js … is not loaded» |
+| Page map | Migration step 7 `pdf_pages_and_original`: `book_page_map(book_id, page_no, start, "end", PRIMARY KEY(book_id, page_no))`, cascade on book delete. `normalizeWithRanges` (`text-normalize.js`) maps the extracted ranges onto the stored text (each range and gap folded on its own, then checked against the whole; a misfit drops the map). `addBook` (now one transaction) and `addBooksBatch` write it. The renderer sends ranges only while the staged text is the one they were measured in (`stagePages`); an AI cleanup of OCR text or another file drops them. `saveBookContent` with a different text, and the letters repair, drop a book's map. | `pdf-ranges-through-normalisation` — red: «normalizeWithRanges is not a function»; `pdf-step-adds-page-map-and-original` — red: no step; `pdf-add-book-keeps-every-page`, `pdf-batch-keeps-every-page`, `pdf-map-dropped-when-text-is-replaced` — red: «no such table: book_page_map» |
+| The original | `books.original_size`, `original_mtime`, `original_sha256` beside the old `original_path` (added by the step if a very old library lacks it). `pdf-original.js` (main): `fileFacts`, `originalStatus` (found / moved / missing), `locateOriginal`. `db-add-book` and `db-add-books-batch` read the facts from the path themselves — never from the renderer — only for a `.pdf`. IPC `pdf-original-status` (records a new time when the same bytes were copied), `pdf-locate-original` (open dialog → same SHA-256 taken at once; another file, or any for a book from before 3.6, only after «ھەئە، شۇ كىتاب» in a native dialog). Preload `pdfOriginalStatus`, `pdfLocateOriginal`. `pdf-original.js` added to `build.files`. | `pdf-original-found-moved-missing` — red: «Cannot find module … pdf-original.js» |
+| OCR cap said | `PdfText.OCR_MAX_PAGES` = 300. Progress: «UKIJ OCR: بەت 12 / 300 (PDF دا 512 بەت؛ ئالدىنقى 300 بېتى ئوقۇلىدۇ)»; result and toast: «300 / 512 بەت ئوقۇلدى»; the description gets «PDF دا 512 بەت بار؛ OCR بىلەن ئالدىنقى 300 بېتى ئوقۇلدى.» (a later run replaces it, the owner can edit it). UKIJ OCR pages keep their ranges, an empty page an empty range. | `pdf-ocr-join-and-cap` — red |
+| Found: OCR stood still behind other windows | pdf.js's default display intent waits for animation frames; a window behind another one draws none. `PdfText.renderPage` draws with `intent: 'print'`; OCR uses it. | `pdf-render-in-a-hidden-window` — red: «the page was not drawn in 3 s» |
+| Found: the offline OCR engine never answered | tesseract.js 5.1.1 calls its environment «electron» inside Electron, takes the local tessdata folder for a web address, and throws «Only absolute URLs are supported» outside any promise, so `ocr-recognize` never returns. `ocr-engine.js` (main): the models are read as tesseract's read-only cache (`cachePath` = tessdata, `cacheMethod: 'readOnly'` — never written, never deleted); every requested model is checked first. Also added to `build.files`. | `ocr-engine-answers` (the engine started with the app's options inside the test runner's Electron main process) — red: «the OCR engine did not answer: TypeError: Only absolute URLs are supported»; `ocr-engine-wired` — red |
+
+Checked in `npm run dev` over the DevTools protocol (DEV library only; the
+test books were removed afterwards, their page maps went with them):
+- Step 7 ran after its backup (`library-before-3.5.0-2026-10-27-152139.db`).
+- A generated 500-page PDF through `handleFileResult` and «قوشۇش»: 916,344
+  characters extracted in 483 ms; stored 916,354 (ten lam-alef glyphs became
+  two letters each); 500 ranges, consecutive, covering the text with the
+  joins; no glyph codepoint left; the last page ends «End of page 500.»; its
+  path, size, time and SHA-256 recorded; `pdf-original-status` → found.
+- The batch import of a 150-page PDF: 150 ranges, same checks.
+- OCR with the cap lowered to 3 (in the page's memory only), the window
+  behind other windows: 3 pages in 18 s, the progress, result, toast and
+  description lines as above, ranges `[0,1871] [1873,3744] [3746,5617]`.
+
+**Important for the owner:** the OCR code and the tesseract.js / Electron
+versions are unchanged since v3.1.0, and the engine fails the same way in a
+bare Electron main process — so the offline OCR has most likely not worked
+in any desktop release since 3.1.0 (the import dialog waited for ever).
+
 ## Measurements
 
 | What | Result | Where measured |
@@ -95,6 +124,11 @@ Found in the source text, left as it is (no letter is ever changed):
 | `quran_fts` after an UPDATE without 'rebuild' | `integrity-check` → «database disk image is malformed» | `quran-step-recleans-and-groups` with the rebuild taken out, Phase 1 |
 | Reading the XML and building every verse's row and group | about 0.1 s | node, Phase 1 |
 | `UthmanicHafs1.otf` digits | plain (`liga` off) **0.27 em** tall; with `liga` a run of digits becomes the verse-end medallion, **0.89 em** tall; «ن» 0.61 em. `UKIJ Ekran`: «152» 0.71 em, «١٥٢» 0.64 em | screenshots of 100 px text in the dev app, ink measured from the PNG, Phase 1 |
+| Reading a 500-page text PDF | 916,344 characters in **483 ms**; the longest pause of a 20 ms timer during it: **21 ms** | dev app, Phase 2 |
+| pdf.js and text beyond the page's edge | left out: a 1,854-character line set past the edge came back as 97 characters (the test PDF generator now wraps its lines) | dev app, Phase 2 |
+| pdf.js `render()` in a window behind another one | display intent: never finishes (no frame; `requestAnimationFrame` never fires — `visibilityState` «hidden»); `intent: 'print'`: **20 ms** | dev app, Phase 2 |
+| tesseract.js 5.1.1 inside Electron 28 | environment «electron» → a local `langPath` is fetched as an address → «Only absolute URLs are supported», thrown outside any promise; `{ code, data }` models → «initialization failed»; a `readOnly` cache at tessdata → works (3 pages of `eng` in 18 s, page render to text) | bare Electron main process, the dev app, `ocr-engine-answers`, Phase 2 |
+| The test runner's hidden window | `requestAnimationFrame` **did** fire in this run (3.5 recorded that it never does); CLAUDE.md now says a test cannot count on either | `pdf-render-in-a-hidden-window` (first version), Phase 2 |
 
 ### Phase 1 checklist for the owner (`npm run dev`)
 
@@ -109,8 +143,17 @@ Found in the source text, left as it is (no letter is ever changed):
 9. سۈرىنىڭ ئەڭ ئاستىدىكى مەنبە ئۇچۇرى (Tanzil، QuranEnc) ئىلگىرىكىدەك.
 10. ئايەت نومۇرىنىڭ يېڭى كۆرۈنۈشى (گۈللۈك چەمبەر) سىزگە ياقمىسا ئېيتىڭ: باشقا تاللاش — بىزنىڭ ئاددىي چەمبىرىمىز ئىچىدە ئۇيغۇرچە خەتتىكى ئەرەبچە رەقەملەر (ئوسمانى خەت ئەمەس).
 
+### Phase 2 checklist for the owner (`npm run dev`)
+
+1. 100 بەتتىن كۆپ بەتلىك، تېكىستلىك (سىكان ئەمەس) بىر PDF نى «كىتاب قوشۇش» بىلەن ئەكىرىڭ ← ئوقۇۋاتقاندا «PDF ئوقۇلىۋاتىدۇ: بەت 120 / 512» دەك سان كۆرۈنىدۇ. قوشۇپ بولۇپ كىتابنى ئېچىڭ، ئەڭ ئاخىرقى بەتكە بېرىڭ ← PDF نىڭ ئاخىرقى بېتىدىكى تېكىست بار (بۇرۇن 100-بەتتە توختايتتى).
+2. ئۇزۇن بىر PDF بار قىسقۇچنى «تۈركۈملەپ قوشۇش» بىلەن ئەكىرىڭ ← ئۇ كىتابنىڭمۇ ئاخىرقى بېتى بار (بۇرۇن 200-بەتتە توختايتتى).
+3. سىكان قىلىنغان (رەسىملىك) بىر PDF ئەكىرىپ «UKIJ OCR (تورسىز)» نى بېسىڭ ← OCR بەتمۇبەت ئىلگىرىلەيدۇ. ئۇ ئىشلەۋاتقاندا باشقا بىر پروگراممىغا ئۆتۈپ، بىر-ئىككى مىنۇتتىن كېيىن قايتىپ كېلىڭ ← توختاپ قالماي داۋاملاشقان بولىدۇ.
+4. 300 بەتتىن ئۇزۇن سىكان PDF بولسا ← ئىلگىرىلەش قۇرىدا «(PDF دا 512 بەت؛ ئالدىنقى 300 بېتى ئوقۇلىدۇ)»، ئاخىرىدا «300 / 512 بەت ئوقۇلدى» يېزىلىدۇ، «چۈشەندۈرۈش» رامكىسىغا بۇ ھەقتە بىر قۇر قوشۇلىدۇ (ئۆزگەرتسىڭىز ياكى ئۆچۈرسىڭىز بولىدۇ).
+5. ئەسلى PDF كۆچۈرۈلمەيدۇ، ئورنىلا ئەستە قالىدۇ — بۇ باسقۇچتا كۆرۈنىدىغان ئۆزگىرىش يوق؛ 7-باسقۇچتا ئىشلىتىلىدۇ.
+
 ## Deferred
 
 | Item | Why | When |
 |---|---|---|
-| — | | |
+| A page map for Gemini OCR imports | The online engine reads two pages per request and returns one text, so where one page ends is not known. Changing its batching would be an AI change (out of scope for 3.6). Phase 7 places such pages like a book from before 3.6. | Phase 7, or a later release |
+| A page map when the staged OCR text was cleaned by AI before «قوشۇش» | The AI rewrote the text; the ranges no longer fit it, so none are stored (by design). Phase 7 can realign. | Phase 7 |
