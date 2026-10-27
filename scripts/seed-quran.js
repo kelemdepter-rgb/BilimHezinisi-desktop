@@ -223,7 +223,8 @@ function parseUyghurXml(xmlContent) {
       let text = trEl.text.trim();
       // Strip CDATA wrappers that node-html-parser doesn't unwrap automatically.
       text = text.replace(/^<!\[CDATA\[([\s\S]*?)\]\]>$/, '$1').trim();
-      text = text.replace(/\(\d+\)[.。]?\s*$/, '').trim();
+      // The text as the file has it, verse markers included: uyghurGroups()
+      // reads them, and cleanUyghurTranslation() takes them out.
       map[suraNum][ayaNum] = text;
     }
   }
@@ -341,6 +342,7 @@ async function seedQuran(projectRoot, database) {
     name_translit: s.tr, revelation: s.rev, aya_count: s.count
   }));
 
+  const groups = uyghurGroups(ugMap);
   const ayas = [];
   for (let sn = 1; sn <= 114; sn++) {
     const expectedCount = SURA_META[sn - 1].count;
@@ -352,11 +354,14 @@ async function seedQuran(projectRoot, database) {
       if (an === 1 && sn !== 1) {
         ar = stripBasmalaPrefix(ar);
       }
+      const group = (groups[sn] && groups[sn][an]) || { from: an, to: an };
       ayas.push({
         sura: sn, aya: an,
         text_ar: ar,
         text_ar_simple: stripTashkil(ar),
-        text_ug: cleanUyghurTranslation(ug)
+        text_ug: cleanUyghurTranslation(ug),
+        ug_from: group.from,
+        ug_to: group.to
       });
     }
   }
@@ -366,17 +371,137 @@ async function seedQuran(projectRoot, database) {
   return result;
 }
 
+// ========== VERSE MARKERS AND TRANSLATION GROUPS (3.6) ==========
+// Each translation in the QuranEnc file ends with its verse number in
+// parentheses: «…ئىگىسىدۇر(4).». Runs of consecutive verses that the
+// translator rendered as one sentence carry the same text under each verse
+// and a range marker: «(160ـ161)», separated by a tatweel (U+0640) in most,
+// by a hyphen in a few, sometimes backwards («(56- 55)»), with stray
+// separators or a zero-width joiner in some single markers («(54 ـ )»,
+// «(‍88)»). Parentheses that hold words are translation text and stay
+// (58:4 «(60 مىسكىنگە بىر ۋاخ تاماق بېرىشى لازىم)»).
+
+/** A parenthesised group of digits and separators only, with the space before it. */
+const VERSE_MARKER = /\s*\(([\s0-9٠-٩\-–ـ،,‌‍]*)\)/g;
+const MARKER_DIGIT = /[0-9٠-٩]/;
+// After a removed marker, a space is kept only before more words: never
+// before punctuation, and never at the end.
+const NO_SPACE_BEFORE = /[\s.،؛:!?؟»)\]]/;
+
 /**
- * Cleans Uyghur translation text by removing tafsir citation markers
- * like (1), (2،3), [12] that appear inline in the Saleh translation.
+ * The translation without its verse markers. Nothing else is removed or
+ * changed — not a letter, not a punctuation mark; only the whitespace is
+ * collapsed, as before.
  */
 function cleanUyghurTranslation(text) {
   if (!text) return '';
   return String(text)
-    .replace(/\([\d،,\s\-]+\)/g, '')
-    .replace(/\[[\d،,\s\-]+\]/g, '')
+    .replace(VERSE_MARKER, function (m, inner, at, s) {
+      if (!MARKER_DIGIT.test(inner)) return m;
+      const after = s.charAt(at + m.length);
+      return at > 0 && after && !NO_SPACE_BEFORE.test(after) ? ' ' : '';
+    })
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-module.exports = { seedQuran, stripTashkil, stripBasmalaPrefix, cleanUyghurTranslation, SURA_META };
+function westernDigits(s) {
+  return s.replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660));
+}
+
+/**
+ * The verses a translation's marker names, if one of its markers holds this
+ * verse: { from, to } in order («56- 55» is 55–56). 6:5 carries «(4)» from a
+ * copy of 6:4's sentence before its own «(5)», so only a marker that holds
+ * the verse counts.
+ */
+function markerRange(text, aya) {
+  for (const m of String(text || '').matchAll(VERSE_MARKER)) {
+    const nums = (westernDigits(m[1]).match(/\d+/g) || []).map(Number);
+    if (!nums.length) continue;
+    const from = Math.min.apply(null, nums);
+    const to = Math.max.apply(null, nums);
+    if (from <= aya && aya <= to) return { from: from, to: to };
+  }
+  return null;
+}
+
+/**
+ * Which verses share one translation, from the RAW text of the bundled file
+ * (never from the cleaned column): consecutive verses with identical text,
+ * joined with the range in their marker. 53:13 and 53:14 both end «(13ـ14)»
+ * though 53:14's text is a shortened copy of 53:13's — the marker makes them
+ * one group. A verse on its own is { from: aya, to: aya }.
+ *
+ * @param {Object<number, Object<number, string>>} ugMap sura -> aya -> raw text
+ * @returns {Object<number, Object<number, {from: number, to: number}>>}
+ */
+function uyghurGroups(ugMap) {
+  const out = {};
+  for (const sura of Object.keys(ugMap)) {
+    const texts = ugMap[sura];
+    const ayas = Object.keys(texts).map(Number).sort((a, b) => a - b);
+    if (!ayas.length) continue;
+    const last = ayas[ayas.length - 1];
+    // Union-find over the verses of the sura; every union joins an
+    // interval, so each group comes out as a run of consecutive verses.
+    const parent = {};
+    const find = a => (parent[a] === a ? a : (parent[a] = find(parent[a])));
+    const join = (a, b) => { parent[find(a)] = find(b); };
+    for (const a of ayas) parent[a] = a;
+    for (let i = 1; i < ayas.length; i++) {
+      if (ayas[i] === ayas[i - 1] + 1 && texts[ayas[i]] === texts[ayas[i - 1]]) join(ayas[i], ayas[i - 1]);
+    }
+    for (const a of ayas) {
+      const r = markerRange(texts[a], a);
+      if (!r) continue;
+      for (let b = Math.max(1, r.from); b <= Math.min(last, r.to); b++) {
+        if (parent[b] !== undefined) join(b, a);
+      }
+    }
+    const span = {};
+    for (const a of ayas) {
+      const root = find(a);
+      const s = span[root] || (span[root] = { from: a, to: a });
+      if (a < s.from) s.from = a;
+      if (a > s.to) s.to = a;
+    }
+    out[sura] = {};
+    for (const a of ayas) {
+      const s = span[find(a)];
+      out[sura][a] = { from: s.from, to: s.to };
+    }
+  }
+  return out;
+}
+
+/**
+ * Every verse's cleaned translation and its group, read from the bundled
+ * XML — for the migration step that re-cleans a library seeded before 3.6.
+ * Throws if the file is missing (an installation that lost it).
+ *
+ * @returns {Array<{sura: number, aya: number, text_ug: string, ug_from: number, ug_to: number}>}
+ */
+function uyghurTranslationRows(projectRoot) {
+  const file = findUyghurXml(projectRoot);
+  if (!file) throw new Error('the bundled Uyghur translation XML is missing');
+  const ugMap = parseUyghurXml(fs.readFileSync(file, 'utf-8'));
+  const groups = uyghurGroups(ugMap);
+  const rows = [];
+  for (const sura of Object.keys(ugMap)) {
+    for (const aya of Object.keys(ugMap[sura])) {
+      const g = groups[sura][aya];
+      rows.push({
+        sura: Number(sura), aya: Number(aya),
+        text_ug: cleanUyghurTranslation(ugMap[sura][aya]),
+        ug_from: g.from, ug_to: g.to
+      });
+    }
+  }
+  return rows;
+}
+
+module.exports = {
+  seedQuran, stripTashkil, stripBasmalaPrefix, cleanUyghurTranslation, SURA_META,
+  uyghurGroups, uyghurTranslationRows
+};

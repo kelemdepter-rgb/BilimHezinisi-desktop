@@ -292,6 +292,7 @@ function close() {
   // Cached text belongs to the library it was read from (a restore, or the
   // tests, open another one).
   contentCache.clear();
+  quranGroupCols = null;
 }
 
 // ========== SCHEMA MIGRATIONS ==========
@@ -396,6 +397,35 @@ const MIGRATIONS = [
       `);
       db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(FTS_FILL_KEY, '0');
     }
+  },
+  {
+    // 3.6 — which verses share one translation, and the translation without
+    // its verse markers. 185 runs of consecutive verses carry the same
+    // sentence in the bundled QuranEnc file, with a range marker such as
+    // «(160ـ161)»; the 3.5 cleaner did not know the tatweel, so about 430
+    // verses showed that marker inside the translation. Both come from the
+    // bundled XML, the source of truth (scripts/seed-quran.js), never from
+    // the cleaned column. This is bundled text, not the writer's: the step
+    // rewrites text_ug from the file, after the usual backup.
+    //
+    // A library not seeded yet gets the columns only; the seed, which runs
+    // after the steps, writes both.
+    version: 6,
+    name: 'quran_translation_groups',
+    up(db) {
+      db.exec(`
+        ALTER TABLE quran_ayas ADD COLUMN ug_from INTEGER;
+        ALTER TABLE quran_ayas ADD COLUMN ug_to INTEGER;
+      `);
+      if (!db.prepare('SELECT COUNT(*) AS n FROM quran_ayas').get().n) return;
+      const rows = require('./scripts/seed-quran').uyghurTranslationRows(__dirname);
+      const update = db.prepare('UPDATE quran_ayas SET text_ug=?, ug_from=?, ug_to=? WHERE sura=? AND aya=?');
+      for (const r of rows) update.run(r.text_ug, r.ug_from, r.ug_to, r.sura, r.aya);
+      db.exec('UPDATE quran_ayas SET ug_from = aya, ug_to = aya WHERE ug_from IS NULL OR ug_to IS NULL');
+      // quran_fts indexes quran_ayas through insert and delete triggers only;
+      // after an UPDATE it would still hold the old words.
+      if (hasQuranFTS) db.exec("INSERT INTO quran_fts(quran_fts) VALUES('rebuild')");
+    }
   }
 ];
 
@@ -483,13 +513,17 @@ async function runMigrations(opts) {
   if (typeof options.beforeFirst === 'function') await options.beforeFirst(from, to);
 
   const ran = [];
-  for (const step of pending) {
-    db.transaction(() => {
-      step.up(db);
-      db.pragma('user_version = ' + step.version);
-    })();
-    ran.push(step.version);
-    console.log('[migration] ' + step.version + ' ' + (step.name || '') + ' applied');
+  try {
+    for (const step of pending) {
+      db.transaction(() => {
+        step.up(db);
+        db.pragma('user_version = ' + step.version);
+      })();
+      ran.push(step.version);
+      console.log('[migration] ' + step.version + ' ' + (step.name || '') + ' applied');
+    }
+  } finally {
+    quranGroupCols = null; // a step may have added them
   }
   return { from: from, to: to, ran: ran };
 }
@@ -964,12 +998,13 @@ function quranSeedBulk(suras, ayas) {
     throw new Error('quranSeedBulk: suras and ayas must be arrays');
   }
 
+  const groups = hasQuranGroups();
   const insertSura = db.prepare(
     `INSERT INTO quran_suras (number, name_ar, name_ug, name_translit, revelation, aya_count) VALUES (?,?,?,?,?,?)`
   );
-  const insertAya = db.prepare(
-    `INSERT INTO quran_ayas (sura, aya, text_ar, text_ar_simple, text_ug) VALUES (?,?,?,?,?)`
-  );
+  const insertAya = groups
+    ? db.prepare(`INSERT INTO quran_ayas (sura, aya, text_ar, text_ar_simple, text_ug, ug_from, ug_to) VALUES (?,?,?,?,?,?,?)`)
+    : db.prepare(`INSERT INTO quran_ayas (sura, aya, text_ar, text_ar_simple, text_ug) VALUES (?,?,?,?,?)`);
 
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM quran_ayas').run();
@@ -979,12 +1014,79 @@ function quranSeedBulk(suras, ayas) {
       insertSura.run(s.number, s.name_ar, s.name_ug, s.name_translit || '', s.revelation || 'meccan', s.aya_count);
     }
     for (const a of ayas) {
-      insertAya.run(a.sura, a.aya, a.text_ar, a.text_ar_simple, a.text_ug || '');
+      if (groups) {
+        insertAya.run(a.sura, a.aya, a.text_ar, a.text_ar_simple, a.text_ug || '', a.ug_from || a.aya, a.ug_to || a.aya);
+      } else {
+        insertAya.run(a.sura, a.aya, a.text_ar, a.text_ar_simple, a.text_ug || '');
+      }
     }
   });
 
   tx();
   return { suras: suras.length, ayas: ayas.length };
+}
+
+// ========== QURAN TRANSLATION GROUPS (3.6) ==========
+// Verses the translator rendered as one sentence share one translation;
+// ug_from / ug_to (migration step 6) name the group each verse belongs to —
+// a verse on its own has ug_from = ug_to = aya. A library whose step 6 could
+// not run reads every verse as its own group.
+
+let quranGroupCols = null;
+function hasQuranGroups() {
+  if (quranGroupCols === null) {
+    const cols = db.prepare('PRAGMA table_info(quran_ayas)').all().map(c => c.name);
+    quranGroupCols = cols.indexOf('ug_from') !== -1 && cols.indexOf('ug_to') !== -1;
+  }
+  return quranGroupCols;
+}
+
+/** The two group columns, for a SELECT over quran_ayas aliased `alias`. */
+function quranGroupSql(alias) {
+  const p = alias ? alias + '.' : '';
+  return hasQuranGroups()
+    ? `COALESCE(${p}ug_from, ${p}aya) AS ug_from, COALESCE(${p}ug_to, ${p}aya) AS ug_to`
+    : `${p}aya AS ug_from, ${p}aya AS ug_to`;
+}
+
+/**
+ * The translation a group shows: the longest of its verses' texts. They are
+ * identical but for 53:13–14, where 53:14's is a shortened copy of 53:13's.
+ */
+function quranGroupText(sura, from, to) {
+  const row = db.prepare(`
+    SELECT text_ug FROM quran_ayas WHERE sura=? AND aya BETWEEN ? AND ?
+    ORDER BY length(text_ug) DESC, aya LIMIT 1
+  `).get(sura, from, to);
+  return row ? row.text_ug : '';
+}
+
+/**
+ * One search result per translation group: the verses of a group share one
+ * translation, which would otherwise come back once per verse. A card keeps
+ * the place of its best-ranked hit and lists, in order, every verse of the
+ * group that was found, each with its own Arabic.
+ */
+function collapseQuranGroups(rows) {
+  const cards = [];
+  const byGroup = new Map();
+  for (const r of rows) {
+    const from = r.ug_from || r.aya;
+    const to = r.ug_to || r.aya;
+    const key = r.sura + ':' + from;
+    let card = byGroup.get(key);
+    if (!card) {
+      card = Object.assign({}, r, { ug_from: from, ug_to: to, verses: [] });
+      byGroup.set(key, card);
+      cards.push(card);
+    }
+    card.verses.push({ aya: r.aya, text_ar: r.text_ar, snip_ar: r.snip_ar || '' });
+  }
+  for (const card of cards) {
+    card.verses.sort((a, b) => a.aya - b.aya);
+    card.group_text_ug = card.ug_to > card.ug_from ? quranGroupText(card.sura, card.ug_from, card.ug_to) : card.text_ug;
+  }
+  return cards;
 }
 
 function quranGetSuras() {
@@ -996,16 +1098,20 @@ function quranGetSuras() {
 
 function quranGetAyas(suraNumber) {
   return db.prepare(`
-    SELECT id, sura, aya, text_ar, text_ar_simple, text_ug
+    SELECT id, sura, aya, text_ar, text_ar_simple, text_ug, ${quranGroupSql('')}
     FROM quran_ayas WHERE sura=? ORDER BY aya
   `).all(suraNumber);
 }
 
+/** One verse, with its group and the group's translation (group_text_ug). */
 function quranGetAya(sura, aya) {
-  return db.prepare(`
-    SELECT id, sura, aya, text_ar, text_ar_simple, text_ug
+  const row = db.prepare(`
+    SELECT id, sura, aya, text_ar, text_ar_simple, text_ug, ${quranGroupSql('')}
     FROM quran_ayas WHERE sura=? AND aya=?
-  `).get(sura, aya) || null;
+  `).get(sura, aya);
+  if (!row) return null;
+  row.group_text_ug = row.ug_to > row.ug_from ? quranGroupText(row.sura, row.ug_from, row.ug_to) : row.text_ug;
+  return row;
 }
 
 // ========== QURAN BOOKMARKS (W17) ==========
@@ -1161,25 +1267,25 @@ function quranSearch(query, opts) {
 
       let sql;
       if (lang === 'ar') {
-        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug,
+        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug, ${quranGroupSql('a')},
                snippet(quran_fts, 0, '<mark>', '</mark>', '...', 10) AS snip_ar,
                '' AS snip_ug
                FROM quran_fts JOIN quran_ayas a ON a.id=quran_fts.rowid
                WHERE quran_fts.text_ar_simple MATCH ? ORDER BY rank LIMIT ?`;
       } else if (lang === 'ug') {
-        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug,
+        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug, ${quranGroupSql('a')},
                '' AS snip_ar,
                snippet(quran_fts, 1, '<mark>', '</mark>', '...', 10) AS snip_ug
                FROM quran_fts JOIN quran_ayas a ON a.id=quran_fts.rowid
                WHERE quran_fts.text_ug MATCH ? ORDER BY rank LIMIT ?`;
       } else {
-        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug,
+        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug, ${quranGroupSql('a')},
                snippet(quran_fts, 0, '<mark>', '</mark>', '...', 10) AS snip_ar,
                snippet(quran_fts, 1, '<mark>', '</mark>', '...', 10) AS snip_ug
                FROM quran_fts JOIN quran_ayas a ON a.id=quran_fts.rowid
                WHERE quran_fts MATCH ? ORDER BY rank LIMIT ?`;
       }
-      return db.prepare(sql).all(ftsQuery, limit);
+      return collapseQuranGroups(db.prepare(sql).all(ftsQuery, limit));
     } catch (e) {
       console.log('Quran FTS5 query failed, using LIKE fallback:', e.message);
     }
@@ -1195,20 +1301,20 @@ function quranSearchSimple(q, lang, limit) {
 
   let sql, params;
   if (lang === 'ar') {
-    sql = `SELECT id, sura, aya, text_ar, text_ug FROM quran_ayas
+    sql = `SELECT id, sura, aya, text_ar, text_ug, ${quranGroupSql('')} FROM quran_ayas
            WHERE text_ar_simple LIKE ? OR text_ar LIKE ? LIMIT ?`;
     params = ['%' + qAr + '%', '%' + qAr + '%', limit];
   } else if (lang === 'ug') {
-    sql = `SELECT id, sura, aya, text_ar, text_ug FROM quran_ayas
+    sql = `SELECT id, sura, aya, text_ar, text_ug, ${quranGroupSql('')} FROM quran_ayas
            WHERE text_ug LIKE ? LIMIT ?`;
     params = ['%' + qUg + '%', limit];
   } else {
-    sql = `SELECT id, sura, aya, text_ar, text_ug FROM quran_ayas
+    sql = `SELECT id, sura, aya, text_ar, text_ug, ${quranGroupSql('')} FROM quran_ayas
            WHERE text_ar_simple LIKE ? OR text_ar LIKE ? OR text_ug LIKE ? LIMIT ?`;
     params = ['%' + qAr + '%', '%' + qAr + '%', '%' + qUg + '%', limit];
   }
   const rows = db.prepare(sql).all(...params);
-  return rows.map(r => ({ ...r, snip_ar: '', snip_ug: '' }));
+  return collapseQuranGroups(rows.map(r => ({ ...r, snip_ar: '', snip_ug: '' })));
 }
 
 // ========== NOTES (DOCUMENTS) ==========
@@ -1534,7 +1640,7 @@ function quranContentSnippet(needle, maxResults, ctx) {
         : tokens[0] + '*';
 
       const rows = db.prepare(`
-        SELECT a.sura, a.aya, a.text_ug, a.text_ar_simple,
+        SELECT a.sura, a.aya, a.text_ug, a.text_ar_simple, ${quranGroupSql('a')},
                snippet(quran_fts, 0, '§MARK_OPEN§', '§MARK_CLOSE§', '...', 12) AS snip_ar,
                snippet(quran_fts, 1, '§MARK_OPEN§', '§MARK_CLOSE§', '...', 12) AS snip_ug
         FROM quran_fts
@@ -1545,8 +1651,12 @@ function quranContentSnippet(needle, maxResults, ctx) {
       `).all(ftsQuery, MAX);
 
       const out = [];
+      const groupsSeen = new Set();   // a shared translation is listed once
       for (const row of rows) {
         if (row.snip_ug && row.snip_ug.indexOf('§MARK_OPEN§') !== -1) {
+          const key = row.sura + ':' + row.ug_from;
+          if (groupsSeen.has(key)) continue;
+          groupsSeen.add(key);
           out.push({
             snip: String(row.snip_ug).replace(/\s+/g, ' ').trim(),
             pos: 0, sura: row.sura, aya: row.aya, lang: 'ug'
@@ -1569,10 +1679,11 @@ function quranContentSnippet(needle, maxResults, ctx) {
     ? normalizeArabicQuery(cleanNeedle).toLowerCase()
     : lcNeedle;
   const snippets = [];
+  const groupsSeen = new Set();   // a shared translation is listed once
 
   function scanColumn(col, langTag) {
     if (snippets.length >= MAX) return;
-    const rows = db.prepare(`SELECT sura, aya, ${col} AS txt FROM quran_ayas ORDER BY sura, aya`).all();
+    const rows = db.prepare(`SELECT sura, aya, ${col} AS txt, ${quranGroupSql('')} FROM quran_ayas ORDER BY sura, aya`).all();
     for (const row of rows) {
       if (snippets.length >= MAX) break;
       const text = row.txt || '';
@@ -1582,6 +1693,10 @@ function quranContentSnippet(needle, maxResults, ctx) {
       const needle = (langTag === 'ar') ? lcArNeedle : lcNeedle;
       const hit = lcText.indexOf(needle);
       if (hit === -1) continue;
+      if (langTag === 'ug') {
+        if (groupsSeen.has(row.sura + ':' + row.ug_from)) continue;
+        groupsSeen.add(row.sura + ':' + row.ug_from);
+      }
 
       const start = Math.max(0, hit - CTX);
       const end = Math.min(text.length, hit + needle.length + CTX);
