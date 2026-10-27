@@ -136,6 +136,13 @@ Rules written by the 3.6 phases (work order: `prompts/3.6/PROMPT-3.6.md`, status
 - **A text is lower-cased only when it has a cased letter** (`searchForms.lowered`): lower-casing 100 MB of Uyghur took 0.6 s for nothing.
 - **The reader marks what the search found:** the words the forms found in that book (`db-search-words`, asked when the book opens) as whole words, and the query as typed anywhere — one expression (`ReaderPlaces.searchRe`) for the marks and for counting the matches before a place; a test proves it marks exactly the search's spans.
 
+### One search: books, Qur'an, notebook (Phase 4)
+- **Three sources, one request each, at once** (`db-search`, `quran-search`, `notes-search`, each with `{ forms }`); each section is drawn as its answer arrives, so a slow source never holds back the others, and a newer search makes an older answer stale (`S.srchSeq`). The history records the query once (`db-search`).
+- **Sections in this order, with their counts:** «كىتابلار»، «قۇرئان كەرىم»، «خاتىرە دەپتىرىم». Every card carries its source as a small label. Chips «ھەممىسى · كىتابلار · قۇرئان كەرىم · خاتىرە دەپتىرىم»; «ھەممىسى» shows each section's first five and «يەنە كۆرسىتىش», which opens that chip; the books keep their pagination. The category filters the books only, and the page says so next to the chips.
+- **The Qur'an:** the Arabic as before; with the forms, the translation also through the Uyghur forms (`quranFormRows`: the index names the candidates with `text_ug : (…)`, the matcher decides), one card per translation group with its «[n _ m]».
+- **The notebook:** `notesSearch(q, opts)` with `opts` reads every note's title and text through the matcher — never the trash, pinned first, at most 50 — and gives `snip`, `mark`, `titleMark`, `words`. Without `opts` it is the notebook list's search, as it was.
+- **Opening a result:** a book → the reader at the place (as before); a verse → the Qur'an at it, selected (`S.quran.selectAya`, the first verse too); a note → `notesOpen`, then `notesShowFound(query, words)`: the find bar, find only, with every word found painted by the find highlight — nothing written into the note. Another query in the box, or Ctrl+H, is the plain find bar. `setMode` returns the view's render promise for this.
+
 ## Build / Release Workflow
 Edit only in the source folder → `npm test` (the syntax gate — `node --check` over every `.js` and the inline scripts of `index.html` — plus the main-process and notebook suites; `npm run check-syntax` runs the gate alone) → test with `npm run dev` (`npm start` only for a final check on the real library) → bump `version` in `package.json` → `npm run fetch-ocr-models` on a networked machine (BEFORE dist, so models ship) → `npm run dist-win` → commit per change.
 

@@ -105,6 +105,17 @@ button, .hbtn, .vb, .ci, .mt, input, select, textarea { transition: background-c
 .sb-forms { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 11px; color: var(--text2); cursor: pointer; white-space: nowrap; user-select: none; }
 .sb-forms input { margin: 0; accent-color: var(--am); cursor: pointer; }
 .sr-forms { font-size: 12px; color: var(--text3); margin: 0 0 10px; }
+/* One search across the books, the Qur'an and the notebook (3.6). */
+.srch-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.srch-chip { font-family: var(--jf); font-size: 12px; color: var(--text2); background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 14px; padding: 4px 12px; cursor: pointer; }
+.srch-chip.on { background: var(--am); border-color: var(--am); color: #fff; }
+.srch-cat-note { font-size: 11px; color: var(--text3); }
+.srch-sec { margin-bottom: 18px; }
+.srch-sec-head { font-size: 13px; font-weight: 700; color: var(--text); margin: 0 0 8px; }
+.srch-sec-msg { font-size: 12px; color: var(--text3); padding: 4px 2px 8px; }
+.srch-more { font-family: var(--jf); font-size: 12px; color: var(--am); background: none; border: 0.5px dashed var(--border2); border-radius: var(--radius2); padding: 6px 12px; cursor: pointer; width: 100%; }
+.src-label { display: inline-block; font-size: 10px; font-weight: 600; color: var(--am); background: var(--ab); border-radius: 8px; padding: 1px 7px; margin-inline-end: 8px; vertical-align: middle; }
+.srch-ar { font-family: 'UthmanicHafs', serif; font-size: 19px; line-height: 1.9; color: var(--text); direction: rtl; margin-top: 4px; }
 .hbtn { font-size: 12px; background: none; border: 0.5px solid var(--border2); color: var(--text2); padding: 7px 13px; border-radius: 9px; cursor: pointer; font-family: var(--jf); white-space: nowrap; transition: all .15s; }
 .hbtn:hover { background: var(--bg2); color: var(--text); }
 .hbtn.p { background: var(--am); border-color: var(--am); color: #fff; font-weight: 600; box-shadow: 0 2px 8px rgba(176,131,47,.3); }
@@ -1433,9 +1444,10 @@ function setMode(mode) {
     }
     renderBooks();
   } else if (mode === 'quran' && typeof renderQuranView === 'function') {
-    renderQuranView();
+    // The view's promise, for a caller that opens something in it (3.6).
+    return renderQuranView();
   } else if (mode === 'notes' && typeof renderNotesView === 'function') {
-    renderNotesView();
+    return renderNotesView();
   }
 }
 
@@ -1563,6 +1575,10 @@ function setCat(c) {
 }
 function setView(v) { S.view=v; S.page=1; document.getElementById('gvb').className='vb'+(v==='g'?' on':''); document.getElementById('lvb').className='vb'+(v==='l'?' on':''); renderBooks(); }
 
+// One search across the books, the Qur'an and the notebook (3.6): one request
+// per source, all three at once, each section drawn as its answer arrives —
+// a slow source never holds back the others. A newer search makes an older
+// answer stale (S.srchSeq).
 async function doSearch() {
   const q = document.getElementById('si').value.trim();
   if (!q) { clearSearch(); return; }
@@ -1570,15 +1586,61 @@ async function doSearch() {
   S.srch = true; S.res = []; S.page = 1;
   // The forms the search added (3.6), and whether it looked for them.
   S.resForms = []; S.resWithForms = S.searchForms !== false;
+  S.resQuran = []; S.resNotes = [];
+  S.srchQuery = q;
+  S.srchFilter = S.srchFilter || 'all';
+  S.srchState = { books: 'loading', quran: 'loading', notes: 'loading' };
+  const seq = S.srchSeq = (S.srchSeq || 0) + 1;
+  const forms = S.resWithForms;
+  renderSearch(q);
+  const settle = (part, ok) => {
+    if (seq !== S.srchSeq) return false;
+    S.srchState[part] = ok ? 'done' : 'error';
+    renderSearch(q);
+    return true;
+  };
 
+  const quran = (async () => {
+    let r = null;
+    try {
+      if (!S.quran.suras.length) {
+        const sr = await window.electron.quranGetSuras();
+        if (sr && sr.success) S.quran.suras = sr.suras || [];
+      }
+      r = await window.electron.quranSearch(q, { lang: 'auto', limit: 200, forms: forms });
+    } catch (e) { r = null; }
+    if (seq !== S.srchSeq) return;
+    S.resQuran = (r && r.success && Array.isArray(r.results)) ? r.results : [];
+    settle('quran', !!(r && r.success));
+  })();
+
+  const notes = (async () => {
+    let r = null;
+    try { r = await window.electron.notesSearch(q, { forms: forms }); } catch (e) { r = null; }
+    if (seq !== S.srchSeq) return;
+    S.resNotes = (r && r.success && Array.isArray(r.notes)) ? r.notes : [];
+    // A query too short for the notebook (one letter) is not a failure.
+    settle('notes', !!(r && r.success));
+  })();
+
+  const books = searchBooksPart(q, seq, forms).then(ok => settle('books', ok));
+  await Promise.all([books, quran, notes]);
+}
+
+// The books' part of the search: the search as before, with the forms when
+// the switch is on. Resolves whether it worked; a stale answer changes nothing.
+async function searchBooksPart(q, seq, forms) {
+  let ok = true;
+  let res = [];
+  let resForms = [];
   try {
     // Fast path: use SQLite FTS5 search in the backend (single query, no per-book IPC)
-    const result = await window.electron.dbSearch(q, S.cat, { forms: S.resWithForms });
+    const result = await window.electron.dbSearch(q, S.cat, { forms: forms });
     if (!result || !result.success || !Array.isArray(result.results)) {
       throw new Error(result && result.error ? result.error : 'search failed');
     }
 
-    S.res = result.results.map(r => {
+    res = result.results.map(r => {
       // Strip FTS5 snippet() markers so renderSearch can highlight cleanly
       const cleanSnip = (r.snip || '')
         .replace(/<\/?mark>/g, '')
@@ -1604,13 +1666,14 @@ async function doSearch() {
         inC: !!r.inC
       };
     });
-    S.resForms = Array.isArray(result.forms) ? result.forms : [];
+    resForms = Array.isArray(result.forms) ? result.forms : [];
   } catch(e) {
     console.error('Backend search failed, using lightweight fallback:', e);
+    ok = false;
     // Fallback: search only titles and authors from the cached list (no content load)
     const lq = q.toLowerCase();
     const pool = S.cat === 'all' ? S.books : S.books.filter(b => b.category === S.cat);
-    S.res = pool
+    res = pool
       .filter(b => b.title.toLowerCase().includes(lq) || (b.author||'').toLowerCase().includes(lq))
       .map(b => ({
         book: b,
@@ -1620,10 +1683,13 @@ async function doSearch() {
         inA: (b.author||'').toLowerCase().includes(lq),
         inC: false
       }));
-    toast('ئارقا ئىزدەش مۇلازىمىتى ئىشلىمىدى، پەقەت ماۋزۇ/ئاپتوردىن ئىزدەلدى','i');
+    if (seq === S.srchSeq) toast('ئارقا ئىزدەش مۇلازىمىتى ئىشلىمىدى، پەقەت ماۋزۇ/ئاپتوردىن ئىزدەلدى','i');
   }
-
-  renderSearch(q);
+  if (seq !== S.srchSeq) return ok;
+  S.res = res;
+  S.resForms = resForms;
+  // The fallback above still has results to show.
+  return true;
 }
 
 // «قوشۇمچىلىرى بىلەن» (3.6): remembered; a search on screen is run again.
@@ -1655,7 +1721,37 @@ function markedAt(text, span) {
 }
 
 function clearSearch() {
+  S.srchSeq = (S.srchSeq || 0) + 1;   // an answer still on its way is stale now
+  S.srchFilter = 'all';
   S.srch=false; document.getElementById('si').value=''; document.getElementById('clr').style.display='none'; S.page=1; renderBooks();
+}
+
+// «ھەممىسى · كىتابلار · قۇرئان كەرىم · خاتىرە دەپتىرىم» (3.6).
+function setSearchFilter(f) {
+  S.srchFilter = f;
+  S.page = 1;
+  renderSearch();
+  const bd = document.getElementById('bd');
+  if (bd && bd.parentElement) bd.parentElement.scrollTop = 0;
+}
+
+// A verse found: the Qur'an at that verse, selected (3.6).
+async function openQuranHit(idx) {
+  const r = (S.resQuran || [])[idx];
+  if (!r) return;
+  Object.assign(S.quran, { curSura: r.sura, curAya: r.aya, searchResults: null, searchQuery: '', selectAya: true });
+  await setMode('quran');
+}
+
+// A note found: the notebook with that note open and the words found painted
+// with the find highlight — nothing is written into the note (3.6).
+async function openNoteHit(idx) {
+  const n = (S.resNotes || [])[idx];
+  if (!n) return;
+  const q = S.srchQuery || '';
+  await setMode('notes');
+  if (typeof window.notesOpen === 'function') await window.notesOpen(n.id);
+  if (typeof window.notesShowFound === 'function') window.notesShowFound(q, n.words || []);
 }
 
 /**
@@ -1730,79 +1826,157 @@ async function toggleSnips(btn) {
   }
 }
 
+// The search page (3.6): three sections — «كىتابلار», «قۇرئان كەرىم»,
+// «خاتىرە دەپتىرىم» — in that order, each with its count, each card with its
+// source as a small label. «ھەممىسى» shows each section's first results and
+// «يەنە كۆرسىتىش»; a chip shows one section whole (the books with the
+// pagination they always had). The category filters the books only.
+const SEARCH_SECTION_FIRST = 5;
+const SEARCH_SOURCES = [
+  ['books', 'كىتابلار', 'كىتاب'],
+  ['quran', 'قۇرئان كەرىم', 'قۇرئان كەرىم'],
+  ['notes', 'خاتىرە دەپتىرىم', 'خاتىرە دەپتىرىم']
+];
+
 function renderSearch(q) {
-  const sq = q||document.getElementById('si').value.trim();
-  const catLabel = S.cat === 'all' ? 'بارلىق كىتابلار' : sanitize(S.cat);
-  document.getElementById('vtitle').textContent = `ئىزدەش: "${sanitize(sq)}" — ${catLabel} (${S.res.length} نەتىجە)`;
-  if (!S.res.length) {
-    document.getElementById('bd').innerHTML = `<div class="empty"><div class="ei">${icon('search')}</div><h3 style="font-size:16px;font-weight:600;margin-bottom:6px">نەتىجە تېپىلمىدى</h3><p style="font-size:13px">باشقا سۆز بىلەن سىناپ كۆرۈڭ</p></div>`;
-    document.getElementById('pagination').innerHTML = '';
-    return;
-  }
-  const totalPages = Math.ceil(S.res.length / S.pageSize);
-  const start = (S.page - 1) * S.pageSize;
-  const end = start + S.pageSize;
-  const paginated = S.res.slice(start, end);
+  const sq = q || S.srchQuery || document.getElementById('si').value.trim();
+  const st = S.srchState || { books: 'done', quran: 'done', notes: 'done' };
+  const lists = { books: S.res || [], quran: S.resQuran || [], notes: S.resNotes || [] };
+  const filter = S.srchFilter || 'all';
+  const counted = part => st[part] === 'loading' ? '…' : String(lists[part].length);
+  const total = SEARCH_SOURCES.reduce((n, s) => n + (st[s[0]] === 'loading' ? 0 : lists[s[0]].length), 0);
+  const pending = SEARCH_SOURCES.some(s => st[s[0]] === 'loading');
+  document.getElementById('vtitle').textContent = `ئىزدەش: "${sq}" (${total} نەتىجە${pending ? '…' : ''})`;
 
-  const safeQueryAttr = sanitize(sq).replace(/"/g, '&quot;');
+  const chip = (key, label) =>
+    `<button type="button" class="srch-chip${filter === key ? ' on' : ''}" onclick="setSearchFilter('${key}')">${label}${key === 'all' ? '' : ` (${counted(key)})`}</button>`;
+  let html = `<div class="srch-chips">${chip('all', 'ھەممىسى')}${SEARCH_SOURCES.map(s => chip(s[0], s[1])).join('')}`;
+  if (S.cat !== 'all') html += `<span class="srch-cat-note">«${sanitize(S.cat)}» تۈرى پەقەت كىتابلارغا قوللىنىلدى</span>`;
+  html += '</div>';
   // «ئىزدەلگەن شەكىللەر»: the forms the search added to what was typed (3.6).
-  const formsLine = (S.resForms && S.resForms.length)
-    ? `<div class="sr-forms">ئىزدەلگەن شەكىللەر: ${S.resForms.map(f => sanitize(f)).join('، ')}</div>`
-    : '';
-  document.getElementById('bd').innerHTML = formsLine + paginated.map((r, idx) => {
-    const at = start + idx;
-    // The query as typed, anywhere — where the search did not say where it found it.
-    const re = window.ReaderPlaces.searchRe(sq, []);
-    let snipHtml = '';
-    if (r.snip && r.mark) {
-      // The word actually found, where the search found it.
-      snipHtml = `<div class="snip">${markedAt(r.snip, r.mark)}</div>`;
-    } else if (r.snip) {
-      snipHtml = `<div class="snip">${sanitize(r.snip).replace(re, m => `<mark>${sanitize(m)}</mark>`)}</div>`;
-    }
-
-    // Show the expand "+" button on every result that has a content match.
-    // Clicking it lazy-loads ALL occurrences of the query inside that book.
-    let expandHtml = '';
-    if (r.inC && r.book && r.book.id != null) {
-      expandHtml = `<div class="sr-expand">
-        <button class="sr-toggle"
-                data-book="${r.book.id}"
-                data-idx="${at}"
-                data-forms="${S.resWithForms ? '1' : '0'}"
-                data-query="${safeQueryAttr}"
-                onclick="event.stopPropagation();toggleSnips(this)"
-                title="بۇ كىتابنىڭ ئىچىدىكى بارلىق ئورۇنلارنى كۆرۈش">+ بۇ كىتابتىكى بارلىق ئورۇنلارنى كۆرۈش</button>
-        <div class="sr-more" style="display:none"></div>
-      </div>`;
-    }
-
-    const posArg = (typeof r.pos === 'number' && r.pos >= 0) ? r.pos : 'null';
-    return `<div class="sr" onclick="openSearchHit(${at},${posArg})">
-      <div class="srt2">${r.titleMark ? markedAt(r.book.title || '', r.titleMark) : sanitize(r.book.title).replace(re, m => `<mark>${sanitize(m)}</mark>`)}</div>
-      <div class="srm">${sanitize(r.book.author || '—')} · ${sanitize(r.book.category)} · ${r.book.format}${r.inC ? ' · <span style="color:var(--am)">مەزمۇن ئىچىدە تېپىلدى</span>' : ''}</div>
-      ${snipHtml}
-      ${expandHtml}
-    </div>`;
-  }).join('');
+  if (S.resForms && S.resForms.length) {
+    html += `<div class="sr-forms">ئىزدەلگەن شەكىللەر: ${S.resForms.map(f => sanitize(f)).join('، ')}</div>`;
+  }
 
   let paginationHtml = '';
-  if (totalPages > 1) {
-    paginationHtml = '<div class="pagination">';
-    if (S.page > 1) {
-      paginationHtml += `<button onclick="S.page--;renderBooks()">← ئالدىنقى بەت</button>`;
-    } else {
-      paginationHtml += `<button disabled>← ئالدىنقى بەت</button>`;
+  for (const [part, name, label] of SEARCH_SOURCES) {
+    if (filter !== 'all' && filter !== part) continue;
+    const list = lists[part];
+    html += `<div class="srch-sec" data-part="${part}"><div class="srch-sec-head">${name} (${counted(part)})</div>`;
+    if (st[part] === 'loading') {
+      html += `<div class="srch-sec-msg">ئىزدەۋاتىدۇ...</div></div>`;
+      continue;
     }
-    paginationHtml += `<span style="min-width:80px">${S.page} / ${totalPages}</span>`;
-    if (S.page < totalPages) {
-      paginationHtml += `<button onclick="S.page++;renderBooks()">كېيىنكى بەت →</button>`;
-    } else {
-      paginationHtml += `<button disabled>كېيىنكى بەت →</button>`;
+    if (!list.length) {
+      html += `<div class="srch-sec-msg">${st[part] === 'error' ? 'بۇ قىسىمدىن ئىزدىيەلمىدى' : 'نەتىجە يوق'}</div></div>`;
+      continue;
     }
-    paginationHtml += '</div>';
+    let start = 0;
+    let shown = list;
+    if (filter === 'all') {
+      shown = list.slice(0, SEARCH_SECTION_FIRST);
+    } else if (part === 'books') {
+      start = (S.page - 1) * S.pageSize;
+      shown = list.slice(start, start + S.pageSize);
+      paginationHtml = searchPaginationHtml(Math.ceil(list.length / S.pageSize));
+    }
+    html += shown.map((r, i) => {
+      const at = start + i;
+      if (part === 'books') return bookHitHtml(r, at, sq, label);
+      if (part === 'quran') return quranHitHtml(r, at, label);
+      return noteHitHtml(r, at, label);
+    }).join('');
+    if (filter === 'all' && list.length > SEARCH_SECTION_FIRST) {
+      html += `<button type="button" class="srch-more" onclick="setSearchFilter('${part}')">يەنە كۆرسىتىش (${list.length - SEARCH_SECTION_FIRST})</button>`;
+    }
+    html += '</div>';
   }
+
+  if (!pending && total === 0) {
+    html = html.split('<div class="srch-sec"')[0] +
+      `<div class="empty"><div class="ei">${icon('search')}</div><h3 style="font-size:16px;font-weight:600;margin-bottom:6px">نەتىجە تېپىلمىدى</h3><p style="font-size:13px">باشقا سۆز بىلەن سىناپ كۆرۈڭ</p></div>`;
+  }
+  document.getElementById('bd').innerHTML = html;
   document.getElementById('pagination').innerHTML = paginationHtml;
+}
+
+function searchPaginationHtml(totalPages) {
+  if (totalPages <= 1) return '';
+  let h = '<div class="pagination">';
+  h += S.page > 1 ? `<button onclick="S.page--;renderBooks()">← ئالدىنقى بەت</button>` : `<button disabled>← ئالدىنقى بەت</button>`;
+  h += `<span style="min-width:80px">${S.page} / ${totalPages}</span>`;
+  h += S.page < totalPages ? `<button onclick="S.page++;renderBooks()">كېيىنكى بەت →</button>` : `<button disabled>كېيىنكى بەت →</button>`;
+  return h + '</div>';
+}
+
+function srcLabelHtml(label) {
+  return `<span class="src-label">${label}</span>`;
+}
+
+// A book found — the card as it always was, with its source.
+function bookHitHtml(r, at, sq, label) {
+  // The query as typed, anywhere — where the search did not say where it found it.
+  const re = window.ReaderPlaces.searchRe(sq, []);
+  const safeQueryAttr = sanitize(sq).replace(/"/g, '&quot;');
+  let snipHtml = '';
+  if (r.snip && r.mark) {
+    // The word actually found, where the search found it.
+    snipHtml = `<div class="snip">${markedAt(r.snip, r.mark)}</div>`;
+  } else if (r.snip) {
+    snipHtml = `<div class="snip">${sanitize(r.snip).replace(re, m => `<mark>${sanitize(m)}</mark>`)}</div>`;
+  }
+
+  // Show the expand "+" button on every result that has a content match.
+  // Clicking it lazy-loads ALL occurrences of the query inside that book.
+  let expandHtml = '';
+  if (r.inC && r.book && r.book.id != null) {
+    expandHtml = `<div class="sr-expand">
+      <button class="sr-toggle"
+              data-book="${r.book.id}"
+              data-idx="${at}"
+              data-forms="${S.resWithForms ? '1' : '0'}"
+              data-query="${safeQueryAttr}"
+              onclick="event.stopPropagation();toggleSnips(this)"
+              title="بۇ كىتابنىڭ ئىچىدىكى بارلىق ئورۇنلارنى كۆرۈش">+ بۇ كىتابتىكى بارلىق ئورۇنلارنى كۆرۈش</button>
+      <div class="sr-more" style="display:none"></div>
+    </div>`;
+  }
+
+  const posArg = (typeof r.pos === 'number' && r.pos >= 0) ? r.pos : 'null';
+  return `<div class="sr" onclick="openSearchHit(${at},${posArg})">
+    <div class="srt2">${srcLabelHtml(label)}${r.titleMark ? markedAt(r.book.title || '', r.titleMark) : sanitize(r.book.title).replace(re, m => `<mark>${sanitize(m)}</mark>`)}</div>
+    <div class="srm">${sanitize(r.book.author || '—')} · ${sanitize(r.book.category)} · ${r.book.format}${r.inC ? ' · <span style="color:var(--am)">مەزمۇن ئىچىدە تېپىلدى</span>' : ''}</div>
+    ${snipHtml}
+    ${expandHtml}
+  </div>`;
+}
+
+// A verse found: its sura and verses, each verse's Arabic, the translation
+// once with its label «[4 _ 6]» (one card per translation group).
+function quranHitHtml(r, at, label) {
+  const sura = (S.quran.suras || []).find(s => s.number === r.sura);
+  const where = sura ? `${sanitize(sura.name_ug)} (${sanitize(sura.name_ar)})` : `سۈرە ${r.sura}`;
+  const verses = (Array.isArray(r.verses) && r.verses.length) ? r.verses : [{ aya: r.aya, text_ar: r.text_ar, snip_ar: r.snip_ar }];
+  const arabic = verses.map(v => `<div class="srch-ar">${v.snip_ar ? v.snip_ar : sanitize(v.text_ar)}</div>`).join('');
+  const g = window.VerseLabel.range(r);
+  const ug = r.snip_ug ? r.snip_ug : sanitize(window.VerseLabel.translation(r));
+  return `<div class="sr" onclick="openQuranHit(${at})">
+    <div class="srt2">${srcLabelHtml(label)}${where} — ${verses.map(v => v.aya).join('، ')}-ئايەت</div>
+    ${arabic}
+    ${ug ? `<div class="snip">${ug} ${sanitize(window.VerseLabel.label(g.from, g.to))}</div>` : ''}
+  </div>`;
+}
+
+// A note found: its title and the words around the one found.
+function noteHitHtml(n, at, label) {
+  const title = n.titleMark ? markedAt(n.title || '', n.titleMark) : sanitize(n.title || '');
+  const snip = n.mark ? markedAt(n.snip || '', n.mark) : sanitize(n.preview || '');
+  const when = String(n.updated_at || '').slice(0, 10);
+  return `<div class="sr" onclick="openNoteHit(${at})">
+    <div class="srt2">${srcLabelHtml(label)}${title}</div>
+    <div class="srm">${when ? sanitize(when) : ''}</div>
+    ${snip ? `<div class="snip">${snip}</div>` : ''}
+  </div>`;
 }
 
 // `words` (3.6): the forms of the query the search found in this book, which

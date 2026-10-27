@@ -360,7 +360,11 @@
 
     const targetAya = _s().curAya || 1;
     if (!opts || opts.remember !== false) rememberVerse(suraNumber, targetAya);
-    if (targetAya > 1) {
+    // A verse opened from the library's search is selected even when it is
+    // the first (3.6).
+    const select = targetAya > 1 || _s().selectAya;
+    _s().selectAya = false;
+    if (select) {
       ownScrollUntil = Date.now() + 2000;
       setTimeout(() => {
         const el = container.querySelector(`.quran-aya[data-aya="${targetAya}"]`);

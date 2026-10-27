@@ -2739,10 +2739,15 @@
 
   let findState = { hits: [], idx: -1, map: null, query: '' };
   let findUndo = null;        // { html, steps } — the note before a replace-all
+  // From the library's search (3.6): the query and the words its Uyghur forms
+  // found in this note. They are painted only while the find box holds that
+  // query and replace is not open — a replace touches only what was typed.
+  let findFound = null;
 
   function isFindOpen() { const b = document.getElementById('notes-find-bar'); return !!(b && b.style.display !== 'none'); }
 
   function openFindBar(withReplace) {
+    findFound = null;
     const bar = document.getElementById('notes-find-bar'); if (!bar) return;
     bar.style.display = 'flex';
     ['notes-replace-input', 'notes-replace-btn', 'notes-replace-all-btn'].forEach(id => {
@@ -2825,7 +2830,20 @@
     const map = TM.readTextMap(editorEl);
     const needle = q.toLowerCase();
     const hits = [];
+    const found = (findFound && findFound.query === q && findFound.words.length && window.ReaderPlaces) ? findFound.words : null;
     for (let i = 0; i < map.nodes.length; i++) {
+      if (found) {
+        // The words the search found, whole, and the query as typed — what
+        // the reader marks for the same search (ReaderPlaces.searchRe).
+        const re = window.ReaderPlaces.searchRe(q, found);
+        const data = map.nodes[i].data;
+        let m;
+        while ((m = re.exec(data)) !== null) {
+          if (!m[0]) { re.lastIndex++; continue; }
+          hits.push({ start: map.starts[i] + m.index, end: map.starts[i] + m.index + m[0].length });
+        }
+        continue;
+      }
       const lower = map.nodes[i].data.toLowerCase();
       let at = 0;
       while ((at = lower.indexOf(needle, at)) !== -1) {
@@ -2854,7 +2872,22 @@
     if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) window.notesFindPrev(); else window.notesFindNext(); }
     else if (e.key === 'Escape') { e.preventDefault(); window.notesFindClose(); }
   };
+  /**
+   * A note opened from the library's search (3.6): the find bar, find only,
+   * with the search's query, and every word its forms found painted with the
+   * find highlight — nothing is written into the note.
+   */
+  window.notesShowFound = function (query, words) {
+    if (!editorEl) return;
+    openFindBar(false);
+    findFound = { query: String(query == null ? '' : query).trim(), words: Array.isArray(words) ? words.filter(Boolean) : [] };
+    const inp = document.getElementById('notes-find-input');
+    if (inp) inp.value = findFound.query;
+    window.notesFindRun();
+  };
+
   window.notesFindClose = function () {
+    findFound = null;
     clearFindHighlights();
     updateFindCount();
     const bar = document.getElementById('notes-find-bar'); if (bar) bar.style.display = 'none';
