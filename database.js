@@ -18,6 +18,9 @@ function letters(value) {
 }
 
 let db = null;
+// Columns and tables that migration steps add, looked up once per library:
+// the code keeps working on a library whose step could not run.
+const schemaCache = new Map();
 let hasFTS5 = false;
 let hasQuranFTS = false;
 
@@ -292,7 +295,7 @@ function close() {
   // Cached text belongs to the library it was read from (a restore, or the
   // tests, open another one).
   contentCache.clear();
-  quranGroupCols = null;
+  schemaCache.clear();
 }
 
 // ========== SCHEMA MIGRATIONS ==========
@@ -426,6 +429,31 @@ const MIGRATIONS = [
       // after an UPDATE it would still hold the old words.
       if (hasQuranFTS) db.exec("INSERT INTO quran_fts(quran_fts) VALUES('rebuild')");
     }
+  },
+  {
+    // 3.6 — a PDF book remembers where each of its PDF pages lies in its
+    // text, [start, end) in the stored text, and where the PDF itself is:
+    // the path (the old, never-filled original_path), size, time and
+    // SHA-256 — the PDF is never copied. Books from before have neither.
+    // "end" is quoted: END is an SQL keyword.
+    version: 7,
+    name: 'pdf_pages_and_original',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS book_page_map (
+          book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+          page_no INTEGER NOT NULL,
+          start INTEGER NOT NULL,
+          "end" INTEGER NOT NULL,
+          PRIMARY KEY (book_id, page_no)
+        );
+        ALTER TABLE books ADD COLUMN original_size INTEGER;
+        ALTER TABLE books ADD COLUMN original_mtime INTEGER;
+        ALTER TABLE books ADD COLUMN original_sha256 TEXT;
+      `);
+      const cols = db.prepare('PRAGMA table_info(books)').all().map(c => c.name);
+      if (cols.indexOf('original_path') === -1) db.exec("ALTER TABLE books ADD COLUMN original_path TEXT DEFAULT ''");
+    }
   }
 ];
 
@@ -523,7 +551,7 @@ async function runMigrations(opts) {
       console.log('[migration] ' + step.version + ' ' + (step.name || '') + ' applied');
     }
   } finally {
-    quranGroupCols = null; // a step may have added them
+    schemaCache.clear(); // a step may have added columns
   }
   return { from: from, to: to, ran: ran };
 }
@@ -541,6 +569,16 @@ async function backupTo(file) {
   return file;
 }
 
+/** Does this library have the column (a table that does not exist has none)? */
+function hasColumn(table, column) {
+  const key = table + '.' + column;
+  if (!schemaCache.has(key)) {
+    const cols = db.prepare('PRAGMA table_info(' + table + ')').all().map(c => c.name);
+    schemaCache.set(key, cols.indexOf(column) !== -1);
+  }
+  return schemaCache.get(key);
+}
+
 /** Fold the WAL back into the main file — before the file is replaced. */
 function checkpoint() {
   if (db) db.pragma('wal_checkpoint(TRUNCATE)');
@@ -548,39 +586,92 @@ function checkpoint() {
 
 // ========== BOOKS ==========
 
-function addBook(title, author, category, format, date, description, content, fileHash) {
+// ========== PDF PAGES AND THE ORIGINAL FILE (3.6, migration step 7) ==========
+
+/**
+ * Where each PDF page lies in the stored text: page n is ranges[n - 1],
+ * [start, end). An empty page has an empty range at its place.
+ */
+function writePageMap(bookId, ranges) {
+  if (!hasColumn('book_page_map', 'book_id')) return;
+  db.prepare('DELETE FROM book_page_map WHERE book_id=?').run(bookId);
+  if (!Array.isArray(ranges) || !ranges.length) return;
+  const insert = db.prepare('INSERT INTO book_page_map (book_id, page_no, start, "end") VALUES (?, ?, ?, ?)');
+  ranges.forEach((r, i) => insert.run(bookId, i + 1, r[0], r[1]));
+}
+
+/** The book's page map, in page order: [{ page_no, start, end }]. */
+function getPageMap(bookId) {
+  if (!hasColumn('book_page_map', 'book_id')) return [];
+  return db.prepare('SELECT page_no, start, "end" AS "end" FROM book_page_map WHERE book_id=? ORDER BY page_no').all(bookId);
+}
+
+function wholeOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+/** Record where the book's PDF is: { path, size, mtime (ms), sha256 } (pdf-original.js). */
+function setBookOriginal(bookId, facts) {
+  if (!facts || !hasColumn('books', 'original_sha256')) return false;
+  db.prepare('UPDATE books SET original_path=?, original_size=?, original_mtime=?, original_sha256=? WHERE id=?')
+    .run(String(facts.path || ''), wholeOrNull(facts.size), wholeOrNull(facts.mtime),
+      facts.sha256 ? String(facts.sha256) : null, bookId);
+  return true;
+}
+
+/** Where the book's PDF was recorded to be; every field null when nothing was. */
+function getBookOriginal(bookId) {
+  const none = { path: null, size: null, mtime: null, sha256: null };
+  if (!hasColumn('books', 'original_sha256')) return none;
+  const row = db.prepare('SELECT original_path, original_size, original_mtime, original_sha256 FROM books WHERE id=?').get(bookId);
+  if (!row) return none;
+  return { path: row.original_path || null, size: row.original_size, mtime: row.original_mtime, sha256: row.original_sha256 };
+}
+
+/**
+ * Add a book. `extra` (3.6), for a PDF: `pages`, each page's [start, end) in
+ * `content` as it was extracted — mapped through the normalisation, so the
+ * stored map is true for the stored text — and `original`, the PDF's facts.
+ */
+function addBook(title, author, category, format, date, description, content, fileHash, extra) {
   title = letters(title);
   author = letters(author);
   description = letters(description);
-  content = letters(content);
-  const stmt = db.prepare(`
-    INSERT INTO books (title, author, category, format, date, description, file_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  const info = stmt.run(
-    title,
-    author || '',
-    category || '',
-    format || 'TXT',
-    date || new Date().toISOString().slice(0, 10),
-    description || '',
-    fileHash || ''
-  );
-  const bookId = info.lastInsertRowid;
+  const mapped = textNormalize.normalizeWithRanges(content, extra && extra.pages);
+  content = mapped.text;
+  return db.transaction(() => {
+    const stmt = db.prepare(`
+      INSERT INTO books (title, author, category, format, date, description, file_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const info = stmt.run(
+      title,
+      author || '',
+      category || '',
+      format || 'TXT',
+      date || new Date().toISOString().slice(0, 10),
+      description || '',
+      fileHash || ''
+    );
+    const bookId = info.lastInsertRowid;
 
-  if (content) {
-    db.prepare('INSERT OR REPLACE INTO book_content (book_id, content) VALUES (?, ?)')
-      .run(bookId, content);
+    if (content) {
+      db.prepare('INSERT OR REPLACE INTO book_content (book_id, content) VALUES (?, ?)')
+        .run(bookId, content);
 
-    if (hasFTS5) {
-      try {
-        db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
-          .run(bookId, title, author || '', content);
-      } catch (e) { /* ignore FTS5 errors */ }
+      if (hasFTS5) {
+        try {
+          db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
+            .run(bookId, title, author || '', content);
+        } catch (e) { /* ignore FTS5 errors */ }
+      }
     }
-  }
+    if (mapped.ranges) writePageMap(bookId, mapped.ranges);
+    if (extra && extra.original) setBookOriginal(bookId, extra.original);
 
-  return bookId;
+    return bookId;
+  })();
 }
 
 /**
@@ -622,7 +713,8 @@ function addBooksBatch(books) {
     for (const b of books) {
       const title = letters(String(b.title || '').trim());
       const author = letters(b.author);
-      const content = letters(b.content);
+      const mapped = textNormalize.normalizeWithRanges(b.content, b.pages);
+      const content = mapped.text;
       if (!title) {
         skipped.push({ title: b.title || '(empty)', reason: 'empty_title' });
         continue;
@@ -658,6 +750,8 @@ function addBooksBatch(books) {
             } catch (e) { /* skip FTS insert error per book */ }
           }
         }
+        if (mapped.ranges) writePageMap(bookId, mapped.ranges);
+        if (b.original) setBookOriginal(bookId, b.original);
 
         added.push({ id: bookId, title });
       } catch (e) {
@@ -752,6 +846,14 @@ function getBookContent(bookId) {
 
 function saveBookContent(bookId, content) {
   content = letters(content);
+  // A page map is true only for the text it was made for: a whole text
+  // written over it (the reader's page fix rebuilds it from its pages) drops
+  // it. The PDF page view's own edits keep it, shifting it with the edit.
+  if (hasColumn('book_page_map', 'book_id') &&
+      db.prepare('SELECT 1 FROM book_page_map WHERE book_id=? LIMIT 1').get(bookId)) {
+    const old = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(bookId);
+    if (!old || old.content !== content) writePageMap(bookId, null);
+  }
   contentCache.delete(bookId);
   db.prepare('INSERT OR REPLACE INTO book_content (book_id, content) VALUES (?, ?)')
     .run(bookId, content);
@@ -858,6 +960,7 @@ async function presentationFormsFix(opts) {
           .run(next.title, next.author, next.description, candidate.id);
         if (current.hasContent) {
           db.prepare('UPDATE book_content SET content=? WHERE book_id=?').run(next.content, candidate.id);
+          if (next.content !== current.content) writePageMap(candidate.id, null);
         }
         if (hasFTS5) {
           db.prepare('DELETE FROM book_fts WHERE rowid=?').run(candidate.id);
@@ -1032,13 +1135,8 @@ function quranSeedBulk(suras, ayas) {
 // a verse on its own has ug_from = ug_to = aya. A library whose step 6 could
 // not run reads every verse as its own group.
 
-let quranGroupCols = null;
 function hasQuranGroups() {
-  if (quranGroupCols === null) {
-    const cols = db.prepare('PRAGMA table_info(quran_ayas)').all().map(c => c.name);
-    quranGroupCols = cols.indexOf('ug_from') !== -1 && cols.indexOf('ug_to') !== -1;
-  }
-  return quranGroupCols;
+  return hasColumn('quran_ayas', 'ug_from') && hasColumn('quran_ayas', 'ug_to');
 }
 
 /** The two group columns, for a SELECT over quran_ayas aliased `alias`. */
@@ -2179,6 +2277,8 @@ module.exports = {
   normalizeArabicQuery, isArabicScript,
   addBook, addBooksBatch, updateBook, deleteBook, getBook, getAllBooks, getBooksByCategory,
   getBookContent, saveBookContent, checkDuplicateHash,
+  // A PDF's pages in the text, and where the PDF is (3.6)
+  getPageMap, getBookOriginal, setBookOriginal,
   // Books stored as glyph codepoints (W18, K15)
   presentationFormsScan, presentationFormsFix,
   searchBooks, getAllSnippetsForBook,

@@ -125,6 +125,43 @@ function normalizeImportedText(input) {
 }
 
 /**
+ * The stored text, and ranges in the extracted text (a PDF's pages, 3.6)
+ * mapped onto it. Folding can change the length — a lam-alef glyph is two
+ * letters — so each range, and each gap between them, is normalised on its
+ * own. That gives the same text as normalising the whole: the fold works per
+ * character, and NFC cannot reach across the line ends that join pages. The
+ * result is checked against the whole all the same; ranges that are out of
+ * order, out of the text, or do not come out exactly are dropped (null),
+ * never stored half-true.
+ *
+ * @param {string} input
+ * @param {Array<[number, number]>} ranges [start, end) in `input`, in order
+ * @returns {{text: string, ranges: Array<[number, number]>|null}}
+ */
+function normalizeWithRanges(input, ranges) {
+  const source = String(input || '');
+  const whole = normalizeImportedText(source);
+  if (!Array.isArray(ranges) || !ranges.length) return { text: whole, ranges: null };
+  let at = 0;
+  let out = '';
+  const mapped = [];
+  for (const r of ranges) {
+    const start = r && r[0];
+    const end = r && r[1];
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < at || end < start || end > source.length) {
+      return { text: whole, ranges: null };
+    }
+    out += normalizeImportedText(source.slice(at, start));
+    const from = out.length;
+    out += normalizeImportedText(source.slice(start, end));
+    mapped.push([from, out.length]);
+    at = end;
+  }
+  out += normalizeImportedText(source.slice(at));
+  return out === whole ? { text: whole, ranges: mapped } : { text: whole, ranges: null };
+}
+
+/**
  * How many of a text's characters are glyph codepoints — counted with native
  * scans, because the repair tool looks through every book in the library.
  * Characters, not UTF-16 units: a surrogate pair is one.
@@ -194,6 +231,7 @@ module.exports = {
   isPresentationForm,
   foldPresentationForms,
   normalizeImportedText,
+  normalizeWithRanges,
   presentationFormShare,
   countSacredLigatures,
   verifyFold

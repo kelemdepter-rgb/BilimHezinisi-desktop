@@ -80,6 +80,7 @@
       "backup.js",
       "navigation.js",
       "note-export.js",
+      "pdf-original.js",
       "ocr-engine.js",
       "ocr-postprocess.js",
       "text-normalize.js",

@@ -4523,11 +4523,21 @@ function setupFileZone() {
   });
 }
 
+// The PDF pages of the book being added, and the text they were measured in
+// (3.6). They go with the book only while S.tempContent is still that very
+// text: another file, or an AI cleanup of the OCR, changes the text, and the
+// pages would no longer be where the ranges say.
+function stagePages(text, ranges) {
+  S.tempPages = (ranges && ranges.length) ? ranges : null;
+  S.tempPagesFor = S.tempPages ? text : null;
+}
+
 async function handleFileResult(result) {
   const { filePath, fileName, ext, size } = result;
   S.tempFile = filePath;
   S.tempExt = ext.toUpperCase();
   S.tempContent = '';
+  stagePages('', null);
 
   const bt = document.getElementById('btitle');
   if(!bt.value) bt.value = fileName.replace(/\.[^.]+$/,'');
@@ -4559,19 +4569,22 @@ async function handleFileResult(result) {
           // fonts to Unicode, so getTextContent returns correct shaped text
           // (not garbage) — the reason text-layer PDFs now import cleanly.
           const pdf=await pdfjsLib.getDocument({data:arr,cMapUrl:'../assets/pdfjs/cmaps/',cMapPacked:true,standardFontDataUrl:'../assets/pdfjs/standard_fonts/'}).promise;
-          let text='';const total=Math.min(pdf.numPages,100);
-          for(let i=1;i<=total;i++){const page=await pdf.getPage(i);const tc=await page.getTextContent();text+=tc.items.map(x=>x.str).join(' ')+'\n';pf.style.width=Math.round((i/total)*100)+'%';}
+          // Every page (3.6) — this stopped at page 100 while the dialog said
+          // «(N بەت)» with the whole count — and where each page lies in the text.
+          const ex=await PdfText.extract(pdf,{onPage:(i,n)=>{pf.style.width=Math.round((i/n)*100)+'%';fi.textContent='PDF ئوقۇلىۋاتىدۇ: بەت '+i+' / '+n;}});
+          const text=ex.text;const total=ex.pageCount;
           // Scanned-PDF detection: image-only pages yield almost no extractable
           // text. < 50 chars/page ⇒ treat as scanned and offer offline OCR.
           const avgCharsPerPage = total > 0 ? (text.replace(/\s/g,'').length / total) : 0;
           if (avgCharsPerPage < 50) {
-            S.ocrPdf = { bytes: ocrBytes, fileName: fileName, numPages: pdf.numPages, fallbackText: text };
+            S.ocrPdf = { bytes: ocrBytes, fileName: fileName, numPages: pdf.numPages, fallbackText: text, fallbackPages: ex.ranges };
             S.tempContent = text;   // keep the (near-empty) extraction aside
+            stagePages(text, ex.ranges);
             fi.textContent = '⚠ PDF (سىكان): ' + fileName + ' (' + pdf.numPages + ' بەت)';
             pf.style.width = '100%';
             showOcrOffer();
           } else {
-            S.tempContent=text;fi.textContent='✓ PDF: '+fileName+' ('+pdf.numPages+' بەت)';progress(100);toast('PDF مۇۋەپپەقىيەتلىك ئوقۇلدى','s');
+            S.tempContent=text;stagePages(text,ex.ranges);fi.textContent='✓ PDF: '+fileName+' ('+pdf.numPages+' بەت)';progress(100);toast('PDF مۇۋەپپەقىيەتلىك ئوقۇلدى','s');
           }
         }
       } catch(e){S.tempContent='[PDF: '+fileName+']';fi.textContent='✓ '+fileName;pf.style.width='100%';}
@@ -4653,7 +4666,10 @@ function hideOcrOffer() {
 
 // "ياق، شۇنداق قوشۇلسۇن" — keep the plain extraction (possibly empty) as-is.
 function dismissOcrOffer() {
-  if (S.ocrPdf) S.tempContent = S.ocrPdf.fallbackText || S.tempContent || '';
+  if (S.ocrPdf) {
+    S.tempContent = S.ocrPdf.fallbackText || S.tempContent || '';
+    if (S.ocrPdf.fallbackText) stagePages(S.ocrPdf.fallbackText, S.ocrPdf.fallbackPages);
+  }
   hideOcrOffer();
   if (typeof maybeShowMetaBtn === 'function') maybeShowMetaBtn();
   progress(100);
@@ -4731,8 +4747,12 @@ async function startPdfOcr(engine) {
   const pbar  = document.getElementById('ocrProgressBar');
   const engLabel = (engine === 'gemini') ? 'Gemini' : 'UKIJ';
 
-  const maxPages = Math.min(S.ocrPdf.numPages, 300);   // hard cap
-  ptext.textContent = engLabel + ' OCR: بەت 0 / ' + maxPages;
+  // OCR is slow: it reads at most PdfText.OCR_MAX_PAGES pages, and says so
+  // while it reads and when it is done (3.6).
+  const totalPages = S.ocrPdf.numPages;
+  const maxPages = Math.min(totalPages, PdfText.OCR_MAX_PAGES);
+  const capNote = maxPages < totalPages ? ' (PDF دا ' + totalPages + ' بەت؛ ئالدىنقى ' + maxPages + ' بېتى ئوقۇلىدۇ)' : '';
+  ptext.textContent = engLabel + ' OCR: بەت 0 / ' + maxPages + capNote;
   pbar.style.width = '0';
 
   let pdf;
@@ -4751,7 +4771,7 @@ async function startPdfOcr(engine) {
   if (_ocrUnsub) { try { _ocrUnsub(); } catch (_) {} }
   _ocrUnsub = window.electron.onOcrProgress((d) => {
     const done = basePage + (d.page || 0);
-    ptext.textContent = engLabel + ' OCR: بەت ' + done + ' / ' + maxPages;
+    ptext.textContent = engLabel + ' OCR: بەت ' + done + ' / ' + maxPages + capNote;
     pbar.style.width = Math.round((done / maxPages) * 100) + '%';
   });
 
@@ -4760,30 +4780,24 @@ async function startPdfOcr(engine) {
   // below for Tesseract; Gemini keeps the colour render.
   const SCALE = (engine === 'gemini') ? 3.0 : 3.2;
   const BATCH = (engine === 'gemini') ? 2 : 5;
+  // UKIJ: one entry per page, in page order (an empty page too). Gemini: one
+  // per request of two pages, so where a page ends is not known.
   const allText = [];
+  let pagesRead = 0;
   let geminiFailed = false, geminiMsg = '';
   try {
     for (let start = 1; start <= maxPages && !_ocrCancel; start += BATCH) {
       const end = Math.min(start + BATCH - 1, maxPages);
       const imgs = [];
       for (let p = start; p <= end && !_ocrCancel; p++) {
-        const page = await pdf.getPage(p);
-        const viewport = page.getViewport({ scale: SCALE });
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.ceil(viewport.width);
-        canvas.height = Math.ceil(viewport.height);
-        const ctx = canvas.getContext('2d');
-        // pdf.js renders onto a TRANSPARENT canvas — paint white first, or
-        // Tesseract can see an "empty" page (a likely cause of blank OCR).
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+        // White under the page, and drawn even while the window is behind
+        // another one (PdfText.renderPage).
+        const canvas = await PdfText.renderPage(pdf, p, SCALE);
         // UKIJ (Tesseract): grayscale + Otsu binarize — the biggest accuracy
         // lever. Gemini vision keeps the colour render.
         if (engine !== 'gemini') binarizeCanvas(canvas);
         imgs.push(canvas.toDataURL('image/png'));
         canvas.width = canvas.height = 0;   // free the bitmap promptly
-        if (page.cleanup) try { page.cleanup(); } catch (_) {}
       }
       if (_ocrCancel || !imgs.length) break;
       basePage = start - 1;
@@ -4800,11 +4814,13 @@ async function startPdfOcr(engine) {
           break;
         }
         if (r.text) allText.push(r.text);
+        pagesRead = end;
         pbar.style.width = Math.round((end / maxPages) * 100) + '%';
       } else {
         const r = await window.electron.ocrRecognize(imgs, langStr);
         if (!r || !r.success) { toast('OCR خاتالىقى: ' + ((r && r.error) || ''), 'e'); break; }
         for (const t of r.pages) allText.push(t);
+        pagesRead = allText.length;
         pbar.style.width = Math.round((end / maxPages) * 100) + '%';
         if (r.cancelled) break;
       }
@@ -4816,8 +4832,15 @@ async function startPdfOcr(engine) {
   if (_ocrUnsub) { try { _ocrUnsub(); } catch (_) {} _ocrUnsub = null; }
 
   // Keep whatever was produced as the fallback content, regardless of outcome.
-  const joined = allText.join('\n\n').trim();
-  if (joined) S.tempContent = joined;
+  // The join is the one OCR always used; the offline engine's pages also
+  // keep their places (book_page_map).
+  const ocrJoin = PdfText.joinPages(allText, '\n\n', { trim: true });
+  const joined = ocrJoin.text;
+  if (joined) {
+    S.tempContent = joined;
+    stagePages(joined, engine === 'gemini' ? null : ocrJoin.ranges);
+  }
+  const readLine = PdfText.readLabel(pagesRead, totalPages);
 
   if (geminiFailed) {
     // Free-tier limit / unavailable: stop, keep partial text, steer to UKIJ.
@@ -4826,14 +4849,15 @@ async function startPdfOcr(engine) {
     document.getElementById('ocrButtons').style.display = 'flex';
     if (fbMsg) { fbMsg.textContent = geminiMsg; fbMsg.style.display = 'block'; }
     if (ukBtn) { ukBtn.classList.add('hbtn-glow'); try { ukBtn.focus(); } catch (_) {} }
-    if (joined) document.getElementById('finfo').textContent = '⚠ PDF (Gemini OCR قىسمەن): ' + S.ocrPdf.fileName;
+    if (joined) document.getElementById('finfo').textContent = '⚠ PDF (Gemini OCR قىسمەن): ' + S.ocrPdf.fileName + ' — ' + readLine;
     return;
   }
 
   if (joined) {
     document.getElementById('finfo').textContent =
-      '✓ PDF (' + engLabel + ' OCR): ' + S.ocrPdf.fileName + ' (' + allText.length + ' بۆلەك)';
-    toast(_ocrCancel ? 'OCR توختىتىلدى — قىسمەن تېكىست ساقلاندى' : 'OCR تامام بولدى', 's');
+      '✓ PDF (' + engLabel + ' OCR): ' + S.ocrPdf.fileName + ' — ' + readLine;
+    toast((_ocrCancel ? 'OCR توختىتىلدى — قىسمەن تېكىست ساقلاندى' : 'OCR تامام بولدى') + ' — ' + readLine, 's');
+    noteOcrPagesInDescription(pagesRead, totalPages);
     naiAvailable().then(ok => { const box = document.getElementById('ocrCleanupBox'); if (box) box.style.display = ok ? 'block' : 'none'; });
     if (typeof maybeShowMetaBtn === 'function') maybeShowMetaBtn();
   } else if (!_ocrCancel) {
@@ -4841,6 +4865,16 @@ async function startPdfOcr(engine) {
   }
   hideOcrOffer();
   progress(100);
+}
+
+// When OCR read fewer pages than the PDF has, the description says so — a
+// line the owner can edit or remove. A later OCR run replaces it.
+function noteOcrPagesInDescription(read, total) {
+  const d = document.getElementById('bdesc');
+  if (!d) return;
+  const kept = d.value.split('\n').filter(line => !/^PDF دا \d+ بەت بار؛ OCR بىلەن ئالدىنقى \d+ بېتى ئوقۇلدى\.$/.test(line.trim())).join('\n').trim();
+  const note = PdfText.ocrNote(read, total);
+  d.value = note ? (kept ? kept + '\n' + note : note) : kept;
 }
 
 async function addBook() {
@@ -4864,11 +4898,17 @@ async function addBook() {
     }
   }
 
+  // A PDF also sends where each page lies in its text (only while the text
+  // is the one they were measured in) and where the PDF is — main records
+  // the file's facts; the PDF is never copied (3.6).
+  const pages = (S.tempPages && S.tempPagesFor === content) ? S.tempPages : null;
+  const originalPath = (format === 'PDF' && S.tempFile) ? S.tempFile : '';
+
   // Use SQLite API: atomic insert + duplicate check + FTS5 indexing
   let result;
   try {
     result = await window.electron.dbAddBook({
-      title, author, category, format, date, description, content, fileHash
+      title, author, category, format, date, description, content, fileHash, pages, originalPath
     });
   } catch(e) {
     console.error('dbAddBook IPC error:', e);
@@ -4894,6 +4934,8 @@ async function addBook() {
   // Clear staged upload so the next "add" starts fresh
   S.tempContent = '';
   S.tempExt = '';
+  S.tempFile = '';
+  stagePages('', null);
   S.ocrPdf = null;
   hideOcrOffer();
 
@@ -4975,7 +5017,7 @@ function showAdd(){
   document.getElementById('bcat').innerHTML=S.cats.map(c=>`<option value="${sanitize(c)}">${sanitize(c)}</option>`).join('');
   document.getElementById('btitle').value='';document.getElementById('bauth').value='';document.getElementById('bdesc').value='';
   document.getElementById('finfo').style.display='none';document.getElementById('pb').style.display='none';document.getElementById('pf').style.width='0';
-  S.tempFile=null;S.tempExt='';S.tempContent='';S.ocrPdf=null;
+  S.tempFile=null;S.tempExt='';S.tempContent='';S.ocrPdf=null;stagePages('',null);
   hideOcrOffer();
   const _cb=document.getElementById('ocrCleanupBox'); if(_cb) _cb.style.display='none';
   const _mb=document.getElementById('aiMetaBtn'); if(_mb) _mb.style.display='none';
@@ -5062,6 +5104,8 @@ async function confirmBatchImport() {
     const ext = (String(filePath).split('.').pop() || 'txt').toLowerCase();
     try {
       let content = '';
+      let pages = null;         // a PDF's pages in `content`
+      let originalPath = '';    // a PDF's file, recorded (never copied) by main
 
       if (ext === 'txt') {
         const r = await window.electron.readTxt(filePath);
@@ -5075,14 +5119,12 @@ async function confirmBatchImport() {
           const arr = new Uint8Array(bin.length);
           for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
           const pdf = await pdfjsLib.getDocument({ data: arr, cMapUrl: '../assets/pdfjs/cmaps/', cMapPacked: true, standardFontDataUrl: '../assets/pdfjs/standard_fonts/' }).promise;
-          let text = '';
-          const totalPages = Math.min(pdf.numPages, 200);
-          for (let i = 1; i <= totalPages; i++) {
-            const page = await pdf.getPage(i);
-            const tc = await page.getTextContent();
-            text += tc.items.map(x => x.str).join(' ') + '\n';
-          }
-          content = text;
+          // Every page, and where each lies in the text (3.6) — this
+          // stopped at page 200.
+          const ex = await PdfText.extract(pdf);
+          content = ex.text;
+          pages = ex.ranges;
+          originalPath = filePath;
         } else {
           content = '[PDF: ' + fileName + ']';
         }
@@ -5134,7 +5176,9 @@ async function confirmBatchImport() {
           date: new Date().toISOString().slice(0, 10),
           description: '',
           content,
-          fileHash
+          fileHash,
+          pages,
+          originalPath
         }
       };
     } catch (e) {
@@ -5649,6 +5693,8 @@ init();
      and the notebook. Must load before both. -->
 <script src="verse-label.js"></script>
 <script src="quran.js"></script>
+<!-- A PDF's text, every page, and where each page lies in it (3.6). -->
+<script src="pdf-text.js"></script>
 <!-- The notebook's export: the document model, Markdown and text (W6). -->
 <script src="notes-export.js"></script>
 <script src="note-units.js"></script>

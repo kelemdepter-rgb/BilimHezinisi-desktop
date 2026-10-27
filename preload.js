@@ -83,6 +83,9 @@ contextBridge.exposeInMainWorld('electron', {
   // Quran API
   quranGetSuras: () => ipcRenderer.invoke('quran-get-suras'),
   quranGetAyas: (n) => ipcRenderer.invoke('quran-get-ayas', n),
+  // A PDF book's original file (3.6): found | moved | missing, and pointing to it.
+  pdfOriginalStatus: (bookId) => ipcRenderer.invoke('pdf-original-status', bookId),
+  pdfLocateOriginal: (bookId) => ipcRenderer.invoke('pdf-locate-original', bookId),
   quranGetAya: (sura, aya) => ipcRenderer.invoke('quran-get-aya', sura, aya),
   quranSearch: (q, opts) => ipcRenderer.invoke('quran-search', q, opts),
   quranBookmarks: () => ipcRenderer.invoke('quran-bookmarks'),

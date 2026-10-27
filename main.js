@@ -8,6 +8,7 @@ const librarySync = require('./library-sync');
 const backup = require('./backup');
 const navigation = require('./navigation');
 const noteExport = require('./note-export');
+const pdfOriginal = require('./pdf-original');
 const ocrEngine = require('./ocr-engine');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
@@ -384,17 +385,29 @@ ipcMain.handle('db-get-books-by-category', (event, category) => {
   }
 });
 
-// Add a book
-ipcMain.handle('db-add-book', (event, bookData) => {
+// Where a PDF book's file is (3.6): its path, size, time and SHA-256, read
+// HERE from the path the owner chose — never taken from the renderer. The
+// PDF itself is never copied. Anything that is not a readable .pdf: none.
+async function pdfFacts(format, file) {
+  if (String(format || '').toUpperCase() !== 'PDF' || !file || !/\.pdf$/i.test(String(file))) return null;
+  try { return await pdfOriginal.fileFacts(String(file)); } catch (e) { return null; }
+}
+
+// Add a book. A PDF also brings `pages` — each page's [start, end) in
+// `content` as extracted, mapped through the normalisation by database.js —
+// and `originalPath`.
+ipcMain.handle('db-add-book', async (event, bookData) => {
   try {
-    const { title, author, category, format, date, description, content, fileHash } = bookData;
+    const { title, author, category, format, date, description, content, fileHash, pages, originalPath } = bookData;
 
     // Check for duplicate
     if (fileHash && database.checkDuplicateHash(fileHash)) {
       return { success: false, error: 'duplicate', message: 'بۇ كىتاب مەۋجۇت' };
     }
 
-    const id = database.addBook(title, author, category, format, date, description, content, fileHash);
+    const original = await pdfFacts(format, originalPath);
+    const id = database.addBook(title, author, category, format, date, description, content, fileHash,
+      { pages: Array.isArray(pages) ? pages : null, original: original });
     if (content) {
       try {
         database.ngramIndexBook(id, content);
@@ -412,10 +425,15 @@ ipcMain.handle('db-add-book', (event, bookData) => {
 
 // Batch add — accepts an array of book objects, inserts all in one transaction.
 // Far faster than calling db-add-book in a loop for bulk imports.
-ipcMain.handle('db-add-books-batch', (event, booksArray) => {
+ipcMain.handle('db-add-books-batch', async (event, booksArray) => {
   try {
     if (!Array.isArray(booksArray) || booksArray.length === 0) {
       return { success: true, added: [], skipped: [] };
+    }
+    for (const b of booksArray) {
+      if (!b || typeof b !== 'object') continue;
+      b.original = await pdfFacts(b.format, b.originalPath);
+      if (!Array.isArray(b.pages)) b.pages = null;
     }
     const result = database.addBooksBatch(booksArray);
     return { success: true, added: result.added, skipped: result.skipped };
@@ -1389,6 +1407,59 @@ ipcMain.handle('bulk-export', async (event, category) => {
     return { success: true, exported, total: books.length, folder: catDir };
   } catch(e) {
     return { success: false, error: e.message };
+  }
+});
+
+// ========== A PDF BOOK'S ORIGINAL FILE (3.6) ==========
+// found | moved | missing (pdf-original.js). A found file whose time changed
+// (a copy, the same bytes) has its time recorded again, so it is not hashed
+// on every look.
+ipcMain.handle('pdf-original-status', async (e, bookId) => {
+  try {
+    const original = database.getBookOriginal(bookId);
+    const status = await pdfOriginal.originalStatus(original);
+    if (status === 'found') {
+      const st = await fs.promises.stat(original.path);
+      if (Math.round(st.mtimeMs) !== original.mtime) {
+        database.setBookOriginal(bookId, Object.assign({}, original, { mtime: Math.round(st.mtimeMs) }));
+      }
+    }
+    return { success: true, status: status, path: original.path || '' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// The owner points to the PDF. The same file (same SHA-256) is taken at
+// once; any other — or any file for a book that never had one recorded —
+// only after the owner says, in a native dialog, that it is the same book.
+ipcMain.handle('pdf-locate-original', async (e, bookId) => {
+  try {
+    const book = database.getBook(bookId);
+    if (!book) return { success: false, error: 'not found' };
+    const recorded = database.getBookOriginal(bookId);
+    const pick = await dialog.showOpenDialog(mainWindow, {
+      title: 'ئەسلى PDF نى كۆرسىتىڭ',
+      defaultPath: recorded.path ? path.dirname(recorded.path) : undefined,
+      properties: ['openFile'],
+      filters: [{ name: 'PDF ھۆججىتى', extensions: ['pdf'] }]
+    });
+    if (pick.canceled || !pick.filePaths.length) return { success: true, ok: false, cancelled: true };
+    const out = await pdfOriginal.locateOriginal(database, bookId, pick.filePaths[0], async () => {
+      const answer = await dialog.showMessageBox(mainWindow, {
+        type: 'question',
+        buttons: ['ھەئە، شۇ كىتاب', 'ياق'],
+        defaultId: 1,
+        cancelId: 1,
+        title: 'ئەسلى PDF',
+        message: recorded.sha256 ? 'بۇ ھۆججەت ئىلگىرى خاتىرىلەنگەن PDF بىلەن ئوخشاش ئەمەس.' : 'بۇ كىتابنىڭ PDF ى ئىلگىرى خاتىرىلەنمىگەن.',
+        detail: '«' + (book.title || '') + '» نىڭ PDF ى مۇشۇمۇ؟'
+      });
+      return answer.response === 0;
+    });
+    return { success: true, ok: !!out.ok, same: !!out.same, cancelled: !!out.cancelled };
+  } catch (err) {
+    return { success: false, error: err.message };
   }
 });
 
