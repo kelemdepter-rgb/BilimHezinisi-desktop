@@ -1738,7 +1738,7 @@
     preview.innerHTML = `
       <div class="notes-quran-preview">
         ${showAr ? `<div class="notes-quran-preview-ar">${escHtml(a.text_ar)}</div>` : ''}
-        ${showUg ? `<div class="notes-quran-preview-ug">${escHtml(a.text_ug)}</div>` : ''}
+        ${showUg ? `<div class="notes-quran-preview-ug">${escHtml(ayaTranslation(a))}</div>` : ''}
         <div class="notes-quran-preview-actions">
           <button data-action="insert" onclick="window.notesInsertAya(${sura}, ${aya}, '${mode}')">${icon('plus')} قىستۇرۇش</button>
           <button data-action="copy" onclick="window.notesCopyAya(${sura}, ${aya}, '${mode}')">${icon('copy')} كۆچۈرۈش</button>
@@ -1757,6 +1757,18 @@
     if (mode === true) return 'both';
     if (mode === false) return 'ar';
     return AYA_MODES.indexOf(mode) !== -1 ? mode : 'both';
+  }
+
+  /**
+   * A verse's translation with its label: «… [4]», or the group's «… [4 _ 6]»
+   * when the translator rendered several verses as one sentence (3.6).
+   */
+  function ayaLabel(a) {
+    const g = window.VerseLabel.range(a);
+    return window.VerseLabel.label(g.from, g.to);
+  }
+  function ayaTranslation(a) {
+    return window.VerseLabel.translation(a) + ' ' + ayaLabel(a);
   }
 
   window.notesInsertAya = async function(sura, aya, mode) {
@@ -1782,7 +1794,7 @@
       lines.push(`<span style="${AR_STYLE}">\uFD3F${escHtml(a.text_ar)}\uFD3E</span>`);
     }
     if (mode !== 'ar' && a.text_ug) {
-      lines.push(`<span data-ref-insert="1" style="${UG_STYLE}">\u00AB${escHtml(a.text_ug)}\u00BB</span>`);
+      lines.push(`<span data-ref-insert="1" style="${UG_STYLE}">\u00AB${escHtml(window.VerseLabel.translation(a))}\u00BB ${escHtml(ayaLabel(a))}</span>`);
     }
     lines.push(citeLinkHtml(quranHref(sura, aya), 'قۇرئان كەرىم، ' + Number(sura) + ':' + Number(aya)));
     const insertHtml = `<p dir="rtl">` + lines.join('<br>') + `</p><p><br></p>`;
@@ -1804,7 +1816,8 @@
     if (mode === 'ug' && r.aya.text_ug) {
       // The translation alone, with the verse it translates.
       try {
-        await navigator.clipboard.writeText('«' + r.aya.text_ug + '» (' + Number(sura) + ':' + Number(aya) + ')');
+        await navigator.clipboard.writeText('«' + window.VerseLabel.translation(r.aya) + '» ' + ayaLabel(r.aya) +
+          ' (' + Number(sura) + ':' + Number(aya) + ')');
         ok = true;
       } catch(e) { ok = false; }
     } else {
@@ -2662,9 +2675,10 @@
         // The column the words were found in — FTS5 snippets the other one too.
         const inUg = !!a.snip_ug && a.snip_ug.indexOf('<mark>') !== -1;
         const inAr = !!a.snip_ar && a.snip_ar.indexOf('<mark>') !== -1;
-        const snip = inUg ? a.snip_ug : inAr ? a.snip_ar : (a.text_ug || a.text_ar || '');
+        const snip = inUg ? a.snip_ug : inAr ? a.snip_ar : (a.text_ug ? window.VerseLabel.translation(a) : a.text_ar || '');
         const arabic = !inUg && (inAr || !a.text_ug);
-        return srcHitHtml({ kind: 'aya', sura: a.sura, aya: a.aya, snip: ftsMarks(snip), arabic: arabic });
+        // A translation carries its label; the Arabic is not the translation.
+        return srcHitHtml({ kind: 'aya', sura: a.sura, aya: a.aya, snip: ftsMarks(snip) + (arabic ? '' : ' ' + ayaLabel(a)), arabic: arabic });
       }).join('');
     }
 

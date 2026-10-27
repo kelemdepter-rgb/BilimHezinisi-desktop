@@ -116,13 +116,17 @@
   direction: rtl; text-align: justify; text-align-last: right;
   word-spacing: 0.1em;
 }
+/* The verse number, in the Uthmani face and sized in em against the verse
+   text, so it grows with it. The bundled font draws a run of Arabic-Indic
+   digits as its own verse-end medallion (through "liga"); its digits are
+   0.27 em tall and the medallion 0.89 em (measured, 3.6 Phase 1) — at the
+   old 14 px the digits were under 4 px, inside a second ring of our own.
+   At 1.75 em the medallion is the ring, and the digits are about 0.47 of
+   the verse text: as tall as 0.75 em of an ordinary face would make them. */
 .quran-aya-num {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px; margin: 0 7px;
-  font-size: 14px; font-family: 'UthmanicHafs', serif;
-  color: var(--am); background: var(--ab);
-  border: 1.5px solid var(--ab2); border-radius: 50%; vertical-align: middle;
-  box-shadow: inset 0 0 0 2px var(--bg);
+  display: inline-block; margin: 0 .1em; vertical-align: middle;
+  font-size: 1.75em; line-height: 1; font-family: 'UthmanicHafs', serif;
+  color: var(--am);
 }
 .quran-aya-ug {
   font-family: 'UKIJ Ekran', var(--jf);
@@ -135,6 +139,12 @@
   font-size: 10px; color: var(--text3); font-family: sans-serif;
   letter-spacing: 0.5px; text-transform: uppercase; margin-left: 8px;
 }
+/* «[4]» / «[4 _ 6]» after a translation: plain text in the right-to-left
+   line (no isolation), kept on one line. */
+.quran-aya-label { color: var(--am); white-space: nowrap; }
+/* A verse of a group: its translation is under the group's last verse. */
+.quran-aya-ug-ref { font-size: 12px; color: var(--text3); cursor: pointer; }
+.quran-aya-ug-ref:hover { color: var(--am); }
 
 /* Inline aya menu (popover after click) */
 .quran-aya-menu {

@@ -36,6 +36,8 @@
     validateWord: null,     // override the one-word check
     ngramWords: [],         // the words the fake n-gram matcher "finds"
     search: null,           // what dbSearch / dbGetAllSnippets / quranSearch answer
+    quran: {},              // 'sura:aya' -> the verse quranGetAya answers
+    quranRows: [],          // the verses quranGetAyas answers
     nextId: 3
   };
   window.FAKE = FAKE;
@@ -276,11 +278,17 @@
     },
 
     quranGetAya: async function (sura, aya) {
+      const row = FAKE.quran && FAKE.quran[sura + ':' + aya];
+      if (row) return { success: true, aya: Object.assign({}, row) };
       return {
         success: true,
         aya: { sura: sura, aya: aya, text_ar: 'بِسْمِ ٱللَّهِ', text_ug: 'ئاللاھنىڭ ئىسمى بىلەن' }
       };
     },
+    quranGetAyas: async function (sura) {
+      return { success: true, ayas: FAKE.quranRows.filter(function (r) { return r.sura === sura; }).map(function (r) { return Object.assign({}, r); }) };
+    },
+    quranLookupSura: async function () { return { success: true, sura: null }; },
     // The «مەنبە» search box (W12): FAKE.search holds what the library and
     // the Qur'an "find"; every call is recorded.
     dbSearch: async function (query, category, opts) {
@@ -366,6 +374,7 @@
     FAKE.validateWord = opts.validateWord || null;
     FAKE.ngramWords = opts.ngramWords || [];
     FAKE.search = opts.search || { books: [], snippets: {}, ayas: [] };
+    FAKE.quran = opts.quran || {};
     window.TOASTS = [];
 
     window.S.notes = freshNotesState();
