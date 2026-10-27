@@ -101,6 +101,10 @@ button, .hbtn, .vb, .ci, .mt, input, select, textarea { transition: background-c
 #sb:focus-within { border-color: var(--am); box-shadow: 0 0 0 3px var(--ab); }
 #si { flex: 1; background: none; border: none; outline: none; color: var(--text); font-family: var(--jf); font-size: 14px; padding: 9px 0; direction: rtl; min-width: 0; }
 #si::placeholder { color: var(--text3); }
+/* «قوشۇمچىلىرى بىلەن» — the search finds the Uyghur forms of a word too (3.6). */
+.sb-forms { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 11px; color: var(--text2); cursor: pointer; white-space: nowrap; user-select: none; }
+.sb-forms input { margin: 0; accent-color: var(--am); cursor: pointer; }
+.sr-forms { font-size: 12px; color: var(--text3); margin: 0 0 10px; }
 .hbtn { font-size: 12px; background: none; border: 0.5px solid var(--border2); color: var(--text2); padding: 7px 13px; border-radius: 9px; cursor: pointer; font-family: var(--jf); white-space: nowrap; transition: all .15s; }
 .hbtn:hover { background: var(--bg2); color: var(--text); }
 .hbtn.p { background: var(--am); border-color: var(--am); color: #fff; font-weight: 600; box-shadow: 0 2px 8px rgba(176,131,47,.3); }
@@ -551,6 +555,7 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
     <svg class="ic" style="width:15px;height:15px;color:var(--text3)"><use href="#i-search"></use></svg>
     <input type="text" id="si" placeholder="كىتاب نامى، ئاپتور ياكى مەزمۇن ئىچىدىن ئىزدەش..." onkeydown="if(event.key==='Enter'){hideSearchHistory(true);doSearch()}" onfocus="if(!this.value)loadSearchHistory()" onblur="hideSearchHistory()">
     <button onclick="clearSearch()" id="clr" style="background:none;border:none;color:var(--text3);cursor:pointer;display:none;align-items:center"><svg class="ic" style="width:14px;height:14px"><use href="#i-x"></use></svg></button>
+    <label class="sb-forms" title="سۆزنىڭ قوشۇمچىلىق شەكىللىرىنىمۇ ئىزدەش: «بالىلار» دەپ ئىزدىسىڭىز «بالا»، «بالىسى» نىمۇ تاپىدۇ"><input type="checkbox" id="sbForms" checked onchange="setSearchForms(this.checked)"><span>قوشۇمچىلىرى بىلەن</span></label>
     <button onclick="doSearch()" style="background:none;border:none;color:var(--am);font-size:13px;cursor:pointer;font-family:var(--jf);font-weight:600">ئىزدەش</button>
     <div id="search-history"></div>
   </div>
@@ -1140,6 +1145,15 @@ async function init() {
   migrateTheme();
   applyTheme();
 
+  // «قوشۇمچىلىرى بىلەن»: on unless the owner switched it off (3.6).
+  try {
+    const r = await window.electron.dbGetSetting('search_forms', 'on');
+    const v = (r && typeof r === 'object' && 'value' in r) ? r.value : r;
+    S.searchForms = v !== 'off';
+  } catch (_) { S.searchForms = true; }
+  const sbForms = document.getElementById('sbForms');
+  if (sbForms) sbForms.checked = S.searchForms;
+
   renderSide();
   renderBooks();
   setupFileZone();
@@ -1554,10 +1568,12 @@ async function doSearch() {
   if (!q) { clearSearch(); return; }
   document.getElementById('clr').style.display='block';
   S.srch = true; S.res = []; S.page = 1;
+  // The forms the search added (3.6), and whether it looked for them.
+  S.resForms = []; S.resWithForms = S.searchForms !== false;
 
   try {
     // Fast path: use SQLite FTS5 search in the backend (single query, no per-book IPC)
-    const result = await window.electron.dbSearch(q, S.cat);
+    const result = await window.electron.dbSearch(q, S.cat, { forms: S.resWithForms });
     if (!result || !result.success || !Array.isArray(result.results)) {
       throw new Error(result && result.error ? result.error : 'search failed');
     }
@@ -1579,11 +1595,16 @@ async function doSearch() {
         book: book,
         snip: cleanSnip,
         snips: cleanSnip ? [cleanSnip] : [],
+        // Where the word found lies in the snippet and in the title (3.6).
+        mark: (Array.isArray(r.mark) && cleanSnip === (r.snip || '')) ? r.mark : null,
+        titleMark: Array.isArray(r.titleMark) ? r.titleMark : null,
+        pos: r.pos,
         inT: !!r.inT,
         inA: !!r.inA,
         inC: !!r.inC
       };
     });
+    S.resForms = Array.isArray(result.forms) ? result.forms : [];
   } catch(e) {
     console.error('Backend search failed, using lightweight fallback:', e);
     // Fallback: search only titles and authors from the cached list (no content load)
@@ -1603,6 +1624,34 @@ async function doSearch() {
   }
 
   renderSearch(q);
+}
+
+// «قوشۇمچىلىرى بىلەن» (3.6): remembered; a search on screen is run again.
+function setSearchForms(on) {
+  S.searchForms = !!on;
+  try { window.electron.dbSetSetting('search_forms', on ? 'on' : 'off'); } catch (_) {}
+  if (S.srch && document.getElementById('si').value.trim()) doSearch();
+}
+
+// A search result opened at its place, with every form of the query the
+// search found in that book marked and counted (3.6).
+async function openSearchHit(idx, pos) {
+  const r = S.res[idx];
+  if (!r || !r.book) return;
+  const q = document.getElementById('si').value.trim();
+  let words = [];
+  if (S.resWithForms) {
+    try {
+      const w = await window.electron.dbSearchWords(r.book.id, q);
+      if (w && w.success && Array.isArray(w.words)) words = w.words;
+    } catch (_) { /* the query as typed is still marked */ }
+  }
+  openReader(r.book.id, q, (typeof pos === 'number' && pos >= 0) ? pos : null, words);
+}
+
+// A text with the span the search found in it marked.
+function markedAt(text, span) {
+  return sanitize(text.slice(0, span[0])) + '<mark>' + sanitize(text.slice(span[0], span[1])) + '</mark>' + sanitize(text.slice(span[1]));
 }
 
 function clearSearch() {
@@ -1639,6 +1688,7 @@ async function toggleSnips(btn) {
   // First open → fetch all occurrences from the backend.
   const bookId = parseInt(btn.dataset.book, 10);
   const query  = btn.dataset.query || '';
+  const idx    = parseInt(btn.dataset.idx, 10);
   if (!bookId || !query) return;
 
   const originalLabel = btn.innerHTML;
@@ -1646,7 +1696,7 @@ async function toggleSnips(btn) {
   btn.disabled = true;
 
   try {
-    const r = await window.electron.dbGetAllSnippets(bookId, query);
+    const r = await window.electron.dbGetAllSnippets(bookId, query, { forms: btn.dataset.forms === '1' });
     if (!r || !r.success || !Array.isArray(r.snippets) || r.snippets.length === 0) {
       btn.innerHTML = '⚠️ باشقا ئورۇن تېپىلمىدى';
       btn.disabled = true;
@@ -1656,14 +1706,13 @@ async function toggleSnips(btn) {
     const total = r.snippets.length;
     // Each snippet came back with §MARK_OPEN§ … §MARK_CLOSE§ around the hit.
     // Sanitize first, then swap the markers for real <mark> tags.
-    const queryAttr = String(query).replace(/'/g, "\\'");
     const html = r.snippets.map((s, i) => {
       let safe = sanitize(s.snip || '');
       safe = safe
         .replace(/§MARK_OPEN§/g, '<mark>')
         .replace(/§MARK_CLOSE§/g, '</mark>');
       const pos = (typeof s.pos === 'number' && s.pos >= 0) ? s.pos : 'null';
-      return `<div class="snip sr-snip-row" onclick="event.stopPropagation();openReader(${bookId},'${queryAttr}',${pos})" style="cursor:pointer">
+      return `<div class="snip sr-snip-row" onclick="event.stopPropagation();openSearchHit(${idx},${pos})" style="cursor:pointer">
         <span class="sr-snip-num">${i + 1}.</span> ${safe}
       </div>`;
     }).join('');
@@ -1690,16 +1739,25 @@ function renderSearch(q) {
     document.getElementById('pagination').innerHTML = '';
     return;
   }
-  const re = new RegExp(esc(sq),'gi');
   const totalPages = Math.ceil(S.res.length / S.pageSize);
   const start = (S.page - 1) * S.pageSize;
   const end = start + S.pageSize;
   const paginated = S.res.slice(start, end);
 
   const safeQueryAttr = sanitize(sq).replace(/"/g, '&quot;');
-  document.getElementById('bd').innerHTML = paginated.map((r, idx) => {
+  // «ئىزدەلگەن شەكىللەر»: the forms the search added to what was typed (3.6).
+  const formsLine = (S.resForms && S.resForms.length)
+    ? `<div class="sr-forms">ئىزدەلگەن شەكىللەر: ${S.resForms.map(f => sanitize(f)).join('، ')}</div>`
+    : '';
+  document.getElementById('bd').innerHTML = formsLine + paginated.map((r, idx) => {
+    const at = start + idx;
+    // The query as typed, anywhere — where the search did not say where it found it.
+    const re = window.ReaderPlaces.searchRe(sq, []);
     let snipHtml = '';
-    if (r.snip) {
+    if (r.snip && r.mark) {
+      // The word actually found, where the search found it.
+      snipHtml = `<div class="snip">${markedAt(r.snip, r.mark)}</div>`;
+    } else if (r.snip) {
       snipHtml = `<div class="snip">${sanitize(r.snip).replace(re, m => `<mark>${sanitize(m)}</mark>`)}</div>`;
     }
 
@@ -1710,6 +1768,8 @@ function renderSearch(q) {
       expandHtml = `<div class="sr-expand">
         <button class="sr-toggle"
                 data-book="${r.book.id}"
+                data-idx="${at}"
+                data-forms="${S.resWithForms ? '1' : '0'}"
                 data-query="${safeQueryAttr}"
                 onclick="event.stopPropagation();toggleSnips(this)"
                 title="بۇ كىتابنىڭ ئىچىدىكى بارلىق ئورۇنلارنى كۆرۈش">+ بۇ كىتابتىكى بارلىق ئورۇنلارنى كۆرۈش</button>
@@ -1718,8 +1778,8 @@ function renderSearch(q) {
     }
 
     const posArg = (typeof r.pos === 'number' && r.pos >= 0) ? r.pos : 'null';
-    return `<div class="sr" onclick="openReader(${r.book.id},'${sanitize(sq).replace(/'/g,"\\'")}',${posArg})">
-      <div class="srt2">${sanitize(r.book.title).replace(re, m => `<mark>${sanitize(m)}</mark>`)}</div>
+    return `<div class="sr" onclick="openSearchHit(${at},${posArg})">
+      <div class="srt2">${r.titleMark ? markedAt(r.book.title || '', r.titleMark) : sanitize(r.book.title).replace(re, m => `<mark>${sanitize(m)}</mark>`)}</div>
       <div class="srm">${sanitize(r.book.author || '—')} · ${sanitize(r.book.category)} · ${r.book.format}${r.inC ? ' · <span style="color:var(--am)">مەزمۇن ئىچىدە تېپىلدى</span>' : ''}</div>
       ${snipHtml}
       ${expandHtml}
@@ -1745,11 +1805,14 @@ function renderSearch(q) {
   document.getElementById('pagination').innerHTML = paginationHtml;
 }
 
-async function openReader(id, hl='', targetPos=null) {
+// `words` (3.6): the forms of the query the search found in this book, which
+// are marked and counted with it (ReaderPlaces.searchRe).
+async function openReader(id, hl='', targetPos=null, words=null) {
   const b = S.books.find(x=>x.id===id);
   if(!b) return;
   addToRecent(id);
   S.curB=b; S.matches=[]; S.matchIdx=0;
+  setReaderMarks(hl, words);
   document.getElementById('rtitle').textContent = sanitize(b.title);
   document.getElementById('rmeta').innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -1795,8 +1858,7 @@ async function openReader(id, hl='', targetPos=null) {
 
   if (hl) {
     // When searching, show all content with highlights (paragraph formatted)
-    const re = new RegExp(esc(hl),'gi');
-    rt.innerHTML = highlightInHtml(textToParagraphs(content, false, 0), re);
+    rt.innerHTML = highlightInHtml(textToParagraphs(content, false, 0), S.readerMarkRe);
     S.readerSearchMode = true;
   } else {
     // Not in search mode before the page is drawn: drawing it saves the place.
@@ -1957,15 +2019,26 @@ function searchInBook(q) {
   }
   // Show all content with highlights (exit pagination mode for search)
   S.readerSearchMode = true;
-  const re=new RegExp(esc(q),'gi');
-  rt.innerHTML=highlightInHtml(textToParagraphs(content, false, 0), re);
+  // The forms the library search found stay marked while its query is in the box.
+  setReaderMarks(q, q === S.readerMarkQuery ? S.readerMarkWords : null);
+  rt.innerHTML=highlightInHtml(textToParagraphs(content, false, 0), S.readerMarkRe);
   updateMatchNav(q);
   renderReaderPagination();
+}
+
+// What the reader marks: the query as typed and the forms of it the search
+// found in this book (3.6) — one expression for the marks and for counting
+// the matches before a place, so the two always agree.
+function setReaderMarks(q, words) {
+  if (words && words.length) { S.readerMarkQuery = q; S.readerMarkWords = words; }
+  else if (q !== S.readerMarkQuery) { S.readerMarkQuery = ''; S.readerMarkWords = null; }
+  S.readerMarkRe = q ? window.ReaderPlaces.searchRe(q, words || []) : null;
 }
 
 // Mark the matches in the TEXT of rendered paragraphs, never inside a tag: a
 // search for a number used to land in data-off="…" and break the page.
 function highlightInHtml(html, re) {
+  if (!re) return html;
   return html.replace(/(^|>)([^<]+)/g, (all, gt, words) => gt + words.replace(re, m => `<mark>${m}</mark>`));
 }
 
@@ -1982,9 +2055,9 @@ function updateMatchNav(q, targetPos) {
     // match whose offset in the source content matches targetPos. We count
     // the number of matches that occur before targetPos using the same regex
     // that produced the highlight tags.
-    if (typeof targetPos === 'number' && targetPos > 0 && q && S.readerContent) {
+    if (typeof targetPos === 'number' && targetPos > 0 && q && S.readerContent && S.readerMarkRe) {
       try {
-        const re = new RegExp(esc(q), 'gi');
+        const re = new RegExp(S.readerMarkRe.source, S.readerMarkRe.flags);
         let count = 0, m;
         while ((m = re.exec(S.readerContent)) !== null) {
           if (m.index >= targetPos) break;
