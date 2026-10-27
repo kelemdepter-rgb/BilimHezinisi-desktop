@@ -18,7 +18,7 @@ Read prompts/3.6/PROMPT-3.6.md in full, then prompts/3.6/PROGRESS.md, and contin
 | 0 | Groundwork: branch, `npm test`, this file, CLAUDE.md «3.6» | **done** | `7fec54b` docs: add the 3.6 work order · docs(progress): this file and the «3.6» section | 114 green before anything changed |
 | 1 | Qur'an: readable verse numbers; [n] and [n _ m] after each translation | **done** — waiting for the owner's check | `b587603` fix(quran): verse markers out of the translation; each verse knows its translation group · `e7cd6b9` feat(quran): readable verse numbers; every translation ends with [n] or [n _ m] · docs(progress) | 126 in all (with the syntax gate), every one green |
 | 2 | PDF import keeps every page; page starts and the original file remembered | **done** — waiting for the owner's check | `fd67dd2` fix(ocr): the offline OCR engine answers inside Electron · `cadff79` feat(import): a PDF keeps every page; each page's place and the PDF's location are kept · docs(progress) | 138 in all (with the syntax gate), every one green |
-| 3 | Search that understands Uyghur suffixes | not started | | |
+| 3 | Search that understands Uyghur suffixes | **done** — waiting for the owner's check | `ed1d6bd` feat(search): a word's Uyghur forms — bases, stem changes, suffixes — for the library search · `2f9d911` feat(search): «قوشۇمچىلىرى بىلەن» in the search bar; the forms found are marked and counted · docs(progress) | 144 in all (with the syntax gate), every one green |
 | 4 | One search across the books, the Qur'an and the notebook | not started | | |
 | 5 | «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» | not started | | |
 | 6 | Two books side by side | not started | | |
@@ -115,6 +115,68 @@ versions are unchanged since v3.1.0, and the engine fails the same way in a
 bare Electron main process — so the offline OCR has most likely not worked
 in any desktop release since 3.1.0 (the import dialog waited for ever).
 
+## Phase 3 — done
+
+| Item | What changed | Tests |
+|---|---|---|
+| The forms | `search-forms.js` (main): `formsFor(word)` → `{ base, forms }`, `compile(query)` → `findAll(text, limit)` (spans, a hit through the forms spans the whole word), `foundWords`, `ftsQuery`, `forms` (what was added); `lowered(text)`. Built on `src/spellcheck/engine.js` (new `getDictionary()`), `dictionary.js`, `morphology.js` (`harmonyOf`) and `suffixes.generated.js`. | `search-forms-table` (47 rows: 28 must find, 19 must not), `search-forms-bases-and-forms`, `search-forms-phrase-and-switch` |
+| The search | `searchBooks(q, cat, { forms: true })` → `searchBooksWithForms`: today's exact hits in every book, plus the forms in the books the full-text index names (prefix query per form; every book while the index is still being filled). Each result: `snip`, `pos`, `mark` (the word found in the snippet), `titleMark`. `getAllSnippetsForBook(…, { forms: true })`. `searchWordsInBook` → `db-search-words`. Without `opts.forms` everything is exactly as before (the notebook's «مەنبە» search included). Both searches lower-case a text only when it has a cased letter. | `search-books-with-forms`, `search-books-index-and-scan-agree` |
+| The UI | «قوشۇمچىلىرى بىلەن» in the search bar (checkbox, on by default, `search_forms`; switching it runs the search on screen again). «ئىزدەلگەن شەكىللەر: بالا، بالى» under the heading. Snippet and title mark the word found (`markedAt`). Results open through `openSearchHit`, which asks for the book's found words; `openReader(id, hl, pos, words)` → `setReaderMarks` → `ReaderPlaces.searchRe`; `updateMatchNav` counts with the same expression; the in-book search box keeps the forms while it holds the same query. The «+» panel asks with the forms. | `search-forms-reader-marks-the-same` (the reader's expression marks exactly the search's spans) |
+
+**How the rules were tightened, by measurement.** The DEV library has no
+books, so the false-match measurement used the library's own vocabulary —
+`spellcheck-data/frequencies.tsv`, 59,832 distinct words from the 15
+published books — and 22 common words (20 bases, 4 inflected), counting the
+words found with the switch off and on:
+
+1. First version (the work order's rules as written, plus «ى سى م ڭ»): 508
+   words added. An even sample of 30: **3 wrong** (ئاتىكە a name, ئاتىلامدۇ
+   a verb, بالاخانىنىڭ a compound). Reading the lists: «ئىمام» had the base
+   «ئىما» («م» taken off) and found 31 words of «ئىمان» — all wrong; «ئاتا» →
+   «ئاتى» found the verb ئات‑ (ئاتىغان، ئاتىدى…), «سۈرە» → «سۈرى» found
+   «سۈرىتى» (سۈرەت).
+2. Tightened: a possessive outside the ACCEPT tier comes off a dictionary
+   word only to undo a stem change; after a raised stem every suffix must be
+   a noun's; a tail that begins with a word of its own is a compound.
+3. Final: **725 → 1,195** words found (470 added). A fresh even sample of
+   30: **all correct** (one derived: «كىشىلىك»). The three longest lists read
+   in full (162 words): **5 doubtful** — ئاتىكە ×3 (a name), بالايى,
+   بالاتتىكى — about **3 %**. The table's «must not» rows hold every
+   measured false match.
+
+**Departures from the work order, and why:**
+- «…or makes a dictionary word» for what follows a form was not used: it
+  accepts «بالاغەت» for «بالا» and «بالاخانا» for «بالا». A tail must be one to
+  three known suffixes instead (the engine's SUGGEST tier, which holds the
+  inflection chains the dictionary has, plus the possessives) — that is
+  what «makes a dictionary word» was meant to admit.
+- The «narrower ACCEPT tier» alone was not enough: it lacks «تە» (مەكتەپتە)
+  and holds verb suffixes, so it neither keeps the right words nor stops
+  the verbs. The two noun rules above did both.
+- The words the reader marks are not sent with every result: listing them
+  meant finding every hit in every book. They are asked for when a book is
+  opened (`db-search-words`).
+
+Checked in `npm run dev` over the DevTools protocol, with two test books
+added and removed (the DEV library is empty again): «بالىلار» found both,
+«ئىزدەلگەن شەكىللەر: بالا، بالى» shown, the snippet and the title marking
+«بالىسى» and «بالا»; the reader marked بالىلار، بالىسىنى، بالا،
+بالىلىرىمىزنىڭ، بالىلارنى، بالىغا — not بالاغەت — and counted «1/6». The
+header at the window's minimum width (900 px) fits: no overflow, the input
+231 px wide.
+
+### Phase 3 checklist for the owner (`npm run dev`)
+
+ئالدى بىلەن سىناق كۇتۇپخانىسىغا «بالا»، «بالىلار»، «بالىسى»، «مەدرىسە»، «ئاياق» دېگەن سۆزلەر بار بىر-ئىككى كىتاب قوشۇڭ (ھازىر سىناق كۇتۇپخانىسىدا كىتاب يوق).
+
+1. ئىزدەش رامكىسىنىڭ ئىچىدە «قوشۇمچىلىرى بىلەن» بەلگىسى بار، ئادەتتە بەلگىلەنگەن.
+2. «بالىلار» دەپ ئىزدەڭ ← تىزىملىكنىڭ ئۈستىدە «ئىزدەلگەن شەكىللەر: بالا، بالى» دېگەن قۇر چىقىدۇ؛ «بالا»، «بالىسى»، «بالىغا» بار كىتابلارمۇ تېپىلىدۇ؛ ھەر نەتىجىدە سېرىق بەلگىلەنگىنى دەل تېپىلغان سۆز.
+3. بەلگىنى ئېلىۋېتىڭ ← پەقەت «بالىلار» بار كىتابلارلا قالىدۇ (بۇرۇنقىدەك). قايتا بەلگىلىسىڭىز، دېتالنى تاقاپ ئاچسىڭىزمۇ بەلگىلەنگەن پېتى قالىدۇ.
+4. «مەدرىسىلەردە» دەپ ئىزدەڭ ← «مەدرىسە» ۋە «مەدرىسىدە» مۇ تېپىلىدۇ. «ئاياق» دەپ ئىزدەڭ ← «ئايىغى» مۇ تېپىلىدۇ.
+5. بىر نەتىجىنى ئېچىڭ ← تېپىلغان ھەممە شەكىل بەلگىلەنگەن، ساننى («1/6» دەك) ئوقلار بىلەن بىرمۇبىر ماڭسىڭىز ھەر بىرىگە بارىدۇ.
+6. نەتىجىدىكى «+ بۇ كىتابتىكى بارلىق ئورۇنلارنى كۆرۈش» ← شەكىللەرمۇ تىزىلىدۇ؛ بىرىنى چەكسىڭىز شۇ ئورۇندا ئېچىلىدۇ.
+7. بىلىپ قويۇڭ: «ئاتا» دەپ ئىزدىسىڭىز «ئاتىكە» (ئىسىم) دەك ناھايىتى ئاز خاتا سۆز چىقىشى مۇمكىن (ئۆلچىگەندە %3 ئەتراپىدا). خاتا نەتىجە كۆپ چىقسا، سۆزنى ۋە كىتابنى ئېيتىڭ.
+
 ## Measurements
 
 | What | Result | Where measured |
@@ -129,6 +191,10 @@ in any desktop release since 3.1.0 (the import dialog waited for ever).
 | pdf.js `render()` in a window behind another one | display intent: never finishes (no frame; `requestAnimationFrame` never fires — `visibilityState` «hidden»); `intent: 'print'`: **20 ms** | dev app, Phase 2 |
 | tesseract.js 5.1.1 inside Electron 28 | environment «electron» → a local `langPath` is fetched as an address → «Only absolute URLs are supported», thrown outside any promise; `{ code, data }` models → «initialization failed»; a `readOnly` cache at tessdata → works (3 pages of `eng` in 18 s, page render to text) | bare Electron main process, the dev app, `ocr-engine-answers`, Phase 2 |
 | The test runner's hidden window | `requestAnimationFrame` **did** fire in this run (3.5 recorded that it never does); CLAUDE.md now says a test cannot count on either | `pdf-render-in-a-hidden-window` (first version), Phase 2 |
+| The forms over the library's vocabulary (22 words) | words found: 725 as typed, 1,195 with the forms; an even sample of 30 added words all correct; 5 of 162 doubtful in the three longest lists (≈3 %) — after tightening (before: 3 of 30 wrong, «ئىمام» 31 of 31 wrong) | `spellcheck-data/frequencies.tsv`, Phase 3 |
+| Search over 500 books / 100 MB (synthetic, real vocabulary at real frequencies) | today's search 1.97 s median, 2.16 s max (2.11 s before the case check); with the forms 2.06 s median, 2.32 s max; with the index still filling (every book scanned for the forms) 2.0–2.1 s — every book matched in this library, the worst case for the index | ELECTRON_RUN_AS_NODE script, Phase 3 |
+| Where the search time goes | lower-casing 100 MB of Uyghur 586 ms (now skipped: no cased letter, a 67 ms check); `indexOf` over it 7 ms; the rest is reading the texts (the content cache holds 20 books) | probe, Phase 3 |
+| The spell dictionary loads | 26 ms | search-forms, Phase 3 |
 
 ### Phase 1 checklist for the owner (`npm run dev`)
 
