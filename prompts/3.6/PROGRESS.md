@@ -21,7 +21,7 @@ Read prompts/3.6/PROMPT-3.6.md in full, then prompts/3.6/PROGRESS.md, and contin
 | 3 | Search that understands Uyghur suffixes | **done** — waiting for the owner's check | `ed1d6bd` feat(search): a word's Uyghur forms — bases, stem changes, suffixes — for the library search · `2f9d911` feat(search): «قوشۇمچىلىرى بىلەن» in the search bar; the forms found are marked and counted · docs(progress) | 144 in all (with the syntax gate), every one green |
 | 4 | One search across the books, the Qur'an and the notebook | **done** — waiting for the owner's check | `f888a53` feat(search): the Qur'an translation and the notebook searched through the Uyghur forms too · `0228555` feat(search): one search across the books, the Qur'an and the notebook · docs(progress) | 149 in all (with the syntax gate), every one green |
 | 5 | «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» | **done** — waiting for the owner's check | `cf634c5` feat(web): read the website's published books and download them through its gate · `9f6c9ed` feat(web): «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» — the catalog inside the app · docs(privacy) · docs(progress) | 158 in all (with the syntax gate), every one green |
-| 6 | Two books side by side | not started | | |
+| 6 | Two books side by side | **done** — waiting for the owner's check | `293e060` feat(reader): two books side by side («يانمۇيان ئوقۇش») · docs(progress) | 164 in all (with the syntax gate), every one green |
 | 7 | The PDF page beside its text: compare and correct | not started | | |
 | 8 | Release 3.6.0 (no publishing) | not started | | |
 
@@ -251,6 +251,64 @@ the owner's checklist below.
 7. تورنى ئۈزۈپ (Wi-Fi نى تاقاپ) دېتالنى قايتا ئېچىپ كاتالوگنى ئېچىڭ ← «تورغا ئۇلىنالمىدى» ۋە «قايتا سىناش»؛ دېتالنىڭ باشقا ھەممە ئىقتىدارى ئىلگىرىكىدەك ئىشلەيدۇ.
 8. بىلىپ قويۇڭ: بۇ كومپيۇتېردىكى router بەزىدە bilimhezinisi.com نى تاپالمىدى. ئۇ چاغدا تىزىملىك ئېچىلىدۇ، لېكىن چۈشۈرۈش «تورغا ئۇلىنالمىدى» دەيدۇ — بىردەمدىن كېيىن قايتا سىناڭ. بۇ داۋاملىق يۈز بەرسە ئېيتىڭ.
 
+## Phase 6 — done
+
+| Item | What changed | Tests (red before → green after) |
+|---|---|---|
+| The pane | `src/parallel.js` (new): `Parallel.createSession` puts a pane after the reader's own area (`#rc`) with a divider: its own pages (`ReaderPlaces.paginate`), page navigation, font size (A-/A+) and search in the book (the whole book marked, as the reader's search does, ↑/↓ through the hits). It draws with the reader's `textToParagraphs(text, true, base)` and `highlightInHtml`, handed in — no second renderer. `src/parallel.css` (new) styles it. | `parallel-panes-paginate-apart`, `parallel-pane-search` — red: «window.Parallel is missing (src/parallel.js)» |
+| Swap and close | «ئورنىنى ئالماشتۇرۇش»: the left book opens in the reader at its page, the right one moves to the pane at its page (its text from the reader, not read again); if the reader cannot open it, nothing moves. «تاقاش» (and closing the reader) removes the pane and divider and puts `#rc`'s `style` attribute back. | `parallel-swap-keeps-each-page`, `parallel-close-restores-the-reader` — red: the same |
+| «بىللە سىيرىلىش» | Off whenever the pane opens; the tooltip says it is approximate. A turn turns the other side to the page at the same proportion of its book; a scroll moves it to the same proportion of its page; a scroll the session made is not echoed back. | `parallel-sync-moves-the-other-pane` — red: the same |
+| Width | The two share the reader's width by the divider's ratio (20–80 %), `flex-grow` on each and `min-width: 0`; in this mode the reader's paddings are smaller and its page navigation wraps. | `parallel-narrow-window-never-overlaps` — red: the same |
+| The reader | A toolbar button «يانمۇيان ئوقۇش» (its label from 1300 px, the icon below) opens a searchable list of the library without the open book, «ئاخىرقى قېتىمقى جۈپ» first. The pair and the ratio are kept in the setting `reader_parallel`. `renderReaderPage` tells the pane about a turn, `#rc`'s scroll about a scroll; Escape closes the list before the reader. | checked in the dev app (below) |
+| The reader's toolbar | `#rh` had a fixed height of 52 px: below about 1100 px its last buttons wrapped onto the text (by 18 px at 900, 10 px at 1000 — measured before any change). It has a `min-height` now and grows to two rows instead. | measured (below) |
+
+Departures from the work order, each small:
+- `src/parallel.css` is a new file (the order named `parallel.js`, `index.html`, `reader-places.js`): the pane's styles live beside it, and the test page loads them, so the width test measures the real layout.
+- The left pane always uses the automatic (smart) font. The reader's font menu stays with the right-hand book: one chosen font for an Arabic book and its Uyghur translation would suit only one of them.
+- «بىللە سىيرىلىش» is not remembered: the order says off by default, and it is off each time the pane opens.
+- The reader's toolbar height (above) — a fix the new button needed, since the order asks for 900 px to work.
+
+Checked in `npm run dev` over the DevTools protocol, with Al-Baqara in
+Arabic and its Uyghur translation (from the bundled seed files) added as two
+test books and deleted again afterwards (with the `reader_parallel` setting
+they left). The owner's own book in the DEV library — «مۇھەررىرلەرگە مەدھىيە»,
+downloaded at 16:47 during the Phase 5 checklist — was left alone.
+- The list: both other books, the filter, Escape closed the list and left
+  the reader open.
+- The Arabic book (21 pages) on the right, the translation (32 pages) on the
+  left; the pane's own buttons and page box turned only the pane; A+ made the
+  pane 19 px and left the reader at 17 px; «ئىبراھىم» found 19 places in the
+  pane, none marked in the reader; the book on the left had **no** reading
+  position afterwards, while the right one's was saved (page 4).
+- «بىللە سىيرىلىش»: the reader's page 3 of 21 took the pane to page 4 of 32;
+  the pane's next page took the reader to page 4; at 900 px, scrolling either
+  side to the middle or the end took the other to the same proportion (0.5,
+  1.0).
+- 900 px with the notes panel open: at ratios 0.2, 0.5 and 0.8 the reader,
+  divider, pane and panel stood side by side, nothing spilled, the toolbar
+  wrapped above the text (83 px high).
+- The divider dragged to 0.6 was stored; the swap gave 19 at page 4 ↔ 20 at
+  page 7 → 20 at page 7 ↔ 19 at page 4, the titles changed sides; «تاقاش»
+  left the reader full width; with the reader closed and opened again,
+  «ئاخىرقى قېتىمقى جۈپ» brought the swapped pair back with the 0.6 divider
+  and «بىللە سىيرىلىش» off. The setting itself survived a restart of the app.
+
+Seen on the way, not changed: in the reader's automatic font a verse holding
+«ى» (U+0649, which Arabic writes too) counts as Uyghur, so some Arabic verses
+are drawn in the Uyghur font. That rule (`isArabicLine`) is older than 3.6.
+
+### Phase 6 checklist for the owner (`npm run dev`)
+
+1. ئەرەبچە بىر كىتابنى ئېچىڭ. ئۈستىدىكى «يانمۇيان ئوقۇش» (تار كۆزنەكتە پەقەت ئىككى ستونلۇق سىنبەلگە) نى بېسىڭ ← كۇتۇپخانىدىكى باشقا كىتابلار تىزىملىكى چىقىدۇ؛ ئىسمىنى يېزىپ سۈزگىلى بولىدۇ.
+2. ئۇنىڭ ئۇيغۇرچە تەرجىمىسىنى تاللاڭ ← ئەرەبچە كىتاب ئوڭدا قالىدۇ، تەرجىمە سولدا ئېچىلىدۇ، ئوتتۇرىدا ئايرىغۇچ سىزىق بار.
+3. سولدىكى «كېيىنكى بەت ←» نى بېسىڭ ← پەقەت سول تەرەپ ۋاراقلىنىدۇ. ئوڭدىكىنى ۋاراقلىسىڭىز، سول تەرەپ ئورنىدا قالىدۇ. ھەر تەرەپنىڭ A- / A+ ى ۋە ئىزدەش رامكىسى ئايرىم.
+4. «بىللە سىيرىلىش» نى قوزغىتىڭ ← بىر تەرەپنى ۋاراقلىسىڭىز ياكى سىيرىسىڭىز، يەنە بىر تەرەپ تەخمىنەن ماس يەرگە بارىدۇ (جۈملىمۇ جۈملە ئەمەس — بۇ ھەقتىكى چۈشەندۈرۈش چاشقىنەكنى ئۈستىدە توختاتسىڭىز چىقىدۇ).
+5. ئوتتۇرىدىكى ئايرىغۇچنى سۆرەڭ ← ئىككى تەرەپنىڭ كەڭلىكى ئۆزگىرىدۇ.
+6. «ئورنىنى ئالماشتۇرۇش» (ئىككى ئوقلۇق سىنبەلگە) نى بېسىڭ ← ئىككى كىتاب ئورۇن ئالماشتۇرىدۇ، ھەر بىرى ئۆز بېتىدە قالىدۇ. خەتكۈچ، ئىزاھات ۋە ئوقۇش ئورنى ئەمدى ئوڭدىكى كىتابقا تەۋە.
+7. «تاقاش» (×) نى بېسىڭ ← ئوقۇغۇچ بۇرۇنقىدەك يالغۇز كىتاب بولۇپ قالىدۇ.
+8. ئوقۇغۇچتىن چىقىپ قايتا كىرىپ «يانمۇيان ئوقۇش» نى بېسىڭ ← ئەڭ ئۈستىدە «ئاخىرقى قېتىمقى جۈپ» بار؛ بېسىڭ ← ئىككى كىتاب ئاخىرقى قېتىمقىدەك ئېچىلىدۇ.
+9. كۆزنەكنى ئەڭ تار قىلىڭ ← ئىككى تەرەپ تارىيىدۇ، بىر-بىرىنى ياپمايدۇ؛ ئۈستىدىكى كۇنۇپكىلار ئىككى قۇرغا چۈشىدۇ، تېكىستنى ياپمايدۇ.
+
 ## Measurements
 
 | What | Result | Where measured |
@@ -271,6 +329,9 @@ the owner's checklist below.
 | The spell dictionary loads | 26 ms | search-forms, Phase 3 |
 | The website's catalog | 66 published books, 17 categories — one request each (under the 1,000-row page) | dev app against the live site, Phase 5 |
 | The header with the new button | 900 px: icon only, no overflow, search box 181 px; 1040–1299 px: «تور بېتىدىن»; 1300 px and wider: the full label | dev app, measured from the DOM, Phase 5 |
+| The reader's toolbar before 3.6 | fixed at 52 px; its buttons reached 70 px at 900 px and 62 px at 1000 px — over the text; one row from 1100 px | hidden-window measurement of `#rh`, Phase 6 |
+| The reader's toolbar with the new button | 900 px: two rows, 83 px, the text below it; 1000 px: 75 px; 1100–1299 px: one row (icon only); 1300 px and wider: one row with «يانمۇيان ئوقۇش» | the same, Phase 6 |
+| Two panes at 900 px with the notes panel | ratio 0.2: reader 150 px, pane 489 px; 0.5: 333 / 306; 0.8: 517 / 122 — side by side, nothing spilled | dev app, Phase 6 |
 | Name lookup for bilimhezinisi.com on this machine | the router answered SERVFAIL at times; public resolvers and the Supabase host resolved | name lookups on this machine, Phase 5 |
 
 ### Phase 1 checklist for the owner (`npm run dev`)
