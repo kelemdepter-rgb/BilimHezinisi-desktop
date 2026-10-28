@@ -1,22 +1,26 @@
 # Privacy Policy — بىلىم خەزىنىسى (Bilim Hezinisi)
 
-**Last updated: 23 October 2026**
+**Last updated: 28 October 2026**
 **Applies to: Bilim Hezinisi for Windows, version 3.2.0 and later**
 
 ## Short version
 
 Bilim Hezinisi is an **offline-first personal library**. It has no user
 accounts, no analytics, no telemetry, no advertising and no tracking of any
-kind. Your books, notes and settings never leave your computer unless *you*
-turn on the optional AI assistant or paste a web address to import.
+kind. Your books, notes and settings never leave your computer. The app goes
+online only when *you* turn on the optional AI assistant, paste a web address
+to import, or open the Bilim Hezinisi website's catalog to download a book
+(section 3).
 
 ---
 
 ## 1. What we collect
 
-**Nothing.** The developer of Bilim Hezinisi operates no server, receives no
-data from the app, and has no way to identify you or your device. There is no
-sign-up, no login, no account and no unique identifier.
+**Nothing.** The app sends nothing about you, your library or your notes to
+anyone. There is no sign-up, no login, no account and no unique identifier.
+The one server of this project is the Bilim Hezinisi website
+(<https://bilimhezinisi.com>); the app contacts it only when you open its
+catalog or download a book from it, as section 3.3 describes.
 
 ## 2. What is stored on your computer
 
@@ -26,6 +30,8 @@ All of the following stays on your own machine, in
 | Data | Where | Why |
 | --- | --- | --- |
 | Books you import (PDF, DOCX, DOC, TXT, MD, HTML) and their extracted text | `library.db`, `content\` | So you can read and search them offline |
+| For a PDF you import: where the file is on your computer, its size, date and fingerprint (SHA-256) — the PDF itself is not copied | `library.db` | To find the PDF again for its pages |
+| Books you download from the Bilim Hezinisi website, with the website's number for each and the date of its version | `library.db` | To show which are already downloaded, and which changed on the website |
 | Notes and notebooks you write, their earlier versions and the notes in the trash | `library.db` | Your notes, and the way back to an earlier version |
 | Backups of the library — weekly, before an update, before a restore or a repair, and the ones you make | `backups\` | So you can restore your library |
 | Reading position, categories, favourites, window size, theme, fonts | `library.db` | To restore your session |
@@ -36,8 +42,8 @@ app does not delete your library, so that a reinstall keeps your books.
 
 ## 3. When the app uses the internet
 
-The app works fully offline. It contacts the network in only two situations,
-both started by you:
+The app works fully offline. It contacts the network in only three
+situations, each started by you:
 
 ### 3.1 The optional AI assistant (Google Gemini)
 
@@ -93,6 +99,27 @@ If you paste a URL into the import box, the app downloads that page so it can
 be saved into your library. The request goes to the website you named and to
 nobody else.
 
+### 3.3 Downloading from the Bilim Hezinisi website (version 3.6.0 and later)
+
+Only when you open «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش», or download or
+update a book there, the app contacts:
+
+- **bilimhezinisi.com** — the website's download check. It allows published
+  books only and limits how many books one address can download in a short
+  time (20 in ten minutes); for that, the website keeps a count for your IP
+  address in its memory for ten minutes; and
+- **the website's database provider, Supabase**
+  (`jmnaqaeqolrtktvpbtci.supabase.co`) — the list of published books and
+  categories, and the pages of the book you download.
+
+These requests carry your IP address (as every internet connection does), the
+app's name and version, and which book you download. **Nothing from your
+library or your notebook is sent.** The list is read once each time the app
+runs, unless you refresh it; a book is downloaded only when you click
+«چۈشۈرۈش». The website's own privacy page is
+<https://bilimhezinisi.com/privacy>; Supabase's is
+<https://supabase.com/privacy>.
+
 Everything else — reading, full-text search, OCR (text recognition from
 images and scanned PDFs), spell-checking, the Qur'an module and export to
 PDF/DOCX — runs **entirely offline** on your own machine.
@@ -126,23 +153,25 @@ Questions, corrections or a request to remove material:
 
 # مەخپىيەتلىك سىياسىتى — بىلىم خەزىنىسى
 
-**ئاخىرقى يېڭىلانغان ۋاقتى: 2026-يىلى 10-ئاينىڭ 23-كۈنى**
+**ئاخىرقى يېڭىلانغان ۋاقتى: 2026-يىلى 10-ئاينىڭ 28-كۈنى**
 **قوللىنىش دائىرىسى: Windows ئۈچۈن بىلىم خەزىنىسى، 3.2.0 ۋە ئۇنىڭدىن كېيىنكى نەشرى**
 
 ## قىسقىچە
 
 بىلىم خەزىنىسى ــ تورسىز ئىشلەيدىغان شەخسىي كۇتۇپخانا دېتالى. ھېسابات ئېچىش
-تەلەپ قىلىنمايدۇ؛ ھېچقانداق ستاتىستىكا، ئىزلاش ياكى ئېلان يوق. سىز ئۆزىڭىز
-سۈنئىي ئىدراك ئىقتىدارىنى قوزغاتمىغان ياكى تور ئادرېسى چاپلاپ كىتاب
-ئەكىرمىگەن بولسىڭىز، كىتابلىرىڭىز، خاتىرىلىرىڭىز ۋە تەڭشەكلىرىڭىز
-كومپيۇتېرىڭىزدىن ھەرگىز چىقمايدۇ.
+تەلەپ قىلىنمايدۇ؛ ھېچقانداق ستاتىستىكا، ئىزلاش ياكى ئېلان يوق.
+كىتابلىرىڭىز، خاتىرىلىرىڭىز ۋە تەڭشەكلىرىڭىز كومپيۇتېرىڭىزدىن ھەرگىز
+چىقمايدۇ. دېتال پەقەت سىز ئۆزىڭىز سۈنئىي ئىدراك ئىقتىدارىنى قوزغاتقاندا، تور
+ئادرېسى چاپلاپ كىتاب ئەكىرگەندە ياكى بىلىم خەزىنىسى تور بېتىنىڭ تىزىملىكىنى
+ئېچىپ كىتاب چۈشۈرگەندىلا تورغا ئۇلىنىدۇ (3-بۆلەك).
 
 ## 1. بىز توپلايدىغان ئۇچۇر
 
-**ھېچنېمە.** بۇ دېتالنىڭ ياسىغۇچىسىنىڭ ھېچقانداق مۇلازىمېتىرى يوق، دېتالدىن
-ھېچقانداق سانلىق مەلۇمات تاپشۇرۇۋالمايدۇ، سىزنى ياكى ئۈسكۈنىڭىزنى پەرقلەندۈرۈش
-ئىمكانىيىتىمۇ يوق. تىزىملىتىش، كىرىش، ھېسابات ياكى بىردىنبىر بەلگە دېگەنلەر
-پۈتۈنلەي يوق.
+**ھېچنېمە.** دېتال سىز، كۇتۇپخانىڭىز ياكى خاتىرىلىرىڭىز ھەققىدە ھېچكىمگە
+ھېچنېمە ئەۋەتمەيدۇ. تىزىملىتىش، كىرىش، ھېسابات ياكى بىردىنبىر بەلگە دېگەنلەر
+پۈتۈنلەي يوق. بۇ تۈرنىڭ بىردىنبىر مۇلازىمېتىرى بىلىم خەزىنىسى تور بېتى
+(<https://bilimhezinisi.com>)؛ دېتال ئۇنىڭغا پەقەت سىز ئۇنىڭ تىزىملىكىنى
+ئاچقاندا ياكى ئۇنىڭدىن كىتاب چۈشۈرگەندىلا ئۇلىنىدۇ (3.3-بۆلەك).
 
 ## 2. كومپيۇتېرىڭىزدا ساقلىنىدىغان ئۇچۇرلار
 
@@ -152,6 +181,8 @@ Questions, corrections or a request to remove material:
 | سانلىق مەلۇمات | ئورنى | سەۋەبى |
 | --- | --- | --- |
 | سىز ئەكىرگەن كىتابلار (PDF، DOCX، DOC، TXT، MD، HTML) ۋە ئۇلاردىن ئاجرىتىلغان تېكىست | `library.db`، `content\` | تورسىز ئوقۇش ۋە ئىزدەش ئۈچۈن |
+| سىز ئەكىرگەن PDF نىڭ كومپيۇتېرىڭىزدىكى ئورنى، چوڭلۇقى، ۋاقتى ۋە بارماق ئىزى (SHA-256) — PDF نىڭ ئۆزى كۆچۈرۈلمەيدۇ | `library.db` | PDF نى بەتلىرى ئۈچۈن قايتا تېپىش ئۈچۈن |
+| بىلىم خەزىنىسى تور بېتىدىن چۈشۈرگەن كىتابلار، ھەربىرىنىڭ تور بېتىدىكى نومۇرى ۋە نۇسخىسىنىڭ ۋاقتى بىلەن | `library.db` | قايسىسى چۈشۈرۈلگەنلىكىنى ۋە قايسىسى تور بېتىدە يېڭىلانغانلىقىنى كۆرسىتىش ئۈچۈن |
 | سىز يازغان خاتىرە ۋە خاتىرە دەپتەرلىرى، ئۇلارنىڭ ئىلگىرىكى نەشرلىرى ۋە ئەخلەت ساندۇقىدىكى خاتىرىلەر | `library.db` | خاتىرىلىرىڭىز ۋە ئىلگىرىكى نەشرىگە قايتىش ئۈچۈن |
 | كۇتۇپخانىنىڭ زاپاسلىرى — ھەپتىدە بىر، يېڭىلاش، ئەسلىگە كەلتۈرۈش ياكى ئوڭشاشتىن بۇرۇن، شۇنداقلا سىز ياسىغانلىرى | `backups\` | كۇتۇپخانىنى ئەسلىگە كەلتۈرۈش ئۈچۈن |
 | ئوقۇش ئورنى، تۈرلەر، ساقلانمىلار، كۆزنەك چوڭلۇقى، تېما، خەت نۇسخىسى | `library.db` | ئالدىنقى ھالەتنى ئەسلىگە كەلتۈرۈش ئۈچۈن |
@@ -162,7 +193,7 @@ Questions, corrections or a request to remove material:
 
 ## 3. دېتال قايسى ۋاقىتتا توردىن پايدىلىنىدۇ
 
-دېتال تولۇق تورسىز ئىشلەيدۇ. پەقەت سىز ئۆزىڭىز باشلىغان تۆۋەندىكى ئىككى
+دېتال تولۇق تورسىز ئىشلەيدۇ. پەقەت سىز ئۆزىڭىز باشلىغان تۆۋەندىكى ئۈچ
 ئەھۋالدىلا تورغا باغلىنىدۇ:
 
 ### 3.1 ئىختىيارىي سۈنئىي ئىدراك ياردەمچىسى (Google Gemini)
@@ -220,6 +251,27 @@ Google نىڭ Gemini API قوشۇمچە شەرتلىرى (2026-يىلى 8-ئاي
 
 ئەكىرىش رامكىسىغا تور ئادرېسى چاپلىسىڭىز، دېتال شۇ بەتنى چۈشۈرۈپ
 كۇتۇپخانىڭىزغا ساقلايدۇ. ئىلتىماس پەقەت سىز كۆرسەتكەن تور بەتكىلا بارىدۇ.
+
+### 3.3 بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش (3.6.0 ۋە ئۇنىڭدىن كېيىنكى نەشرى)
+
+پەقەت سىز «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» نى ئاچقاندا، ياكى ئۇ يەردە
+كىتاب چۈشۈرگەن ياكى يېڭىلىغاندا، دېتال مۇنۇلارغا ئۇلىنىدۇ:
+
+- **bilimhezinisi.com** — تور بېتىنىڭ چۈشۈرۈش تەكشۈرۈشى. ئۇ پەقەت ئېلان
+  قىلىنغان كىتابلارغىلا رۇخسەت قىلىدۇ ھەمدە بىر ئادرېستىن قىسقا ۋاقىت ئىچىدە
+  چۈشۈرۈلىدىغان كىتاب سانىنى چەكلەيدۇ (ئون مىنۇتتا 20)؛ بۇنىڭ ئۈچۈن تور بېتى
+  IP ئادرېسىڭىزنىڭ سانىنى ئون مىنۇت ئەستە تۇتىدۇ؛
+- **تور بېتىنىڭ ساندان مۇلازىمىتى Supabase**
+  (`jmnaqaeqolrtktvpbtci.supabase.co`) — ئېلان قىلىنغان كىتابلار ۋە تۈرلەر
+  تىزىملىكى، شۇنداقلا سىز چۈشۈرگەن كىتابنىڭ بەتلىرى.
+
+بۇ ئىلتىماسلاردا IP ئادرېسىڭىز (ھەرقانداق تور ئۇلىنىشىدىكىدەك)، دېتالنىڭ نامى
+ۋە نەشرى، ۋە قايسى كىتابنى چۈشۈرگەنلىكىڭىز بولىدۇ. **كۇتۇپخانىڭىز ياكى خاتىرە
+دەپتىرىڭىزدىن ھېچنېمە ئەۋەتىلمەيدۇ.** تىزىملىك دېتال ھەر قېتىم ئېچىلغاندا بىر
+قېتىم ئوقۇلىدۇ (سىز «يېڭىلاش» نى باسمىسىڭىز)؛ كىتاب پەقەت سىز «چۈشۈرۈش» نى
+باسقاندىلا چۈشۈرۈلىدۇ. تور بېتىنىڭ ئۆز مەخپىيەتلىك بېتى:
+<https://bilimhezinisi.com/privacy>؛ Supabase نىڭكى:
+<https://supabase.com/privacy>.
 
 قالغان ھەممە ئىقتىدار ــ ئوقۇش، تولۇق تېكىست ئىزدەش، OCR (رەسىم ۋە
 سىكانېرلانغان PDF تىن خەت تونۇش)، ئىملا تەكشۈرۈش، قۇرئان بۆلۈمى، PDF/DOCX
