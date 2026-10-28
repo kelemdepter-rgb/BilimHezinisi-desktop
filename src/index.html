@@ -105,6 +105,30 @@ button, .hbtn, .vb, .ci, .mt, input, select, textarea { transition: background-c
 .sb-forms { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 11px; color: var(--text2); cursor: pointer; white-space: nowrap; user-select: none; }
 .sb-forms input { margin: 0; accent-color: var(--am); cursor: pointer; }
 .sr-forms { font-size: 12px; color: var(--text3); margin: 0 0 10px; }
+/* «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» (3.6). The header button's label is
+   shortened where the bar is narrow — measured: the whole name fits from
+   1,300 px, «تور بېتىدىن» from 1,040 px, below that the icon alone (at the
+   window's 900 px minimum the short label still overflowed by 8 px). The
+   tooltip always holds the whole name. */
+.wl-btn .wl-short { display: none; }
+@media (max-width: 1299px) { .wl-btn .wl-full { display: none; } .wl-btn .wl-short { display: inline; } }
+@media (max-width: 1039px) { .wl-btn .wl-short { display: none; } }
+.wl-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.wl-bar #wlq { flex: 1; min-width: 180px; }
+.wl-bar select { width: auto; max-width: 200px; cursor: pointer; }
+.wl-status { font-size: 12px; color: var(--text2); margin: 6px 0 10px; }
+.wl-status button { margin-inline-start: 8px; }
+.wl-list { max-height: 62vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.wl-book { display: flex; gap: 12px; padding: 10px; border: 0.5px solid var(--border); border-radius: var(--radius2); background: var(--bg); }
+.wl-book .cover { width: 56px; height: 78px; flex-shrink: 0; font-size: 7px; }
+.wl-info { flex: 1; min-width: 0; }
+.wl-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.wl-meta { font-size: 11px; color: var(--text3); margin: 2px 0 4px; }
+.wl-desc { font-size: 12px; color: var(--text2); line-height: 1.7; }
+.wl-act { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.wl-act select { width: auto; max-width: 240px; }
+.wl-prog { font-size: 12px; color: var(--am); font-family: sans-serif; }
+.wl-done { font-size: 12px; color: var(--text3); }
 /* One search across the books, the Qur'an and the notebook (3.6). */
 .srch-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
 .srch-chip { font-family: var(--jf); font-size: 12px; color: var(--text2); background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 14px; padding: 4px 12px; cursor: pointer; }
@@ -504,6 +528,7 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
         <button onclick="closeMenus();showAdd()"><span class="mi-label"><svg class="ic"><use href="#i-plus"></use></svg> يېڭى كىتاب قوشۇش</span><span class="shortcut">Ctrl+N</span></button>
         <button onclick="closeMenus();showBatchImport()"><span class="mi-label"><svg class="ic"><use href="#i-folder-plus"></use></svg> توپلاپ كىتاب قوشۇش</span></button>
         <button onclick="closeMenus();showWebImport()"><span class="mi-label"><svg class="ic"><use href="#i-globe"></use></svg> تور بەت قوشۇش (URL)</span></button>
+        <button onclick="closeMenus();showWebLibrary()"><span class="mi-label"><svg class="ic"><use href="#i-download"></use></svg> بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش</span></button>
         <div class="sep"></div>
         <button onclick="closeMenus();showBulkExport()"><span class="mi-label"><svg class="ic"><use href="#i-download"></use></svg> تۈر بويىچە توپلاپ چۈشۈرۈش</span></button>
         <div class="sep"></div>
@@ -573,6 +598,7 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
   <button class="hbtn" onclick="showCatsMgr()" title="تۈرلەرنى باشقۇرۇش"><svg class="ic"><use href="#i-folder"></use></svg> تۈرلەر</button>
   <button class="hbtn" onclick="showBatchImport()" title="بىرنەچچە كىتابنى بىراقلا قوشۇش"><svg class="ic"><use href="#i-folder-plus"></use></svg> توپلاپ قوشۇش</button>
   <button class="hbtn" onclick="showWebImport()" title="تور بەتتىكى ماقالىنى كىتاب سۈپىتىدە قوشۇش"><svg class="ic"><use href="#i-globe"></use></svg> تور بەت قوشۇش</button>
+  <button class="hbtn wl-btn" onclick="showWebLibrary()" title="بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش"><svg class="ic"><use href="#i-download"></use></svg> <span class="wl-full">بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش</span><span class="wl-short">تور بېتىدىن</span></button>
   <button class="hbtn p" onclick="showAdd()" title="يېڭى كىتاب قوشۇشۇش (Ctrl+N)"><svg class="ic"><use href="#i-plus"></use></svg> كىتاب قوشۇش</button>
 </div>
 
@@ -720,6 +746,29 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
         <button onclick="hideWebImport()" class="hbtn">بىكار قىلىش</button>
         <button onclick="importWebPage()" class="hbtn p" id="webbtn">✓ قوشۇش</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» (3.6): the website's published books. -->
+<div class="ov" id="wlov">
+  <div class="mbox" style="max-width: 920px; width: 94vw;">
+    <div class="mh">
+      <h2><svg class="ic"><use href="#i-download"></use></svg>بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش</h2>
+      <button onclick="hideWebLibrary()" style="background:none;border:none;font-size:18px;color:var(--text2);cursor:pointer">✕</button>
+    </div>
+    <div class="mc">
+      <div class="wl-bar">
+        <input type="search" id="wlq" class="inp" dir="rtl" placeholder="ماۋزۇ، ئاپتور ياكى چۈشەندۈرۈشتىن ئىزدەش..." oninput="renderWebLibrary()">
+        <select id="wlcat" class="inp" onchange="renderWebLibrary()" title="تۈرى"></select>
+        <select id="wlsort" class="inp" onchange="renderWebLibrary()" title="تەرتىپ">
+          <option value="new">ئەڭ يېڭىسى ئالدىدا</option>
+          <option value="title">ماۋزۇ بويىچە</option>
+        </select>
+        <button type="button" class="hbtn" onclick="loadWebLibrary(true)" title="تىزىملىكنى تور بېتىدىن قايتا ئوقۇش">يېڭىلاش</button>
+      </div>
+      <div id="wlstatus" class="wl-status"></div>
+      <div id="wllist" class="wl-list"></div>
     </div>
   </div>
 </div>
@@ -2743,6 +2792,213 @@ function showWebImport() {
 function hideWebImport() {
   document.getElementById('webov').classList.remove('on');
 }
+
+// ===== «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» (3.6) =====
+// The website's published books. Main reads them (web-library.js): the
+// catalog once a session, a book through the website's own gate, one at a
+// time. Here: the list, filtered and sorted locally, and each book's state —
+// «چۈشۈرۈش», the category to put it in, the progress and «توختىتىش»,
+// «چۈشۈرۈلگەن — ئېچىش», «تور بېتىدە يېڭىلانغان — يېڭىلاش».
+const WL = { books: [], categories: [], local: new Map(), loaded: false, error: '', pick: null, confirm: null, job: null };
+let _wlUnsub = null;
+
+function showWebLibrary() {
+  document.getElementById('wlov').classList.add('on');
+  if (!WL.loaded) loadWebLibrary(false);
+  else renderWebLibrary();
+  setTimeout(() => { const q = document.getElementById('wlq'); if (q) q.focus(); }, 100);
+}
+
+function hideWebLibrary() {
+  document.getElementById('wlov').classList.remove('on');
+}
+
+async function loadWebLibrary(refresh) {
+  WL.error = '';
+  const status = document.getElementById('wlstatus');
+  if (status) status.textContent = 'تىزىملىك ئوقۇلىۋاتىدۇ...';
+  let r = null;
+  try { r = await window.electron.webCatalog(!!refresh); } catch (e) { r = null; }
+  if (!r || !r.success) {
+    WL.error = (r && r.error) || 'تورغا ئۇلىنالمىدى';
+  } else {
+    WL.books = r.books || [];
+    WL.categories = r.categories || [];
+    WL.local = new Map((r.local || []).map(x => [Number(x.source_id), x]));
+    WL.loaded = true;
+    const sel = document.getElementById('wlcat');
+    const used = new Set(WL.books.map(b => b.categoryName).filter(Boolean));
+    const names = WL.categories.map(c => c.name).filter(n => used.has(n));
+    const keep = sel.value;
+    sel.innerHTML = `<option value="">ھەممە تۈرلەر</option>` + names.map(n => `<option value="${sanitize(n)}">${sanitize(n)}</option>`).join('');
+    if (names.includes(keep)) sel.value = keep;
+  }
+  renderWebLibrary();
+}
+
+function wlNorm(s) { return String(s || '').toLowerCase().replace(/ـ/g, ''); }
+
+function renderWebLibrary() {
+  const list = document.getElementById('wllist');
+  const status = document.getElementById('wlstatus');
+  if (!list || !status) return;
+  if (WL.error) {
+    status.innerHTML = `${sanitize(WL.error)} <button type="button" class="hbtn" onclick="loadWebLibrary(true)">قايتا سىناش</button>`;
+    if (!WL.loaded) { list.innerHTML = ''; return; }
+  }
+  if (!WL.loaded) return;
+  const q = wlNorm(document.getElementById('wlq').value.trim());
+  const cat = document.getElementById('wlcat').value;
+  const sort = document.getElementById('wlsort').value;
+  let books = WL.books.filter(b =>
+    (!cat || b.categoryName === cat) &&
+    (!q || wlNorm(b.title).includes(q) || wlNorm(b.author).includes(q) || wlNorm(b.description).includes(q)));
+  if (sort === 'title') books = books.slice().sort((a, b) => a.title.localeCompare(b.title));
+  else books = books.slice().sort((a, b) => String(b.publishedAt || b.updatedAt || '').localeCompare(String(a.publishedAt || a.updatedAt || '')));
+  if (!WL.error) status.textContent = `${WL.books.length} كىتاب ئېلان قىلىنغان` + (books.length !== WL.books.length ? ` — ${books.length} كۆرسىتىلدى` : '');
+  list.innerHTML = books.length
+    ? books.map(wlBookHtml).join('')
+    : `<div class="srch-sec-msg">ھېچنېمە تېپىلمىدى</div>`;
+}
+
+function wlBookHtml(b) {
+  const cover = bookCover({ id: 'web' + b.id, title: b.title, category: b.categoryName, format: 'TXT' });
+  const desc = b.description.length > 180 ? b.description.slice(0, 180) + '…' : b.description;
+  const meta = [b.author, b.categoryName, b.pageCount ? b.pageCount + ' بەت' : ''].filter(Boolean).map(sanitize).join(' · ');
+  return `<div class="wl-book" data-id="${b.id}">
+    ${cover}
+    <div class="wl-info">
+      <div class="wl-title">${sanitize(b.title)}</div>
+      <div class="wl-meta">${meta}</div>
+      ${desc ? `<div class="wl-desc">${sanitize(desc)}</div>` : ''}
+      <div class="wl-act">${wlActionsHtml(b)}</div>
+    </div>
+  </div>`;
+}
+
+function wlActionsHtml(b) {
+  const here = WL.local.get(b.id);
+  if (WL.job && WL.job.bookId === b.id) {
+    const p = WL.job.total ? `بەت ${WL.job.done} / ${WL.job.total}` : 'باشلىنىۋاتىدۇ...';
+    return `<span class="wl-prog">${p}</span><button type="button" class="hbtn" onclick="webLibraryStop()">توختىتىش</button>`;
+  }
+  if (here) {
+    const changed = b.updatedAt && here.source_updated_at && Date.parse(b.updatedAt) > Date.parse(here.source_updated_at);
+    if (changed && WL.confirm === here.id) {
+      return `<span class="wl-done">يېڭى نۇسخا كونىسىنىڭ ئورنىغا يېزىلىدۇ؛ خەتكۈچ ۋە ئىزاھاتلار سەل سىلجىشى مۇمكىن.</span>
+        <button type="button" class="hbtn p" onclick="webLibraryUpdate(${here.id}, ${b.id})">يېڭىلاش</button>
+        <button type="button" class="hbtn" onclick="WL.confirm=null;renderWebLibrary()">ياق</button>`;
+    }
+    if (changed) {
+      return `<button type="button" class="hbtn" onclick="WL.confirm=${here.id};renderWebLibrary()">تور بېتىدە يېڭىلانغان — يېڭىلاش</button>
+        <button type="button" class="hbtn" onclick="webLibraryOpen(${here.id})">ئېچىش</button>`;
+    }
+    return `<button type="button" class="hbtn" onclick="webLibraryOpen(${here.id})">چۈشۈرۈلگەن — ئېچىش</button>`;
+  }
+  if (WL.pick === b.id) {
+    // The desktop category with the website's name; otherwise «باشقا», or a
+    // new category of that name.
+    const named = b.categoryName && S.cats.includes(b.categoryName);
+    const fallback = S.cats.includes('باشقا') ? 'باشقا' : (S.cats[0] || '');
+    const options = S.cats.map(c => `<option value="${sanitize(c)}"${c === (named ? b.categoryName : fallback) ? ' selected' : ''}>${sanitize(c)}</option>`);
+    if (b.categoryName && !named) options.push(`<option value="new:${sanitize(b.categoryName)}">يېڭى تۈر قوشۇش: ${sanitize(b.categoryName)}</option>`);
+    return `<label class="wl-done">تۈرى:</label><select id="wlpick-${b.id}" class="inp">${options.join('')}</select>
+      <button type="button" class="hbtn p" onclick="webLibraryStart(${b.id})">چۈشۈرۈشنى باشلاش</button>
+      <button type="button" class="hbtn" onclick="WL.pick=null;renderWebLibrary()">بىكار قىلىش</button>`;
+  }
+  return `<button type="button" class="hbtn p"${WL.job ? ' disabled title="بىر كىتاب چۈشۈرۈلۈۋاتىدۇ"' : ''} onclick="WL.pick=${b.id};renderWebLibrary()">${icon('download')} چۈشۈرۈش</button>`;
+}
+
+function wlWatchProgress(bookId) {
+  if (_wlUnsub) { try { _wlUnsub(); } catch (_) {} }
+  _wlUnsub = window.electron.onWebProgress(d => {
+    if (!WL.job || WL.job.bookId !== bookId) return;
+    WL.job.done = d.done; WL.job.total = d.total;
+    const card = document.querySelector(`.wl-book[data-id="${bookId}"] .wl-prog`);
+    if (card) card.textContent = `بەت ${d.done} / ${d.total}`;
+  });
+}
+
+function wlEndJob() {
+  WL.job = null;
+  if (_wlUnsub) { try { _wlUnsub(); } catch (_) {} _wlUnsub = null; }
+}
+
+// After a download or an update, the library on screen takes what changed.
+async function wlReloadLibrary(parts) {
+  try {
+    const data = await window.electron.loadLibrary();
+    applyLibraryData(data, false, parts);
+  } catch (e) { /* the next start reads it */ }
+  renderSide();
+  if (S.mode === 'library') renderBooks();
+  const r = await window.electron.webCatalog(false).catch(() => null);
+  if (r && r.success) WL.local = new Map((r.local || []).map(x => [Number(x.source_id), x]));
+}
+
+async function webLibraryStart(bookId) {
+  if (WL.job) return;
+  const b = WL.books.find(x => x.id === bookId);
+  const sel = document.getElementById('wlpick-' + bookId);
+  if (!b || !sel) return;
+  let category = sel.value;
+  if (category.indexOf('new:') === 0) {
+    category = category.slice(4);
+    if (!S.cats.includes(category)) { S.cats.push(category); await saveData(); renderSide(); }
+  }
+  WL.pick = null;
+  WL.job = { bookId: bookId, done: 0, total: b.pageCount };
+  wlWatchProgress(bookId);
+  renderWebLibrary();
+  let r = null;
+  try { r = await window.electron.webImport(bookId, category); } catch (e) { r = null; }
+  wlEndJob();
+  if (r && r.success && r.ok) {
+    await wlReloadLibrary(['books', 'cats', 'nid']);
+    toast('«' + b.title + '» چۈشۈرۈلدى', 's', { action: { label: 'ئېچىش', run: () => webLibraryOpen(r.id) }, ms: 8000 });
+  } else if (r && r.success && r.duplicate) {
+    await wlReloadLibrary(['books']);
+    toast('بۇ كىتاب كۇتۇپخانىڭىزدا ئاللىقاچان بار', 'i');
+  } else if (r && r.cancelled) {
+    toast('چۈشۈرۈش توختىتىلدى — ھېچنېمە قوشۇلمىدى', 'i');
+  } else {
+    toast((r && r.error) || 'تورغا ئۇلىنالمىدى', 'e');
+  }
+  renderWebLibrary();
+}
+
+function webLibraryStop() {
+  try { window.electron.webCancel(); } catch (_) {}
+}
+
+async function webLibraryUpdate(localId, bookId) {
+  if (WL.job) return;
+  const b = WL.books.find(x => x.id === bookId);
+  WL.confirm = null;
+  WL.job = { bookId: bookId, done: 0, total: b ? b.pageCount : 0 };
+  wlWatchProgress(bookId);
+  renderWebLibrary();
+  let r = null;
+  try { r = await window.electron.webUpdate(localId); } catch (e) { r = null; }
+  wlEndJob();
+  if (r && r.success && r.ok) {
+    // The places were clamped in the database: the screen takes them from there.
+    await wlReloadLibrary(['books', 'bookmarks', 'notes']);
+    toast('«' + (b ? b.title : '') + '» يېڭىلاندى', 's');
+  } else if (r && r.cancelled) {
+    toast('يېڭىلاش توختىتىلدى — كىتاب ئۆزگەرمىدى', 'i');
+  } else {
+    toast((r && r.error) || 'تورغا ئۇلىنالمىدى', 'e');
+  }
+  renderWebLibrary();
+}
+
+function webLibraryOpen(localId) {
+  hideWebLibrary();
+  if (S.mode !== 'library') setMode('library');
+  openReader(Number(localId));
+}
+
 
 async function importWebPage() {
   const url = (document.getElementById('weburl').value || '').trim();
