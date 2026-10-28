@@ -20,7 +20,7 @@ Read prompts/3.6/PROMPT-3.6.md in full, then prompts/3.6/PROGRESS.md, and contin
 | 2 | PDF import keeps every page; page starts and the original file remembered | **done** — waiting for the owner's check | `fd67dd2` fix(ocr): the offline OCR engine answers inside Electron · `cadff79` feat(import): a PDF keeps every page; each page's place and the PDF's location are kept · docs(progress) | 138 in all (with the syntax gate), every one green |
 | 3 | Search that understands Uyghur suffixes | **done** — waiting for the owner's check | `ed1d6bd` feat(search): a word's Uyghur forms — bases, stem changes, suffixes — for the library search · `2f9d911` feat(search): «قوشۇمچىلىرى بىلەن» in the search bar; the forms found are marked and counted · docs(progress) | 144 in all (with the syntax gate), every one green |
 | 4 | One search across the books, the Qur'an and the notebook | **done** — waiting for the owner's check | `f888a53` feat(search): the Qur'an translation and the notebook searched through the Uyghur forms too · `0228555` feat(search): one search across the books, the Qur'an and the notebook · docs(progress) | 149 in all (with the syntax gate), every one green |
-| 5 | «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» | not started | | |
+| 5 | «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» | **done** — waiting for the owner's check | `cf634c5` feat(web): read the website's published books and download them through its gate · `9f6c9ed` feat(web): «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» — the catalog inside the app · docs(privacy) · docs(progress) | 158 in all (with the syntax gate), every one green |
 | 6 | Two books side by side | not started | | |
 | 7 | The PDF page beside its text: compare and correct | not started | | |
 | 8 | Release 3.6.0 (no publishing) | not started | | |
@@ -209,6 +209,48 @@ which the test page does not load) — the owner's checklist below.
 6. سول تەرەپتىن بىر تۈرنى (مەسىلەن «تارىخ») تاللاپ ئىزدەڭ ← «تۈرى پەقەت كىتابلارغا قوللىنىلدى» دېگەن خەت چىقىدۇ؛ قۇرئان ۋە خاتىرە يەنىلا ئىزدىلىدۇ.
 7. ئەخلەت ساندۇقىدىكى خاتىرە ھەرگىز چىقمايدۇ.
 
+## Phase 5 — done
+
+| Item | What changed | Tests |
+|---|---|---|
+| The key | The website's Supabase address and anon key, read from the web project's `.env.local` with a filter that printed those two lines only; the key's payload says `role: anon`. In `web-library.js` as constants marked public by design; `checkPublicKey` refuses `service_role` and `sb_secret_` when the client is made. | `web-key-is-public` |
+| The catalog | `categories`, then `books` with `status=eq.published`, 1,000 rows a request, ordered by id; each book: title, author, category, description, pages, format, published and updated dates. Read once a session; «يېڭىلاش» reads it again. | `web-catalog` |
+| The download | The website's gate first (a refusal shows the gate's own Uyghur message); `book_pages` in batches of 100 (`gte`/`lte`), joined with a blank line; a `markdown` book through `MarkdownText.toPlain`, now `src/markdown-text.js`, which the `.md` import also calls. 20 s timeout; a network error or 5xx retried twice (1.5 s, 4 s), a 4xx never; offline → «تورغا ئۇلىنالمىدى». | `web-gate-refusals`, `web-offline-and-retry`, `web-pages-in-batches`, `web-markdown-like-md-import` |
+| The library | Migration step 8: `books.source`, `source_id`, `source_updated_at` (+ index). A book is found by its source first, then by its text's SHA-256; «توختىتىش» aborts before anything is written. An update: `replaceBookText` in one transaction — the new text, places clamped to its length, the website's date recorded. | `web-import-and-duplicates`, `web-cancel-leaves-no-half-book`, `web-update-keeps-places` |
+| The page | A header button and a «ھۆججەت» menu item open the catalog: search, category and order (newest / title) filtered locally; per book «چۈشۈرۈش» → the category (same name → «باشقا» → «يېڭى تۈر قوشۇش») → «بەت x / y» + «توختىتىش» → «چۈشۈرۈلگەن — ئېچىش»; a newer version on the website → «تور بېتىدە يېڭىلانغان — يېڭىلاش», confirmed inline. After an update the screen reloads books, bookmarks and notes from the database (`syncBookmarks` would otherwise write the old places back). | checked in the dev app (below) |
+| Privacy | `PRIVACY.md` (both languages, 28 October 2026): section 3 now has three situations; 3.3 names bilimhezinisi.com and its Supabase project, what a request carries (IP address, app name and version, which book) and that nothing from the library or the notebook is sent; section 2 lists the downloaded books' source and the PDF's recorded location. CLAUDE.md's «The network, exactly» lists every host main may contact. | — |
+
+Checked in `npm run dev` against the live website: the catalog listed 66
+published books in 17 categories; a short book (website id 1885) came down
+through the app — 3,076 characters, its source recorded, «چۈشۈرۈلگەن —
+ئېچىش» on reopening the catalog, «ئېچىش» opened the reader. With the DEV
+library's recorded date set earlier, the card read «تور بېتىدە يېڭىلانغان —
+يېڭىلاش», the inline question appeared, and the update ended at «چۈشۈرۈلگەن —
+ئېچىش». The header measured at 900, 1040, 1299 and 1300 px: icon only at 900
+(nothing overflows, the search box 181 px wide), «تور بېتىدىن» from 1040,
+the full label from 1300. The DEV library was emptied again afterwards.
+
+Found on the way: this machine's router answered SERVFAIL for
+bilimhezinisi.com at times (public resolvers find it; Supabase's own host
+always resolved). The catalog still opens then, but the gate cannot be
+reached and the download says «تورغا ئۇلىنالمىدى». The app does not get
+around the gate and does not ask another DNS service: both would be new
+network behaviour. Listed under Deferred.
+
+Not checked by a test: the dialog itself (it lives in `src/index.html`) —
+the owner's checklist below.
+
+### Phase 5 checklist for the owner (`npm run dev`)
+
+1. ئۈستىدىكى «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» كۇنۇپكىسىنى بېسىڭ ← تور بېتىدە ئېلان قىلىنغان كىتابلار تىزىملىكى چىقىدۇ، ئۈستىدە «… كىتاب ئېلان قىلىنغان». (كۆزنەك تار بولسا كۇنۇپكا «تور بېتىدىن» ياكى پەقەت سىنبەلگە بولۇپ قىسقىرايدۇ؛ «ھۆججەت» تىزىملىكىدىمۇ بار.)
+2. ئىزدەش رامكىسىغا بىر كىتابنىڭ ئىسمى ياكى ئاپتورىنى يېزىڭ، تۈر ۋە تەرتىپنى ئۆزگەرتىپ بېقىڭ ← تىزىملىك شۇئان سۈزۈلىدۇ.
+3. قىسقا بىر كىتابنىڭ «چۈشۈرۈش» ىنى بېسىڭ ← تۈر تاللاش چىقىدۇ (تور بېتىدىكى تۈرنىڭ ئىسمى بىلەن ئوخشاش تۈر ئالدىن تاللانغان). «چۈشۈرۈشنى باشلاش» ← «بەت x / y» ئىلگىرىلەيدۇ، ئاخىرىدا «… چۈشۈرۈلدى» ۋە «ئېچىش».
+4. «ئېچىش» نى بېسىڭ ← كىتاب ئوقۇغۇچتا ئېچىلىدۇ، تېكىستى تور بېتىدىكىدەك.
+5. كاتالوگنى قايتا ئېچىڭ ← شۇ كىتابتا «چۈشۈرۈلگەن — ئېچىش» يېزىلغان. ئۇنى يەنە چۈشۈرگىلى بولمايدۇ (ئىككى نۇسخا بولمايدۇ).
+6. ئۇزۇنراق بىر كىتابنى چۈشۈرۈۋاتقاندا «توختىتىش» نى بېسىڭ ← «چۈشۈرۈش توختىتىلدى — ھېچنېمە قوشۇلمىدى»، كۇتۇپخانىدا يېرىم كىتاب يوق.
+7. تورنى ئۈزۈپ (Wi-Fi نى تاقاپ) دېتالنى قايتا ئېچىپ كاتالوگنى ئېچىڭ ← «تورغا ئۇلىنالمىدى» ۋە «قايتا سىناش»؛ دېتالنىڭ باشقا ھەممە ئىقتىدارى ئىلگىرىكىدەك ئىشلەيدۇ.
+8. بىلىپ قويۇڭ: بۇ كومپيۇتېردىكى router بەزىدە bilimhezinisi.com نى تاپالمىدى. ئۇ چاغدا تىزىملىك ئېچىلىدۇ، لېكىن چۈشۈرۈش «تورغا ئۇلىنالمىدى» دەيدۇ — بىردەمدىن كېيىن قايتا سىناڭ. بۇ داۋاملىق يۈز بەرسە ئېيتىڭ.
+
 ## Measurements
 
 | What | Result | Where measured |
@@ -227,6 +269,9 @@ which the test page does not load) — the owner's checklist below.
 | Search over 500 books / 100 MB (synthetic, real vocabulary at real frequencies) | today's search 1.97 s median, 2.16 s max (2.11 s before the case check); with the forms 2.06 s median, 2.32 s max; with the index still filling (every book scanned for the forms) 2.0–2.1 s — every book matched in this library, the worst case for the index | ELECTRON_RUN_AS_NODE script, Phase 3 |
 | Where the search time goes | lower-casing 100 MB of Uyghur 586 ms (now skipped: no cased letter, a 67 ms check); `indexOf` over it 7 ms; the rest is reading the texts (the content cache holds 20 books) | probe, Phase 3 |
 | The spell dictionary loads | 26 ms | search-forms, Phase 3 |
+| The website's catalog | 66 published books, 17 categories — one request each (under the 1,000-row page) | dev app against the live site, Phase 5 |
+| The header with the new button | 900 px: icon only, no overflow, search box 181 px; 1040–1299 px: «تور بېتىدىن»; 1300 px and wider: the full label | dev app, measured from the DOM, Phase 5 |
+| Name lookup for bilimhezinisi.com on this machine | the router answered SERVFAIL at times; public resolvers and the Supabase host resolved | name lookups on this machine, Phase 5 |
 
 ### Phase 1 checklist for the owner (`npm run dev`)
 
@@ -255,3 +300,4 @@ which the test page does not load) — the owner's checklist below.
 |---|---|---|
 | A page map for Gemini OCR imports | The online engine reads two pages per request and returns one text, so where one page ends is not known. Changing its batching would be an AI change (out of scope for 3.6). Phase 7 places such pages like a book from before 3.6. | Phase 7, or a later release |
 | A page map when the staged OCR text was cleaned by AI before «قوشۇش» | The AI rewrote the text; the ranges no longer fit it, so none are stored (by design). Phase 7 can realign. | Phase 7 |
+| A way around a router that cannot find bilimhezinisi.com | Asking another DNS service (DNS over HTTPS) would be a new host and new network behaviour — a privacy change the owner decides. Until then the download says «تورغا ئۇلىنالمىدى» and a retry usually works. | If the owner wants it |
