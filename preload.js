@@ -74,6 +74,16 @@ contextBridge.exposeInMainWorld('electron', {
     // Return an unsubscribe so callers can detach between OCR sessions.
     return () => ipcRenderer.removeListener('ocr-progress', handler);
   },
+  // «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» (3.6): main talks to the website.
+  webCatalog: (refresh) => ipcRenderer.invoke('web-catalog', !!refresh),
+  webImport: (bookId, category) => ipcRenderer.invoke('web-import', bookId, category),
+  webUpdate: (localBookId) => ipcRenderer.invoke('web-update', localBookId),
+  webCancel: () => ipcRenderer.invoke('web-cancel'),
+  onWebProgress: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('web-progress', handler);
+    return () => ipcRenderer.removeListener('web-progress', handler);
+  },
   getVersion: () => ipcRenderer.invoke('get-version'),
   openDataFolder: () => ipcRenderer.invoke('open-data-folder'),
   getContentSize: () => ipcRenderer.invoke('get-content-size'),

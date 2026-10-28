@@ -83,6 +83,7 @@
       "pdf-original.js",
       "ocr-engine.js",
       "search-forms.js",
+      "web-library.js",
       "ocr-postprocess.js",
       "text-normalize.js",
       "src/**/*",

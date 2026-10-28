@@ -10,6 +10,7 @@ const navigation = require('./navigation');
 const noteExport = require('./note-export');
 const pdfOriginal = require('./pdf-original');
 const searchForms = require('./search-forms');
+const webLibrary = require('./web-library');
 const ocrEngine = require('./ocr-engine');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
@@ -1176,6 +1177,78 @@ ipcMain.handle('read-html', (event, filePath) => {
   } catch(e) {
     return { success: false, error: e.message };
   }
+});
+
+// ========== «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» (3.6) ==========
+// The website's published books (web-library.js). Only when the owner opens
+// the catalog or downloads a book does the app contact bilimhezinisi.com and
+// its Supabase project — through Electron's net.fetch, so the system's
+// certificates and proxy apply. The catalog is read once a session (the
+// dialog's «يېڭىلاش» reads it again); one download at a time; the renderer
+// sends a book's id only, and main takes the book from its own catalog.
+let webClient = null;
+let webCatalogCache = null;
+let webJob = null;   // the one download in progress: { controller }
+
+function webLib() {
+  if (!webClient) {
+    const { net } = require('electron');
+    webClient = webLibrary.createClient({
+      fetch: (url, init) => net.fetch(url, init),
+      userAgent: 'BilimHezinisi-Desktop/' + app.getVersion() + ' (+' + webLibrary.SITE_ORIGIN + ')'
+    });
+  }
+  return webClient;
+}
+
+function webSendProgress(sender, done, total) {
+  try { if (!sender.isDestroyed()) sender.send('web-progress', { done: done, total: total }); } catch (_) {}
+}
+
+async function webRun(event, work) {
+  if (webJob) return { success: false, busy: true, error: 'بىر كىتاب چۈشۈرۈلۈۋاتىدۇ — ئۇ تۈگىگەندىن كېيىن قايتا سىناڭ' };
+  const controller = new AbortController();
+  webJob = { controller: controller };
+  try {
+    const r = await work(controller.signal, (done, total) => webSendProgress(event.sender, done, total));
+    database.saveDB(DATA_DIR);
+    return Object.assign({ success: true }, r);
+  } catch (err) {
+    return { success: false, cancelled: !!(err && err.cancelled), error: (err && err.message) || 'تورغا ئۇلىنالمىدى' };
+  } finally {
+    webJob = null;
+  }
+}
+
+ipcMain.handle('web-catalog', async (event, refresh) => {
+  try {
+    if (!webCatalogCache || refresh) webCatalogCache = await webLib().catalog();
+    return {
+      success: true,
+      books: webCatalogCache.books,
+      categories: webCatalogCache.categories,
+      local: database.getBookSources(webLibrary.SOURCE)
+    };
+  } catch (err) {
+    return { success: false, error: (err && err.message) || 'تورغا ئۇلىنالمىدى' };
+  }
+});
+
+ipcMain.handle('web-import', (event, bookId, category) => webRun(event, (signal, onProgress) => {
+  const book = webCatalogCache && webCatalogCache.books.find(b => b.id === Number(bookId));
+  if (!book) throw new Error('بۇ كىتاب تور بېتىنىڭ تىزىملىكىدە يوق');
+  return webLibrary.importBook(database, webLib(), book, { category: String(category || 'باشقا'), signal, onProgress });
+}));
+
+ipcMain.handle('web-update', (event, localBookId) => webRun(event, (signal, onProgress) => {
+  const row = database.getBook(Number(localBookId));
+  const book = row && webCatalogCache && webCatalogCache.books.find(b => b.id === Number(row.source_id));
+  return webLibrary.updateBook(database, webLib(), Number(localBookId), { updatedAt: book ? book.updatedAt : null, signal, onProgress });
+}));
+
+ipcMain.handle('web-cancel', () => {
+  if (webJob) webJob.controller.abort();
+  return { success: true };
 });
 
 // Web-page fetch for "تور بەت قوشۇش" (import article by URL). Runs in the MAIN

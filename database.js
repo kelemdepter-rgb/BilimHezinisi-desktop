@@ -455,6 +455,22 @@ const MIGRATIONS = [
       const cols = db.prepare('PRAGMA table_info(books)').all().map(c => c.name);
       if (cols.indexOf('original_path') === -1) db.exec("ALTER TABLE books ADD COLUMN original_path TEXT DEFAULT ''");
     }
+  },
+  {
+    // 3.6 — where a book came from. A book downloaded from the website
+    // (web-library.js) has source 'bilimhezinisi.com', the website's id for
+    // it, and the website's updated_at as it was downloaded — what the
+    // catalog compares to offer «يېڭىلاش». A book from a file has none.
+    version: 8,
+    name: 'book_source',
+    up(db) {
+      db.exec(`
+        ALTER TABLE books ADD COLUMN source TEXT;
+        ALTER TABLE books ADD COLUMN source_id INTEGER;
+        ALTER TABLE books ADD COLUMN source_updated_at TEXT;
+        CREATE INDEX IF NOT EXISTS idx_books_source ON books(source, source_id);
+      `);
+    }
   }
 ];
 
@@ -670,8 +686,55 @@ function addBook(title, author, category, format, date, description, content, fi
     }
     if (mapped.ranges) writePageMap(bookId, mapped.ranges);
     if (extra && extra.original) setBookOriginal(bookId, extra.original);
+    if (extra && extra.source) setBookSource(bookId, extra.source);
 
     return bookId;
+  })();
+}
+
+// ========== WHERE A BOOK CAME FROM (3.6, migration step 8) ==========
+
+/** { source, id, updatedAt } — a book downloaded from the website (web-library.js). */
+function setBookSource(bookId, src) {
+  if (!src || !hasColumn('books', 'source')) return false;
+  db.prepare('UPDATE books SET source=?, source_id=?, source_updated_at=? WHERE id=?')
+    .run(String(src.source || ''), wholeOrNull(src.id), src.updatedAt ? String(src.updatedAt) : null, bookId);
+  return true;
+}
+
+/** The book downloaded from `source` as its book `sourceId`, or null. */
+function findBookBySource(source, sourceId) {
+  if (!hasColumn('books', 'source')) return null;
+  return db.prepare('SELECT id, title, source_updated_at FROM books WHERE source=? AND source_id=? ORDER BY id LIMIT 1')
+    .get(String(source), wholeOrNull(sourceId)) || null;
+}
+
+/** Every book downloaded from `source`: { id, source_id, source_updated_at }. */
+function getBookSources(source) {
+  if (!hasColumn('books', 'source')) return [];
+  return db.prepare('SELECT id, source_id, source_updated_at FROM books WHERE source=? ORDER BY id').all(String(source));
+}
+
+/**
+ * A book's whole text replaced by a newer one from where it came (3.6,
+ * «يېڭىلاش»): stored as letters, indexed, its page map dropped
+ * (saveBookContent). Bookmarks, in-book notes and the reading position keep
+ * their offsets, clamped to the new length. One transaction.
+ */
+function replaceBookText(bookId, content, opts) {
+  const o = opts || {};
+  return db.transaction(() => {
+    saveBookContent(bookId, content);
+    const stored = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(bookId);
+    const length = stored ? (stored.content || '').length : 0;
+    for (const table of ['bookmarks', 'notes', 'reading_progress']) {
+      if (!hasColumn(table, 'char_offset')) continue;
+      db.prepare(`UPDATE ${table} SET char_offset=? WHERE book_id=? AND char_offset > ?`).run(length, bookId, length);
+    }
+    if (o.sourceUpdatedAt && hasColumn('books', 'source_updated_at')) {
+      db.prepare("UPDATE books SET source_updated_at=?, updated_at=datetime('now') WHERE id=?").run(String(o.sourceUpdatedAt), bookId);
+    }
+    return { length: length };
   })();
 }
 
@@ -2471,6 +2534,8 @@ module.exports = {
   getBookContent, saveBookContent, checkDuplicateHash,
   // A PDF's pages in the text, and where the PDF is (3.6)
   getPageMap, getBookOriginal, setBookOriginal,
+  // Where a book came from (3.6)
+  setBookSource, findBookBySource, getBookSources, replaceBookText,
   // Books stored as glyph codepoints (W18, K15)
   presentationFormsScan, presentationFormsFix,
   searchBooks, getAllSnippetsForBook, searchWordsInBook,
