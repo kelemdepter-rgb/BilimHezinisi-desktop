@@ -361,7 +361,7 @@ mark.reader-hit-flash { animation: readerHitFlash 1.5s ease-out 1; }
 #rnotes-input-area { padding: 8px; border-top: 0.5px solid var(--border); }
 #rnotes-input-area textarea { width: 100%; padding: 8px; border: 0.5px solid var(--border); border-radius: var(--radius2); font-family: var(--jf); font-size: 12px; color: var(--text); background: var(--bg); direction: rtl; resize: vertical; min-height: 60px; }
 #rnotes-input-area button { width: 100%; margin-top: 6px; padding: 6px; background: var(--am); color: #fff; border: none; border-radius: var(--radius2); cursor: pointer; font-size: 12px; font-family: var(--jf); }
-#rh { display: flex; align-items: center; gap: 8px; padding: 0 16px; height: 52px; border-bottom: 0.5px solid var(--border); flex-shrink: 0; background-color: var(--bg); background-image: var(--grain); flex-wrap: wrap; }
+#rh { display: flex; align-items: center; gap: 8px; padding: 6px 16px; min-height: 52px; border-bottom: 0.5px solid var(--border); flex-shrink: 0; background-color: var(--bg); background-image: var(--grain); flex-wrap: wrap; }
 #rtitle { flex: 1; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); min-width: 200px; }
 .rsc { display: flex; align-items: center; gap: 5px; background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 14px; padding: 4px 10px; }
 .rsc input { background: none; border: none; outline: none; color: var(--text); font-family: var(--jf); font-size: 12px; width: 120px; direction: rtl; }
@@ -463,6 +463,8 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
 <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
 <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="i-columns" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></symbol>
+<symbol id="i-swap" viewBox="0 0 24 24"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></symbol>
 <symbol id="i-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
 <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/></symbol>
 <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.98-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/></symbol>
@@ -773,6 +775,21 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
   </div>
 </div>
 
+<!-- «يانمۇيان ئوقۇش» (3.6): the second book, for the reader's left pane. -->
+<div class="ov" id="parov">
+  <div class="mbox" style="max-width: 560px; width: 94vw;">
+    <div class="mh">
+      <h2><svg class="ic"><use href="#i-columns"></use></svg>يانمۇيان ئوقۇش</h2>
+      <button onclick="hideParallelPick()" style="background:none;border:none;font-size:18px;color:var(--text2);cursor:pointer">✕</button>
+    </div>
+    <div class="mc">
+      <div class="par-pick-hint">تاللىغان كىتاب سول تەرەپتە ئېچىلىدۇ. خەتكۈچ، ئىزاھات، سۈنئىي ئىدراك ۋە ئوقۇش ئورنى ئوڭ تەرەپتىكى كىتابتا قالىدۇ.</div>
+      <input type="search" id="parq" class="inp" dir="rtl" placeholder="ماۋزۇ ياكى ئاپتوردىن ئىزدەش..." oninput="renderParallelPick()" onkeydown="if(event.key==='Enter')parallelPickFirst()">
+      <div id="parlist" class="par-list"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Settings Modal -->
 <div class="ov" id="setov">
   <div class="mbox" style="max-width: 520px;">
@@ -923,6 +940,7 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
     <span id="matchcount" style="font-size:11px;color:var(--text3);font-family:sans-serif;white-space:nowrap"></span>
     <button onclick="toggleBookmarks()" class="hbtn icob" title="خەتكۈچلەر"><svg class="ic"><use href="#i-bookmark"></use></svg></button>
     <button onclick="toggleNotes()" class="hbtn icob" title="ئىزاھات"><svg class="ic"><use href="#i-notebook-pen"></use></svg></button>
+    <button onclick="showParallelPick()" class="hbtn" id="parBtn" title="يانمۇيان ئوقۇش — ئىككىنچى بىر كىتابنى سول تەرەپتە ئېچىش"><svg class="ic"><use href="#i-columns"></use></svg><span class="par-btn-label"> يانمۇيان ئوقۇش</span></button>
     <button onclick="toggleAiPanel()" class="hbtn" id="aiReaderBtn" style="display:none" title="سۈنئىي ئىدراك ياردەمچىسى"><svg class="ic"><use href="#i-sparkles"></use></svg> AI</button>
     <button onclick="downloadBook('txt')" class="hbtn" title="TXT ھالىتىدە چۈشۈرۈش"><svg class="ic"><use href="#i-download"></use></svg> TXT</button>
     <button onclick="downloadBook('docx')" class="hbtn" title="Word ھالىتىدە چۈشۈرۈش"><svg class="ic"><use href="#i-download"></use></svg> DOCX</button>
@@ -2132,6 +2150,8 @@ function renderReaderPage() {
 
   // Render page navigation
   renderReaderPagination();
+  // «بىللە سىيرىلىش»: the left pane follows a turn (3.6).
+  if (PAR) PAR.mainTurned();
 }
 
 function renderReaderPagination() {
@@ -2191,11 +2211,149 @@ function readerJumpToPage() {
 function closeReader() {
   // While the page can still be measured: the paragraph in view is the place.
   saveReadingPosition();
+  if (PAR) PAR.close();
   document.getElementById('rdr').classList.remove('on');
   document.getElementById('rnotes-panel').classList.remove('on');
   raiOnReaderClose();
   readerUpdateSplitter();
   S.curB=null;
+}
+
+// ===== «يانمۇيان ئوقۇش» (3.6) =====
+// A second book on the left (src/parallel.js); the reader's own book stays on
+// the right. The pane draws with this reader's renderer — textToParagraphs
+// with its smart Arabic/Uyghur fonts — and saves nothing: bookmarks, notes,
+// the AI and the reading position stay with the book on the right. The pair
+// and the divider are kept in the setting `reader_parallel`.
+const PAR_KEY = 'reader_parallel';
+let PAR = null;
+let PAR_LAST = undefined;   // { main, side, ratio } once read; null when there is none
+
+async function parLoadLast() {
+  if (PAR_LAST !== undefined) return PAR_LAST;
+  PAR_LAST = null;
+  try {
+    const r = await window.electron.dbGetSetting(PAR_KEY, '');
+    const v = (r && typeof r === 'object' && 'value' in r) ? r.value : r;
+    const p = v ? JSON.parse(v) : null;
+    if (p && Number.isFinite(p.main) && Number.isFinite(p.side)) PAR_LAST = p;
+  } catch (_) { /* no pair yet */ }
+  return PAR_LAST;
+}
+
+function parSession() {
+  if (PAR) return PAR;
+  PAR = window.Parallel.createSession({
+    wrapper: document.getElementById('rdr-wrapper'),
+    mainEl: document.getElementById('rc'),
+    reader: {
+      book: () => S.curB,
+      content: () => S.readerContent || '',
+      page: () => S.readerPage || 1,
+      pages: () => (S.readerPages || []).length,
+      searching: () => !!S.readerSearchMode,
+      turn: (p) => { S.readerPage = p; renderReaderPage(); },
+      // The reader takes the book at that page — its bookmarks, notes and AI with it.
+      open: async (book, page) => {
+        await openReader(book.id);
+        if (!S.curB || S.curB.id !== book.id) { toast('كىتابنى ئاچقىلى بولمىدى', 'e'); throw new Error('not opened'); }
+        S.readerPage = Math.max(1, Math.min(S.readerPages.length, page));
+        renderReaderPage();
+      }
+    },
+    render: (text, base) => textToParagraphs(text, true, base),
+    highlight: highlightInHtml,
+    searchRe: (q) => window.ReaderPlaces.searchRe(q, []),
+    paginate: (content) => window.ReaderPlaces.paginate(content, window.ReaderPlaces.PER_PAGE),
+    loadContent: async (id) => {
+      const r = await window.electron.loadBookContent(id);
+      return (r && r.success) ? r.content : '(مەزمۇن يوق)';
+    },
+    fontSize: () => S.fs,
+    ratio: PAR_LAST ? PAR_LAST.ratio : 0.5,
+    remember: (pair) => {
+      PAR_LAST = pair;
+      try {
+        const p = window.electron.dbSetSetting(PAR_KEY, JSON.stringify(pair));
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch (_) {}
+    },
+    icon: icon
+  });
+  return PAR;
+}
+
+async function showParallelPick() {
+  if (!S.curB) return;
+  await parLoadLast();
+  document.getElementById('parq').value = '';
+  renderParallelPick();
+  document.getElementById('parov').classList.add('on');
+  setTimeout(() => { const q = document.getElementById('parq'); if (q) q.focus(); }, 50);
+}
+
+function hideParallelPick() {
+  document.getElementById('parov').classList.remove('on');
+}
+
+// The library, without the book on the right; the last pair first.
+function parPickBooks() {
+  const q = wlNorm(document.getElementById('parq').value.trim());
+  const cur = S.curB ? S.curB.id : null;
+  return S.books
+    .filter(b => b.id !== cur && (!q || wlNorm(b.title).includes(q) || wlNorm(b.author).includes(q)))
+    .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
+}
+
+function renderParallelPick() {
+  const list = document.getElementById('parlist');
+  if (!list) return;
+  const q = document.getElementById('parq').value.trim();
+  const side = PAR && PAR.isOpen() && PAR.state().book ? PAR.state().book.id : null;
+  let html = '';
+  const last = PAR_LAST;
+  const lm = last && S.books.find(b => b.id === last.main);
+  const ls = last && S.books.find(b => b.id === last.side);
+  if (!q && lm && ls && !(S.curB && S.curB.id === lm.id && side === ls.id)) {
+    html += `<div class="par-row par-last" onclick="parallelOpenLast()">
+      <div class="par-row-k">ئاخىرقى قېتىمقى جۈپ</div>
+      <div class="par-row-t">${sanitize(lm.title)} ↔ ${sanitize(ls.title)}</div>
+    </div>`;
+  }
+  const books = parPickBooks();
+  html += books.map(b => `<div class="par-row${b.id === side ? ' on' : ''}" onclick="parallelOpen(${b.id})">
+      <div class="par-row-t">${sanitize(b.title)}</div>
+      <div class="par-row-m">${[b.author, b.category].filter(Boolean).map(sanitize).join(' · ')}</div>
+    </div>`).join('');
+  if (!books.length) html += `<div class="srch-sec-msg">ھېچنېمە تېپىلمىدى</div>`;
+  list.innerHTML = html;
+}
+
+function parallelPickFirst() {
+  const books = parPickBooks();
+  if (books.length) parallelOpen(books[0].id);
+}
+
+async function parallelOpen(id) {
+  const b = S.books.find(x => x.id === id);
+  if (!b || !S.curB) return;
+  hideParallelPick();
+  await parLoadLast();   // the remembered divider, before the session is made
+  try { await parSession().open(b); }
+  catch (e) { toast('كىتابنى ئاچقىلى بولمىدى', 'e'); }
+}
+
+// «ئاخىرقى قېتىمقى جۈپ»: its right-hand book in the reader, its left in the pane.
+async function parallelOpenLast() {
+  const last = PAR_LAST;
+  const main = last && S.books.find(b => b.id === last.main);
+  const side = last && S.books.find(b => b.id === last.side);
+  if (!main || !side) return;
+  hideParallelPick();
+  try {
+    if (!S.curB || S.curB.id !== main.id) await openReader(main.id);
+    await parSession().open(side);
+  } catch (e) { toast('كىتابنى ئاچقىلى بولمىدى', 'e'); }
 }
 
 async function downloadBook(type) {
@@ -4948,6 +5106,7 @@ function hideAiSelChip() {
 }
 
 document.getElementById('rc').addEventListener('scroll', readerScrolled, { passive: true });
+document.getElementById('rc').addEventListener('scroll', () => { if (PAR) PAR.mainScrolled(); }, { passive: true });
 
 (function bindAiSelection() {
   const rc = document.getElementById('rc');
@@ -5968,6 +6127,9 @@ function setupKeyboardShortcuts() {
       }
     }
     if (e.key === 'Escape') {
+      // The «يانمۇيان ئوقۇش» book list closes first, not the reader under it.
+      const parov = document.getElementById('parov');
+      if (parov && parov.classList.contains('on')) { hideParallelPick(); return; }
       // Notes AI flyout closes first if open.
       const naiFly = document.getElementById('notes-ai-flyout');
       if (naiFly && naiFly.classList.contains('on')) { naiFly.classList.remove('on'); return; }
@@ -6149,6 +6311,7 @@ init();
 </script>
 <link rel="stylesheet" href="quran.css">
 <link rel="stylesheet" href="notes.css">
+<link rel="stylesheet" href="parallel.css">
 <script src="../assets/vendor/purify.min.js"></script>
 <!-- Web/HTML article import: Readability (article extraction) + Turndown (HTML→MD). Vendored, offline. -->
 <script src="../assets/vendor/Readability.js"></script>
@@ -6173,6 +6336,8 @@ init();
 <script src="notes-export.js"></script>
 <script src="note-units.js"></script>
 <script src="reader-places.js"></script>
+<!-- Two books side by side (3.6): the reader's left pane. -->
+<script src="parallel.js"></script>
 <script src="notes.js"></script>
 </body>
 </html>

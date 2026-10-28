@@ -1,0 +1,45 @@
+/* ============================================================================
+   «يانمۇيان ئوقۇش» (3.6 Phase 6): the second book's pane, on the left of the
+   reader's own area (src/parallel.js). The two share the width the reader
+   has, by the divider's ratio, set inline on each; both may narrow, neither
+   overlaps the other (min-width: 0 — a long word never widens a pane).
+   ========================================================================== */
+.par-divider { flex: 0 0 6px; align-self: stretch; cursor: col-resize; background: var(--bg2); border-left: 0.5px solid var(--border); border-right: 0.5px solid var(--border); touch-action: none; }
+.par-divider:hover, .par-divider.dragging { background: var(--am); }
+.par-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
+.par-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 0.5px solid var(--border); flex-shrink: 0; }
+.par-title { flex: 1 1 100%; min-width: 0; font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.par-bar .rsc { flex: 1 1 140px; min-width: 0; }
+.par-bar .rsc input { width: 100%; min-width: 0; }
+.par-count { font-size: 11px; color: var(--text3); font-family: sans-serif; white-space: nowrap; }
+.par-sync { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text2); cursor: pointer; white-space: nowrap; }
+.par-sync input { margin: 0; cursor: pointer; }
+.par-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 14px 12px; }
+.par-scroll .inner { max-width: 800px; margin: 0 auto; background: var(--paper); border: 0.5px solid var(--paper-bd); border-radius: var(--radius-lg); padding: 22px 20px; box-shadow: var(--shadow-1); }
+/* The reader's text, as #rt draws it. */
+.par-text { line-height: 2.0; color: var(--text); word-break: break-word; direction: rtl; }
+.par-text p { margin: 0 0 0.4em 0; }
+.par-text p:last-child { margin-bottom: 0; }
+.par-text .arabic-text { font-family: 'Traditional Arabic', 'Amiri', 'Scheherazade New', serif; line-height: 1.8; }
+.par-nav { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding-top: 14px; margin-top: 18px; border-top: 0.5px solid var(--border); direction: rtl; font-size: 12px; color: var(--text2); font-family: sans-serif; }
+.par-nav button[disabled] { opacity: 0.4; cursor: not-allowed; }
+.par-pg { display: inline-flex; align-items: center; gap: 6px; }
+.par-pgin { width: 52px; text-align: center; padding: 4px 2px; border: 0.5px solid var(--border2); border-radius: var(--radius2); background: var(--bg); color: var(--text); font-size: 12px; font-family: sans-serif; outline: none; }
+/* The book list it opens from (index.html), above the reader (z-index 100). */
+#parov { z-index: 150; }
+.par-pick-hint { font-size: 12px; color: var(--text2); line-height: 1.7; margin-bottom: 10px; }
+#parq { width: 100%; margin-bottom: 10px; }
+.par-list { max-height: 60vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.par-row { padding: 9px 12px; border: 0.5px solid var(--border); border-radius: var(--radius2); background: var(--bg); cursor: pointer; }
+.par-row:hover { border-color: var(--am); background: var(--bg3); }
+.par-row.on { border-color: var(--am); }
+.par-row.par-last { background: var(--ab); border-color: var(--am); }
+.par-row-k { font-size: 11px; font-weight: 700; color: var(--am); margin-bottom: 2px; }
+.par-row-t { font-size: 13px; font-weight: 600; color: var(--text); }
+.par-row-m { font-size: 11px; color: var(--text3); margin-top: 2px; }
+/* The reader toolbar's button: its label only where the toolbar has room. */
+@media (max-width: 1299px) { #parBtn .par-btn-label { display: none; } }
+/* The reader's own area narrows with it. */
+#rdr-wrapper.par-on #rc { padding: 18px 14px; }
+#rdr-wrapper.par-on #rc .inner { padding: 24px 20px; }
+#rdr-wrapper.par-on #reader-pagination { flex-wrap: wrap; }
