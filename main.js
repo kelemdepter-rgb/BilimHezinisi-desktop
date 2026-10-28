@@ -9,6 +9,8 @@ const backup = require('./backup');
 const navigation = require('./navigation');
 const noteExport = require('./note-export');
 const pdfOriginal = require('./pdf-original');
+const PdfCompare = require('./src/pdf-compare');
+const textNormalize = require('./text-normalize');
 const searchForms = require('./search-forms');
 const webLibrary = require('./web-library');
 const ocrEngine = require('./ocr-engine');
@@ -1546,6 +1548,129 @@ ipcMain.handle('pdf-locate-original', async (e, bookId) => {
       return answer.response === 0;
     });
     return { success: true, ok: !!out.ok, same: !!out.same, cancelled: !!out.cancelled };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// ========== THE PDF PAGE BESIDE ITS TEXT (3.6) ==========
+// «ئەسلى بەت بىلەن سېلىشتۇرۇش» (src/pdf-compare.js). The PDF is read once per
+// view, from where it was recorded — never from a path the renderer sends —
+// and only while it is still the book's. A correction, its undo and a page
+// found in the text each write in one transaction (database.js).
+
+// In pieces of 8 MB from `from`: a 100 MB PDF sent whole held the window for
+// 172 ms while it arrived (measured). The first piece checks the file is
+// still the book's; every piece reads the recorded path.
+const PDF_PIECE = 8 * 1024 * 1024;
+ipcMain.handle('pdf-original-bytes', async (e, bookId, from) => {
+  try {
+    const original = database.getBookOriginal(Number(bookId));
+    const start = Math.max(0, Math.round(Number(from) || 0));
+    if (start === 0 && (await pdfOriginal.originalStatus(original)) !== 'found') return { success: false, status: 'moved' };
+    if (!original.path) return { success: false, status: 'missing' };
+    const fh = await fs.promises.open(original.path, 'r');
+    try {
+      const size = (await fh.stat()).size;
+      const n = Math.max(0, Math.min(PDF_PIECE, size - start));
+      const data = Buffer.alloc(n);
+      if (n) await fh.read(data, 0, n, start);
+      return { success: true, total: size, data: data };
+    } finally {
+      await fh.close();
+    }
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('pdf-page-info', (e, bookId, pageNo, pageCount) => {
+  try {
+    return Object.assign({ success: true },
+      database.pdfPageInfo(Number(bookId), Number(pageNo), Number(pageCount), PdfCompare.estimateRange));
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// The PDF page that holds a place in the text: the placed page around it, or
+// its proportion of the book.
+ipcMain.handle('pdf-page-at', (e, bookId, offset, pageCount) => {
+  try {
+    const id = Number(bookId);
+    const off = Number(offset) || 0;
+    const n = Math.max(1, Number(pageCount) || 1);
+    const map = database.getPageMap(id);
+    const inside = map.find(r => r.start <= off && off < r.end);
+    if (inside) return { success: true, page: Math.min(n, inside.page_no) };
+    // Between the placed pages around it (or the ends of the book), by proportion.
+    let lo = 0, loPage = 0, hi = database.getBookContent(id).length, hiPage = n + 1;
+    for (const r of map) {
+      if (r.end <= off) { lo = r.end; loPage = r.page_no; }
+      else if (r.start > off) { hi = r.start; hiPage = r.page_no; break; }
+    }
+    const k = Math.max(1, hiPage - loPage - 1);
+    const page = loPage + 1 + (hi > lo ? Math.min(k - 1, Math.floor(((off - lo) / (hi - lo)) * k)) : 0);
+    return { success: true, page: Math.max(1, Math.min(n, page)) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('pdf-page-save', (e, bookId, pageNo, text) => {
+  try {
+    const r = database.savePageEdit(Number(bookId), Number(pageNo), String(text == null ? '' : text));
+    if (r.ok && !r.unchanged) database.saveDB(DATA_DIR);
+    return Object.assign({ success: true }, r);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('pdf-page-undo', (e, bookId, pageNo) => {
+  try {
+    const r = database.undoPageEdit(Number(bookId), Number(pageNo));
+    if (r.ok) database.saveDB(DATA_DIR);
+    return Object.assign({ success: true }, r);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// A book with no page map (imported before 3.6) and a text-layer PDF: every
+// page's text, folded into letters as the book's was, found in order.
+ipcMain.handle('pdf-align-pages', (e, bookId, pageTexts) => {
+  try {
+    const id = Number(bookId);
+    if (database.getPageMap(id).length) return { success: true, placed: 0, missing: [], skipped: true };
+    const pages = (Array.isArray(pageTexts) ? pageTexts : []).map(t => textNormalize.normalizeImportedText(String(t == null ? '' : t)));
+    const r = PdfCompare.alignPages(database.getBookContent(id), pages);
+    const written = database.placePages(id, r.placed);
+    if (written) database.saveDB(DATA_DIR);
+    return { success: true, placed: written, missing: r.missing, total: pages.length };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// A scanned book's page, read by OCR: found near its estimate, between the
+// placed pages around it, by its letter trigrams.
+ipcMain.handle('pdf-place-page', (e, bookId, pageNo, pageCount, ocrText) => {
+  try {
+    const id = Number(bookId);
+    const n = Number(pageNo);
+    const content = database.getBookContent(id);
+    const est = PdfCompare.estimateRange(content, n, Number(pageCount), database.getPageMap(id));
+    const ocr = textNormalize.normalizeImportedText(String(ocrText || ''));
+    const size = Math.max(1, est.end - est.start);
+    const lo = Math.max(est.lo, est.start - 3 * size - 2000);
+    const hi = Math.min(est.hi, est.end + 3 * size + 2000);
+    let found = PdfCompare.placeByTrigrams(content, ocr, lo, hi);
+    if (!found && (lo > est.lo || hi < est.hi)) found = PdfCompare.placeByTrigrams(content, ocr, est.lo, est.hi);
+    if (!found) return { success: true, ok: false };
+    if (!database.placePages(id, [{ page: n, start: found.start, end: found.end }])) return { success: true, ok: false, reason: 'order' };
+    database.saveDB(DATA_DIR);
+    return { success: true, ok: true, start: found.start, end: found.end, score: found.score };
   } catch (err) {
     return { success: false, error: err.message };
   }

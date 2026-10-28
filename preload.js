@@ -97,6 +97,15 @@ contextBridge.exposeInMainWorld('electron', {
   // A PDF book's original file (3.6): found | moved | missing, and pointing to it.
   pdfOriginalStatus: (bookId) => ipcRenderer.invoke('pdf-original-status', bookId),
   pdfLocateOriginal: (bookId) => ipcRenderer.invoke('pdf-locate-original', bookId),
+  // «ئەسلى بەت بىلەن سېلىشتۇرۇش» (3.6): the PDF from its recorded place, one
+  // page's text, a correction and its undo, pages found in the text.
+  pdfOriginalBytes: (bookId, from) => ipcRenderer.invoke('pdf-original-bytes', bookId, from),
+  pdfPageInfo: (bookId, pageNo, pageCount) => ipcRenderer.invoke('pdf-page-info', bookId, pageNo, pageCount),
+  pdfPageAt: (bookId, offset, pageCount) => ipcRenderer.invoke('pdf-page-at', bookId, offset, pageCount),
+  pdfPageSave: (bookId, pageNo, text) => ipcRenderer.invoke('pdf-page-save', bookId, pageNo, text),
+  pdfPageUndo: (bookId, pageNo) => ipcRenderer.invoke('pdf-page-undo', bookId, pageNo),
+  pdfAlignPages: (bookId, pageTexts) => ipcRenderer.invoke('pdf-align-pages', bookId, pageTexts),
+  pdfPlacePage: (bookId, pageNo, pageCount, ocrText) => ipcRenderer.invoke('pdf-place-page', bookId, pageNo, pageCount, ocrText),
   quranGetAya: (sura, aya) => ipcRenderer.invoke('quran-get-aya', sura, aya),
   quranSearch: (q, opts) => ipcRenderer.invoke('quran-search', q, opts),
   quranBookmarks: () => ipcRenderer.invoke('quran-bookmarks'),

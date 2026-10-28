@@ -471,6 +471,30 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_books_source ON books(source, source_id);
       `);
     }
+  },
+  {
+    // 3.6 — corrections made in the PDF page view, one row each: the page;
+    // where the change begins, counted from the PAGE'S OWN START (a later
+    // correction of an earlier page moves the page, not this row); what was
+    // there and what came in; and the places it had to move (JSON), so that
+    // «ئەسلىگە قايتۇرۇش» puts everything back byte for byte.
+    version: 9,
+    name: 'book_edits',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS book_edits (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+          page_no INTEGER NOT NULL,
+          start INTEGER NOT NULL,
+          old_text TEXT NOT NULL,
+          new_text TEXT NOT NULL,
+          moved TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_book_edits_page ON book_edits(book_id, page_no, id);
+      `);
+    }
   }
 ];
 
@@ -612,6 +636,9 @@ function checkpoint() {
 function writePageMap(bookId, ranges) {
   if (!hasColumn('book_page_map', 'book_id')) return;
   db.prepare('DELETE FROM book_page_map WHERE book_id=?').run(bookId);
+  // The page view's corrections are kept against this map: a new map, or
+  // none, leaves nothing for them to undo.
+  if (hasColumn('book_edits', 'id')) db.prepare('DELETE FROM book_edits WHERE book_id=?').run(bookId);
   if (!Array.isArray(ranges) || !ranges.length) return;
   const insert = db.prepare('INSERT INTO book_page_map (book_id, page_no, start, "end") VALUES (?, ?, ?, ?)');
   ranges.forEach((r, i) => insert.run(bookId, i + 1, r[0], r[1]));
@@ -735,6 +762,182 @@ function replaceBookText(bookId, content, opts) {
       db.prepare("UPDATE books SET source_updated_at=?, updated_at=datetime('now') WHERE id=?").run(String(o.sourceUpdatedAt), bookId);
     }
     return { length: length };
+  })();
+}
+
+// ========== CORRECTING A PDF PAGE (3.6, migration step 9) ==========
+// The PDF page view corrects one page at a time. A correction replaces only
+// what changed — the page's common beginning and end stay — and everything
+// that points into the text moves with it: the later pages of the map,
+// bookmarks, in-book notes and the reading position. Places after the
+// change move by its length difference; places strictly inside what was
+// removed go to its start, and are remembered, so an undo puts them back.
+
+/** The tables whose rows keep a place in a book's text (char_offset). */
+const PLACE_TABLES = ['bookmarks', 'notes', 'reading_progress'];
+
+/**
+ * `removeLen` characters at `at` replaced by `insert`, inside page `pageNo`:
+ * the text, the page map, every place, the search index and the cache. Runs
+ * in the caller's transaction.
+ * @returns {{moved: Array<{t: string, r: number, o: number}>, delta: number}}
+ */
+function changeBookText(bookId, pageNo, at, removeLen, insert) {
+  const row = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(bookId);
+  const content = row ? (row.content || '') : '';
+  const end = at + removeLen;
+  const next = content.slice(0, at) + insert + content.slice(end);
+  const delta = insert.length - removeLen;
+  db.prepare('UPDATE book_content SET content=? WHERE book_id=?').run(next, bookId);
+  if (delta) {
+    db.prepare('UPDATE book_page_map SET "end" = "end" + ? WHERE book_id=? AND page_no=?').run(delta, bookId, pageNo);
+    db.prepare('UPDATE book_page_map SET start = start + ?, "end" = "end" + ? WHERE book_id=? AND page_no > ?')
+      .run(delta, delta, bookId, pageNo);
+  }
+  const moved = [];
+  for (const table of PLACE_TABLES) {
+    if (!hasColumn(table, 'char_offset')) continue;
+    // Inside first, from the old offsets; then everything at or after the end.
+    const inside = db.prepare(`SELECT rowid AS r, char_offset AS o FROM ${table} WHERE book_id=? AND char_offset > ? AND char_offset < ?`)
+      .all(bookId, at, end);
+    if (inside.length) {
+      inside.forEach(x => moved.push({ t: table, r: x.r, o: x.o }));
+      db.prepare(`UPDATE ${table} SET char_offset=? WHERE book_id=? AND char_offset > ? AND char_offset < ?`).run(at, bookId, at, end);
+    }
+    if (delta) {
+      db.prepare(`UPDATE ${table} SET char_offset = char_offset + ? WHERE book_id=? AND char_offset >= ?`).run(delta, bookId, end);
+    }
+  }
+  if (hasFTS5) {
+    try {
+      db.prepare('DELETE FROM book_fts WHERE rowid=?').run(bookId);
+      const book = getBook(bookId);
+      if (book && next) {
+        db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
+          .run(bookId, book.title || '', book.author || '', next);
+      }
+    } catch (e) { /* the substring search does not need the index */ }
+  }
+  contentCache.delete(bookId);
+  db.prepare("UPDATE books SET updated_at=datetime('now') WHERE id=?").run(bookId);
+  return { moved: moved, delta: delta };
+}
+
+function pageRow(bookId, pageNo) {
+  if (!hasColumn('book_page_map', 'book_id')) return null;
+  return db.prepare('SELECT page_no, start, "end" AS "end" FROM book_page_map WHERE book_id=? AND page_no=?').get(bookId, pageNo) || null;
+}
+
+/**
+ * What the PDF page view shows for page `pageNo` of `pageCount`: the page's
+ * text when it is placed; otherwise the estimate (PdfCompare.estimateRange),
+ * which cannot be saved over. `mapped`: how many pages are placed.
+ */
+function pdfPageInfo(bookId, pageNo, pageCount, estimate) {
+  const content = getBookContent(bookId);
+  const map = getPageMap(bookId);
+  const row = map.find(r => r.page_no === pageNo) || null;
+  const edits = hasColumn('book_edits', 'id')
+    ? db.prepare('SELECT COUNT(*) AS n FROM book_edits WHERE book_id=? AND page_no=?').get(bookId, pageNo).n : 0;
+  if (row) {
+    return { placed: true, start: row.start, end: row.end, text: content.slice(row.start, row.end), edits: edits, mapped: map.length, length: content.length };
+  }
+  const guess = typeof estimate === 'function' && pageCount > 0 ? estimate(content, pageNo, pageCount, map) : null;
+  return {
+    placed: false, edits: 0, mapped: map.length, length: content.length,
+    estimated: guess ? { start: guess.start, end: guess.end } : null,
+    text: guess ? content.slice(guess.start, guess.end) : ''
+  };
+}
+
+/**
+ * The owner's correction of page `pageNo`: `text` is the page as it should
+ * read. Only a placed page can be corrected.
+ * @returns {{ok: boolean, reason?: string, unchanged?: boolean, editId?: number, start?: number, end?: number}}
+ */
+function savePageEdit(bookId, pageNo, text) {
+  if (!hasColumn('book_edits', 'id')) return { ok: false, reason: 'schema' };
+  return db.transaction(() => {
+    const page = pageRow(bookId, pageNo);
+    if (!page) return { ok: false, reason: 'unplaced' };
+    const row = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(bookId);
+    const content = row ? (row.content || '') : '';
+    const old = content.slice(page.start, page.end);
+    const now = letters(String(text == null ? '' : text).replace(/\r\n?/g, '\n'));
+    if (now === old) return { ok: true, unchanged: true, start: page.start, end: page.end };
+    let p = 0;
+    while (p < old.length && p < now.length && old.charCodeAt(p) === now.charCodeAt(p)) p++;
+    let q = 0;
+    while (q < old.length - p && q < now.length - p &&
+           old.charCodeAt(old.length - 1 - q) === now.charCodeAt(now.length - 1 - q)) q++;
+    const removed = old.slice(p, old.length - q);
+    const inserted = now.slice(p, now.length - q);
+    const r = changeBookText(bookId, pageNo, page.start + p, removed.length, inserted);
+    const info = db.prepare('INSERT INTO book_edits (book_id, page_no, start, old_text, new_text, moved) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(bookId, pageNo, p, removed, inserted, JSON.stringify(r.moved));
+    const after = pageRow(bookId, pageNo);
+    return { ok: true, editId: Number(info.lastInsertRowid), start: after.start, end: after.end };
+  })();
+}
+
+/**
+ * «ئەسلىگە قايتۇرۇش»: the latest correction of page `pageNo` undone through
+ * the same path, the places it moved put back where they were (those still
+ * where it left them). Refused when the text there is no longer what the
+ * correction wrote.
+ */
+function undoPageEdit(bookId, pageNo) {
+  if (!hasColumn('book_edits', 'id')) return { ok: false, reason: 'schema' };
+  return db.transaction(() => {
+    const edit = db.prepare('SELECT * FROM book_edits WHERE book_id=? AND page_no=? ORDER BY id DESC LIMIT 1').get(bookId, pageNo);
+    if (!edit) return { ok: false, reason: 'none' };
+    const page = pageRow(bookId, pageNo);
+    if (!page) return { ok: false, reason: 'unplaced' };
+    const row = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(bookId);
+    const content = row ? (row.content || '') : '';
+    const at = page.start + edit.start;
+    if (at + edit.new_text.length > page.end || content.slice(at, at + edit.new_text.length) !== edit.new_text) {
+      return { ok: false, reason: 'changed' };
+    }
+    changeBookText(bookId, pageNo, at, edit.new_text.length, edit.old_text);
+    let moved = [];
+    try { moved = JSON.parse(edit.moved || '[]'); } catch (e) { moved = []; }
+    for (const m of moved) {
+      if (PLACE_TABLES.indexOf(m.t) === -1 || !hasColumn(m.t, 'char_offset')) continue;
+      db.prepare(`UPDATE ${m.t} SET char_offset=? WHERE rowid=? AND book_id=? AND char_offset=?`).run(m.o, m.r, bookId, at);
+    }
+    db.prepare('DELETE FROM book_edits WHERE id=?').run(edit.id);
+    const after = pageRow(bookId, pageNo);
+    return { ok: true, start: after.start, end: after.end };
+  })();
+}
+
+/**
+ * Pages of a book that had no map, found in its text (PdfCompare): written
+ * only where they keep the pages in order — each starts no earlier than the
+ * placed page before it ends, and ends no later than the placed page after
+ * it starts.
+ * @param {Array<{page: number, start: number, end: number}>} placements
+ * @returns {number} how many were written
+ */
+function placePages(bookId, placements) {
+  if (!hasColumn('book_page_map', 'book_id')) return 0;
+  return db.transaction(() => {
+    const length = getBookContent(bookId).length;
+    const insert = db.prepare('INSERT OR REPLACE INTO book_page_map (book_id, page_no, start, "end") VALUES (?, ?, ?, ?)');
+    let written = 0;
+    for (const p of (placements || []).slice().sort((a, b) => a.page - b.page)) {
+      const page = Math.round(Number(p.page));
+      const start = Math.round(Number(p.start));
+      const end = Math.round(Number(p.end));
+      if (!(page >= 1) || !(start >= 0) || !(end >= start) || end > length) continue;
+      const before = db.prepare('SELECT "end" AS "end" FROM book_page_map WHERE book_id=? AND page_no<? ORDER BY page_no DESC LIMIT 1').get(bookId, page);
+      const after = db.prepare('SELECT start FROM book_page_map WHERE book_id=? AND page_no>? ORDER BY page_no LIMIT 1').get(bookId, page);
+      if ((before && start < before.end) || (after && end > after.start)) continue;
+      insert.run(bookId, page, start, end);
+      written++;
+    }
+    return written;
   })();
 }
 
@@ -2534,6 +2737,7 @@ module.exports = {
   getBookContent, saveBookContent, checkDuplicateHash,
   // A PDF's pages in the text, and where the PDF is (3.6)
   getPageMap, getBookOriginal, setBookOriginal,
+  pdfPageInfo, savePageEdit, undoPageEdit, placePages,
   // Where a book came from (3.6)
   setBookSource, findBookBySource, getBookSources, replaceBookText,
   // Books stored as glyph codepoints (W18, K15)

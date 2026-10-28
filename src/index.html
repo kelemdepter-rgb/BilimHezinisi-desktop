@@ -339,6 +339,32 @@ mark.reader-hit-flash { animation: readerHitFlash 1.5s ease-out 1; }
 #rai-answer code { font-family: monospace; font-size: 11px; background: var(--bg3); padding: 1px 4px; border-radius: 3px; }
 #rai-answer-actions { display: none; gap: 6px; padding-top: 6px; border-top: 0.5px solid var(--border); }
 #aiSelChip { display: none; position: fixed; z-index: 300; padding: 5px 12px; background: var(--am); color: #fff; border: none; border-radius: 14px; font-size: 12px; font-family: var(--jf); cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+/* «ئەسلى بەت بىلەن سېلىشتۇرۇش» (3.6): over the reader; the text on the right, the PDF page on the left. */
+#pcv { position: fixed; inset: 0; z-index: 120; display: none; flex-direction: column; background: var(--bg); }
+#pcv.on { display: flex; }
+.pcv-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 16px; min-height: 52px; border-bottom: 0.5px solid var(--border); background-color: var(--bg); background-image: var(--grain); flex-shrink: 0; }
+.pcv-title { flex: 1; min-width: 120px; font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcv-nav, .pcv-zoom { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text2); font-family: sans-serif; }
+.pcv-pgin { width: 60px; text-align: center; padding: 4px 2px; border: 0.5px solid var(--border2); border-radius: var(--radius2); background: var(--bg); color: var(--text); font-size: 12px; outline: none; }
+.pcv-nav button[disabled] { opacity: 0.4; cursor: not-allowed; }
+.pcv-banner, .pcv-ask { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 16px; background: var(--ab); border-bottom: 0.5px solid var(--border); font-size: 13px; color: var(--text); flex-shrink: 0; }
+.pcv-body { flex: 1; display: flex; min-height: 0; }
+.pcv-textside { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-left: 0.5px solid var(--border); }
+.pcv-state { font-size: 12px; color: var(--text2); min-height: 16px; }
+.pcv-state.guess { color: var(--am); font-weight: 600; }
+.pcv-text { flex: 1; min-height: 160px; width: 100%; resize: none; padding: 14px 16px; border: 0.5px solid var(--paper-bd); border-radius: var(--radius2); background: var(--paper); color: var(--text); line-height: 2; direction: rtl; outline: none; }
+.pcv-text:focus { border-color: var(--am); }
+.pcv-text[readonly] { color: var(--text2); background: var(--bg2); }
+.pcv-acts, .pcv-preview-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.pcv-acts button[disabled] { opacity: 0.45; cursor: not-allowed; }
+.pcv-preview { display: flex; flex-direction: column; gap: 6px; max-height: 42%; padding: 10px; border: 0.5px solid var(--am); border-radius: var(--radius2); background: var(--bg2); }
+.pcv-preview-head { font-size: 12px; font-weight: 600; color: var(--am); }
+.pcv-preview-text { flex: 1; min-height: 0; overflow-y: auto; white-space: pre-wrap; line-height: 1.9; font-size: 14px; color: var(--text); direction: rtl; }
+.pcv-pageside { flex: 1 1 50%; min-width: 0; overflow: auto; background: var(--bg3); direction: ltr; }
+.pcv-canvas-wrap { padding: 16px; text-align: center; }
+.pcv-canvas { display: inline-block; background: #fff; box-shadow: var(--shadow-1); }
+.pcv-msg { padding: 40px 16px; color: var(--text2); font-size: 13px; direction: rtl; }
+@media (max-width: 1399px) { #pcvBtn .pcv-btn-label { display: none; } }
 #rnotes-header { padding: 12px; border-bottom: 0.5px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text); }
 #rnotes-list { flex: 1; overflow-y: auto; padding: 8px; }
 .rnote { padding: 10px; border: 0.5px solid var(--border); border-radius: var(--radius2); margin-bottom: 6px; background: var(--bg); cursor: pointer; transition: all .12s; }
@@ -775,6 +801,9 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
   </div>
 </div>
 
+<!-- «ئەسلى بەت بىلەن سېلىشتۇرۇش» (3.6): a PDF page beside its text (src/pdf-compare.js). -->
+<div id="pcv"></div>
+
 <!-- «يانمۇيان ئوقۇش» (3.6): the second book, for the reader's left pane. -->
 <div class="ov" id="parov">
   <div class="mbox" style="max-width: 560px; width: 94vw;">
@@ -940,6 +969,7 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
     <span id="matchcount" style="font-size:11px;color:var(--text3);font-family:sans-serif;white-space:nowrap"></span>
     <button onclick="toggleBookmarks()" class="hbtn icob" title="خەتكۈچلەر"><svg class="ic"><use href="#i-bookmark"></use></svg></button>
     <button onclick="toggleNotes()" class="hbtn icob" title="ئىزاھات"><svg class="ic"><use href="#i-notebook-pen"></use></svg></button>
+    <button onclick="showPdfCompare()" class="hbtn" id="pcvBtn" style="display:none" title="ئەسلى بەت بىلەن سېلىشتۇرۇش — PDF نىڭ بېتى تېكىستى بىلەن يانمۇيان؛ تېكىستنى شۇ يەردە تۈزىتىش"><svg class="ic"><use href="#i-file-text"></use></svg><span class="pcv-btn-label"> ئەسلى بەت</span></button>
     <button onclick="showParallelPick()" class="hbtn" id="parBtn" title="يانمۇيان ئوقۇش — ئىككىنچى بىر كىتابنى سول تەرەپتە ئېچىش"><svg class="ic"><use href="#i-columns"></use></svg><span class="par-btn-label"> يانمۇيان ئوقۇش</span></button>
     <button onclick="toggleAiPanel()" class="hbtn" id="aiReaderBtn" style="display:none" title="سۈنئىي ئىدراك ياردەمچىسى"><svg class="ic"><use href="#i-sparkles"></use></svg> AI</button>
     <button onclick="downloadBook('txt')" class="hbtn" title="TXT ھالىتىدە چۈشۈرۈش"><svg class="ic"><use href="#i-download"></use></svg> TXT</button>
@@ -2054,6 +2084,7 @@ async function openReader(id, hl='', targetPos=null, words=null) {
   addToRecent(id);
   S.curB=b; S.matches=[]; S.matchIdx=0;
   setReaderMarks(hl, words);
+  document.getElementById('pcvBtn').style.display = raiCurrentBookIsPdf() ? '' : 'none';
   document.getElementById('rtitle').textContent = sanitize(b.title);
   document.getElementById('rmeta').innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -2341,6 +2372,72 @@ async function parallelOpen(id) {
   await parLoadLast();   // the remembered divider, before the session is made
   try { await parSession().open(b); }
   catch (e) { toast('كىتابنى ئاچقىلى بولمىدى', 'e'); }
+}
+
+// ===== «ئەسلى بەت بىلەن سېلىشتۇرۇش» (3.6) =====
+// A PDF book's page beside its text (src/pdf-compare.js), over the reader. A
+// correction moves bookmarks, notes and the reading position in the database;
+// the screen takes them from there at once, before anything here could save
+// its own copy over them, and the reader is drawn again from the new text
+// when the view closes.
+let PCV = null;
+
+async function pcvReloadPlaces() {
+  try {
+    const data = await window.electron.loadLibrary();
+    applyLibraryData(data, false, ['bookmarks', 'notes']);
+  } catch (e) { /* the next start reads them */ }
+}
+
+async function showPdfCompare() {
+  if (!S.curB || !raiCurrentBookIsPdf() || PCV) return;
+  const book = S.curB;
+  // The place being read, kept now: nothing in the reader saves while the view is open.
+  saveReadingPosition();
+  clearTimeout(_readerPlaceTimer);
+  const startOffset = readerVisibleOffset();
+  const host = document.getElementById('pcv');
+  host.classList.add('on');
+  PCV = window.PdfCompare.createView({
+    host: host,
+    pdfjs: window.pdfjsLib,
+    renderPage: window.PdfText.renderPage,
+    title: book.title,
+    api: {
+      status: () => window.electron.pdfOriginalStatus(book.id),
+      locate: () => window.electron.pdfLocateOriginal(book.id),
+      bytes: (from) => window.electron.pdfOriginalBytes(book.id, from),
+      info: (p, n) => window.electron.pdfPageInfo(book.id, p, n),
+      pageAt: (off, n) => window.electron.pdfPageAt(book.id, off, n),
+      save: (p, t) => window.electron.pdfPageSave(book.id, p, t),
+      undo: (p) => window.electron.pdfPageUndo(book.id, p),
+      align: (texts) => window.electron.pdfAlignPages(book.id, texts),
+      place: (p, n, t) => window.electron.pdfPlacePage(book.id, p, n, t)
+    },
+    // The offline engine, as the importer reads a page: binarized, the UKIJ model.
+    ocrPage: async (canvas) => {
+      binarizeCanvas(canvas);
+      const r = await window.electron.ocrRecognize([canvas.toDataURL('image/png')], 'ukij');
+      if (!r || !r.success) throw new Error((r && r.error) || '');
+      return (r.pages && r.pages[0]) || '';
+    },
+    aiAvailable: naiAvailable,
+    aiCleanup: (text) => naiOcrCleanupCore(text, {
+      onError: (res) => toast(String((res && res.error) || 'AI تۈزىتىش مەغلۇپ بولدى').replace(/^HTTP\s+\d+\s*—\s*/, ''), 'e')
+    }),
+    textFont: getComputedStyle(document.getElementById('rt')).fontFamily,
+    textSize: S.fs,
+    toast: toast,
+    onChanged: pcvReloadPlaces,
+    onClose: async (changed) => {
+      host.classList.remove('on');
+      PCV = null;
+      if (!changed) return;
+      if (PAR && PAR.isOpen() && PAR.state().book && PAR.state().book.id === book.id) PAR.close();
+      if (S.curB && S.curB.id === book.id) await openReader(book.id);
+    }
+  });
+  await PCV.open(typeof startOffset === 'number' ? startOffset : undefined);
 }
 
 // «ئاخىرقى قېتىمقى جۈپ»: its right-hand book in the reader, its left in the pane.
@@ -6127,6 +6224,8 @@ function setupKeyboardShortcuts() {
       }
     }
     if (e.key === 'Escape') {
+      // The PDF page view closes first (asking about unsaved text), not the reader under it.
+      if (PCV) { PCV.close(); return; }
       // The «يانمۇيان ئوقۇش» book list closes first, not the reader under it.
       const parov = document.getElementById('parov');
       if (parov && parov.classList.contains('on')) { hideParallelPick(); return; }
@@ -6338,6 +6437,8 @@ init();
 <script src="reader-places.js"></script>
 <!-- Two books side by side (3.6): the reader's left pane. -->
 <script src="parallel.js"></script>
+<!-- A PDF page beside its text (3.6): the view, and where pages lie in the text. -->
+<script src="pdf-compare.js"></script>
 <script src="notes.js"></script>
 </body>
 </html>
