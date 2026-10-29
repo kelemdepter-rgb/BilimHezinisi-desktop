@@ -40,11 +40,11 @@ offline; AI is an OPTIONAL, opt-in online layer (see Architecture).
 
 ## Feature Set
 1. Book Management — single/bulk import, metadata edit, export. Formats: PDF, TXT, DOCX, DOC, HTML, Markdown, web URL; and the Bilim Hezinisi website's published books, downloaded and kept up to date from a catalog inside the app. Text is stored as letters, never as presentation-form glyphs; «كىتابلارنى تەكشۈرۈش» (Settings) repairs older books.
-2. OCR — auto-detect scanned PDFs → offline Uyghur OCR; image & clipboard OCR; optional AI cleanup of recognition errors (in the notebook: on the selection, undoable).
+2. OCR — auto-detect scanned PDFs → offline Uyghur OCR (at most 300 pages, said so); image & clipboard OCR; optional AI cleanup of recognition errors (in the notebook: on the selection, undoable). Every page of a text-layer PDF is imported, with each page's place in the text.
 3. Category System — hierarchical tree, drag-and-drop, tags.
-4. Search Engine — cross-book search for any part of a word in title, author and text (substring — the owner's decision for 3.5; the FTS5 index serves the notebook's reference scan); search history, clearable; target <3s over 500 books.
+4. Search Engine — one search over the books, the Qur'an and the notebook, in three sections with counts; any part of a word in title, author and text (substring — the owner's decision for 3.5; the FTS5 index serves the notebook's reference scan), plus a word's Uyghur forms («قوشۇمچىلىرى بىلەن», on by default); search history, clearable; target <3s over 500 books.
 5. Book Reader — RTL, themes, print; bookmarks (named, renamable) and in-book notes that keep their paragraph; the reading position restored to the paragraph; a second book side by side («يانمۇيان ئوقۇش»); for a PDF book, its page beside its text, corrected there and undoable («ئەسلى بەت بىلەن سېلىشتۇرۇش»); plus AI panel (summarize, explain, translate, term-explain, ask).
-6. Quran Module — mushaf view, FTS over ayas, copy; verse bookmarks with a sidebar list; the last verse read offered again.
+6. Quran Module — mushaf view with the Uthmani font's verse medallions, FTS over ayas, copy; each translation labelled «[7]» or, shared, «[4 _ 6]» wherever it goes; verse bookmarks with a sidebar list; the last verse read offered again.
 7. Notebook — rich-text editor, format painter, find/replace, block style, outline, undo/redo buttons, word count; version history, trash, a sortable/pinnable list with content search; export to Word, PDF, Markdown and text; citation links and a link card; a source search over the library and the Qur'an; collapsible panels; plus AI menu (translate, Uyghur proofread by units, chat, page Q&A).
 8. Spellcheck — morphology-aware Uyghur checker (see below); F7 step-through, a personal-dictionary panel, ignore-in-this-note.
 9. Optional Gemini AI — bring-your-own-key, content-type-aware prompts, OCR cleanup, metadata autofill; fully gated/hidden when disabled or no key.
@@ -184,6 +184,9 @@ Edit only in the source folder → `npm test` (the syntax gate — `node --check
 - Desktop ↔ mobile feature parity from shared AI/parser logic.
 - Deepen AI usefulness for classical Uyghur/Arabic texts; add usage/quota visibility; investigate an offline/local model option to restore fully-offline AI.
 - More import formats (e.g. EPUB) and expanded OCR coverage.
-- Optional sync of the library and notes (backup and restore shipped in 3.5).
+- PDFs whose text layer is glyph by glyph in visual order (Chromium's print of Uyghur, measured in 3.6) import reversed: put pdf.js's items back in reading order at import.
+- A page map for Gemini OCR imports (it reads two pages per request; the page view places such pages one by one meanwhile).
+- Optional sync of the library and notes (backup and restore shipped in 3.5); notes are not synced with the website, nor anything uploaded to it.
 - A ranked word search on the rebuilt FTS5 index, if the owner wants one beside the substring search.
-- Left out of 3.5 on purpose: the Electron upgrade (K14, its own release), Markdown rendering and in-book links (K16/W22), notebook page typography (W15), quote image (W19), on-screen keyboard (W21), browse by author (W23).
+- A way around a router that cannot resolve bilimhezinisi.com (DNS over HTTPS would be a new host — the owner's privacy decision).
+- Left out of 3.5 and 3.6 on purpose: the Electron upgrade (K14, its own release), Markdown rendering and in-book links (K16/W22), notebook page typography (W15), quote image (W19), on-screen keyboard (W21), browse by author (W23); copying PDFs into the library (3.6 remembers where they are).
