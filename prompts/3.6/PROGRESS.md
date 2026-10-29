@@ -22,7 +22,7 @@ Read prompts/3.6/PROMPT-3.6.md in full, then prompts/3.6/PROGRESS.md, and contin
 | 4 | One search across the books, the Qur'an and the notebook | **done** — waiting for the owner's check | `f888a53` feat(search): the Qur'an translation and the notebook searched through the Uyghur forms too · `0228555` feat(search): one search across the books, the Qur'an and the notebook · docs(progress) | 149 in all (with the syntax gate), every one green |
 | 5 | «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» | **done** — waiting for the owner's check | `cf634c5` feat(web): read the website's published books and download them through its gate · `9f6c9ed` feat(web): «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» — the catalog inside the app · docs(privacy) · docs(progress) | 158 in all (with the syntax gate), every one green |
 | 6 | Two books side by side | **done** — waiting for the owner's check | `293e060` feat(reader): two books side by side («يانمۇيان ئوقۇش») · docs(progress) | 164 in all (with the syntax gate), every one green |
-| 7 | The PDF page beside its text: compare and correct | not started | | |
+| 7 | The PDF page beside its text: compare and correct | **done** — waiting for the owner's check | `b77189b` feat(pdf): the PDF page beside its text — compare and correct · docs: «3.6» rules and progress | 175 in all (with the syntax gate), every one green |
 | 8 | Release 3.6.0 (no publishing) | not started | | |
 
 ## Phase 0 — done
@@ -309,6 +309,65 @@ are drawn in the Uyghur font. That rule (`isArabicLine`) is older than 3.6.
 8. ئوقۇغۇچتىن چىقىپ قايتا كىرىپ «يانمۇيان ئوقۇش» نى بېسىڭ ← ئەڭ ئۈستىدە «ئاخىرقى قېتىمقى جۈپ» بار؛ بېسىڭ ← ئىككى كىتاب ئاخىرقى قېتىمقىدەك ئېچىلىدۇ.
 9. كۆزنەكنى ئەڭ تار قىلىڭ ← ئىككى تەرەپ تارىيىدۇ، بىر-بىرىنى ياپمايدۇ؛ ئۈستىدىكى كۇنۇپكىلار ئىككى قۇرغا چۈشىدۇ، تېكىستنى ياپمايدۇ.
 
+## Phase 7 — done
+
+| Item | What changed | Tests (red before → green after) |
+|---|---|---|
+| The log | Migration step 9: `book_edits(id, book_id, page_no, start, old_text, new_text, moved, created_at)`. | `page-edit-step-adds-book-edits` — red: «expected [id, book_id, …], got []» |
+| A correction | `savePageEdit` (database.js): only what changed is replaced — the page's common beginning and end are kept; the page's end, every later page and every place after the change move by the length difference; places strictly inside go to its start and are remembered; the index row rebuilt, the cache cleared; one transaction. | `page-edit-shifts-later-pages-and-places` — red: «database.savePageEdit is not a function» |
+| Its undo | `undoPageEdit`: the latest correction of a page, through the same path, its row deleted (undoing again walks back), the moved places put back. A whole new text drops the map and the corrections made against it (`writePageMap`); an unplaced page cannot be saved over. | `page-edit-undo-byte-for-byte` (text, map, every place and the index, after corrections of a later and an earlier page), `page-edit-refused-where-it-cannot-be-undone` — red: «… is not a function» |
+| A book without a map | `src/pdf-compare.js` (new): `alignPages` finds every page of a text-layer PDF in order, spacing ignored, whole or by its first and last 24 letters; `estimateRange` and `placeByTrigrams` find a scanned page read by OCR; `placePages` writes only what keeps the pages in order. | `page-align-old-text-layer-book`, `page-place-scanned-by-trigrams` — red: «Cannot find module src/pdf-compare.js»; `page-align-glyph-spaced-text-layer` — red on the first, word-based version: «expected [], got [2]» (found in the dev app, below) |
+| The view | `PdfCompare.createView`: the page's text on the right (editable only when placed), the page drawn by pdf.js on the left — one canvas, zoom −/+/«كەڭلىككە» — navigation by PDF page number, opening at the page that holds the reader's place (`pdf-page-at`). «ساقلاش», «ئەسلىگە قايتۇرۇش», «بۇ بەتنى تېكىستتىن تېپىش» (unplaced pages), «بۇ بەتنى قايتا OCR قىلىش (تورسىز)», «AI بىلەن تۈزىتىش (تور)» (when AI is on) — the last two as a preview, applied only by «قوللىنىش». Unsaved text is asked about inline. A PDF not where it was recorded: «ئەسلى PDF تېپىلمىدى» + «PDF نى كۆرسىتىپ بېرىش». | `pdf-compare-one-page-at-a-time`, `pdf-compare-save-only-on-save`, `pdf-compare-moved-pdf-banner`, `pdf-compare-aligns-a-book-without-a-map` — red: «window.PdfCompare is missing» |
+| Main and the reader | IPC `pdf-original-bytes` (8 MB pieces, from the recorded path only), `pdf-page-info`, `pdf-page-at`, `pdf-page-save`, `pdf-page-undo`, `pdf-align-pages`, `pdf-place-page`. The reader's «ئەسلى بەت» button shows for PDF books only (its label from 1400 px); after a correction the bookmarks and notes are reloaded from the database, and the reader is drawn again when the view closes. | checked in the dev app (below) |
+| A moved PDF found again by its hash | Phase 2 already does it (`pdf-locate-original`). | `pdf-original-found-moved-missing` (Phase 2) |
+
+Departures from the work order, each small:
+- `book_edits` has one more column, `moved`: the places a correction had to move, so the undo is byte for byte, as the order asks.
+- `start` counts from the page's own start, not from the book's: a later correction of an earlier page moves the page, and the row stays right.
+- A correction replaces only what changed on the page, not the page's whole range: the places elsewhere on the page stay where they were (the order's «those inside it move to its start» then applies only to what really changed).
+- An undo deletes its row instead of logging the reverse change, so pressing it again walks further back.
+- The view's styles are in `index.html` (no new CSS file this time).
+
+Checked in `npm run dev` over the DevTools protocol, with test books made from
+two PDFs created for the check, and deleted again afterwards; the owner's
+book «مۇھەررىرلەرگە مەدھىيە» was left alone:
+- A 14-page Uyghur PDF (the bundled translation of Al-Baqara 1–80, printed by
+  Chromium with the UKIJ font), imported the 3.6 way. The button shows for it;
+  the view opened at the PDF page holding the reader's place (page 4) with one
+  canvas. A word added at the page's start was saved exactly there; the
+  library search found it in that book only; the bookmark and the reading
+  position on the page moved by its 8 characters. «ئەسلىگە قايتۇرۇش» put back
+  the text, the bookmark and the position exactly, and the search found
+  nothing. Closing redrew the reader from the new text.
+- The same PDF as a book from before 3.6 (its file recorded, no map, page 8
+  changed since): the first, word-based version found 13 of 14 pages — this
+  PDF spaces every glyph, so «words» were single letters — and missed page 8.
+  The letter-based version found all 14 («ھەممە 14 بەتنىڭ ئورنى تېپىلدى»).
+- A 100 MB PDF (31 pages, each an uncompressed 3.25 MB image and a line of
+  text): see Measurements.
+
+Not checked live: the native dialog behind «PDF نى كۆرسىتىپ بېرىش» (a native
+dialog cannot be driven over the DevTools protocol — Phase 2's test covers the
+choice, the view test the banner), placing a scanned page by OCR (unit-tested
+with noisy OCR-like text), and the AI help (it needs a key).
+
+Seen on the way, not changed: Chromium's print of Uyghur to PDF gives pdf.js
+every glyph as its own item in visual order, so the importer stores such a
+PDF's text letter by letter, reversed. Listed under Deferred.
+
+### Phase 7 checklist for the owner (`npm run dev`)
+
+1. PDF دىن ئەكىرىلگەن بىر كىتابنى ئېچىڭ ← ئۈستىدە «ئەسلى بەت» (تار كۆزنەكتە پەقەت ھۆججەت سىنبەلگىسى) كۆرۈنىدۇ. PDF ئەمەس كىتابتا كۆرۈنمەيدۇ.
+2. ئۇنى بېسىڭ ← ئوڭدا سىز ئوقۇۋاتقان يەرنىڭ PDF بېتىدىكى تېكىست، سولدا شۇ بەتنىڭ ئۆزى. «−»، «+»، «كەڭلىككە» بىلەن چوڭلۇقىنى ئۆزگەرتىڭ؛ بەت نومۇرىنى يېزىپ Enter نى بېسىڭ.
+3. تېكىستتىكى بىر سۆزنى تۈزىتىپ «ساقلاش» نى بېسىڭ ← «بەت ساقلاندى»، ئۈستىدە «بۇ بەت تۈزىتىلگەن (1 قېتىم)».
+4. «→ قايتىش» نى بېسىڭ ← ئوقۇغۇچتا تۈزىتىلگەن سۆز بار؛ ئىزدەشتە تېپىلىدۇ؛ شۇ بەتتىكى خەتكۈچ ئۆز ئابزاسىدا.
+5. قايتا ئېچىپ شۇ بەتتە «ئەسلىگە قايتۇرۇش» نى بېسىڭ ← كونا سۆز قايتىپ كېلىدۇ.
+6. بىر نەرسە يېزىپ ساقلىماي باشقا بەتكە ئۆتمەكچى بولۇڭ ← «بۇ بەتتىكى ئۆزگىرىش ساقلانمىدى» دەپ سورايدۇ: «ساقلاپ ئۆتۈش»، «ساقلىماي ئۆتۈش»، «قېلىش».
+7. «بۇ بەتنى قايتا OCR قىلىش (تورسىز)» نى بېسىڭ ← يېڭى ئوقۇلغان تېكىست ئاستىدا ئايرىم كۆرۈنىدۇ؛ «قوللىنىش» نى باسمىغۇچە تېكىستكە ھېچنېمە يېزىلمايدۇ. (AI ئاچقۇچى بولسا «AI بىلەن تۈزىتىش (تور)» مۇ شۇنداق.)
+8. PDF ھۆججىتىنى باشقا قىسقۇچقا يۆتكەپ قايتا ئېچىڭ ← «ئەسلى PDF تېپىلمىدى» ۋە «PDF نى كۆرسىتىپ بېرىش». يېڭى ئورنىنى كۆرسەتسىڭىز، ئوخشاش ھۆججەت بولغاچقا سورىماي قوبۇل قىلىدۇ.
+9. 3.6 دىن بۇرۇن ئەكىرىلگەن PDF كىتاب بولسا: «PDF نى كۆرسىتىپ بېرىش» ← «بۇ شۇ كىتابنىڭ PDF ىمۇ» دەپ سورايدۇ؛ «ھەئە» ← «… بەتنىڭ ئورنى تېپىلدى». تېپىلمىغان بەت «تەخمىنىي» دەپ يېزىلىدۇ، تۈزەتكىلى بولمايدۇ — «بۇ بەتنى تېكىستتىن تېپىش» نى بېسىڭ.
+10. بىلىپ قويۇڭ: ھەقىقىي كۇتۇپخانىدا تۇنجى قېتىم ئاچقاندا ساندان 9-قەدەمگە يېڭىلىنىدۇ، ئۇنىڭدىن بۇرۇن زاپاس ئېلىنىدۇ (`JamiyKutupxana\backups\`).
+
 ## Measurements
 
 | What | Result | Where measured |
@@ -332,6 +391,8 @@ are drawn in the Uyghur font. That rule (`isArabicLine`) is older than 3.6.
 | The reader's toolbar before 3.6 | fixed at 52 px; its buttons reached 70 px at 900 px and 62 px at 1000 px — over the text; one row from 1100 px | hidden-window measurement of `#rh`, Phase 6 |
 | The reader's toolbar with the new button | 900 px: two rows, 83 px, the text below it; 1000 px: 75 px; 1100–1299 px: one row (icon only); 1300 px and wider: one row with «يانمۇيان ئوقۇش» | the same, Phase 6 |
 | Two panes at 900 px with the notes panel | ratio 0.2: reader 150 px, pane 489 px; 0.5: 333 / 306; 0.8: 517 / 122 — side by side, nothing spilled | dev app, Phase 6 |
+| A 100 MB PDF in the page view (31 pages, 3.25 MB image each) | sent whole: open 631 ms, one pause of 204 ms — the transfer alone 303 ms with a 172 ms pause; in 8 MB pieces: open 462 ms, longest pause 20 ms; a page turn 6–7 ms. Pauses by a MessageChannel ping-pong (timers are throttled in a window behind others, where the first run was) | dev app, Phase 7 |
+| Finding the pages of a book without a map (14-page Uyghur PDF, one page changed since) | word-based ends: 13 of 14 (the PDF spaces every glyph); letter-based: 14 of 14; the view opened, pages found, in 253 ms | dev app, Phase 7 |
 | Name lookup for bilimhezinisi.com on this machine | the router answered SERVFAIL at times; public resolvers and the Supabase host resolved | name lookups on this machine, Phase 5 |
 
 ### Phase 1 checklist for the owner (`npm run dev`)
@@ -359,6 +420,7 @@ are drawn in the Uyghur font. That rule (`isArabicLine`) is older than 3.6.
 
 | Item | Why | When |
 |---|---|---|
-| A page map for Gemini OCR imports | The online engine reads two pages per request and returns one text, so where one page ends is not known. Changing its batching would be an AI change (out of scope for 3.6). Phase 7 places such pages like a book from before 3.6. | Phase 7, or a later release |
-| A page map when the staged OCR text was cleaned by AI before «قوشۇش» | The AI rewrote the text; the ranges no longer fit it, so none are stored (by design). Phase 7 can realign. | Phase 7 |
+| A page map for Gemini OCR imports | The online engine reads two pages per request and returns one text, so where one page ends is not known. Changing its batching would be an AI change (out of scope for 3.6). | Phase 7 places such pages one by one, like any scanned book without a map («بۇ بەتنى تېكىستتىن تېپىش»). Batching per page: a later release |
+| A page map when the staged OCR text was cleaned by AI before «قوشۇش» | The AI rewrote the text; the ranges no longer fit it, so none are stored (by design). | Phase 7 places such pages one by one, as above |
+| PDFs whose text layer is in visual order, glyph by glyph (Chromium's print of Uyghur, measured in Phase 7) | pdf.js gives each glyph as its own item, right to left as drawn; the importer joins them with spaces, so the stored text reads letter by letter, reversed. Putting them back in reading order is an import change (bidi reordering of pdf.js items), not part of 3.6. The page view still finds such pages (spacing is ignored). | A later release |
 | A way around a router that cannot find bilimhezinisi.com | Asking another DNS service (DNS over HTTPS) would be a new host and new network behaviour — a privacy change the owner decides. Until then the download says «تورغا ئۇلىنالمىدى» and a retry usually works. | If the owner wants it |
