@@ -4,7 +4,7 @@ Branch `fix/ai-models-3.6` from `main` (`b45f39c`). Version stays `3.6.0`.
 
 ## Phase 0 — evidence first
 
-Status: **waiting for the owner's probe output.**
+Status: **done** (probe run by the owner 2026-10-29 14:38 UTC).
 
 ### Working tree at the start
 
@@ -68,4 +68,54 @@ the key absent from the output.
 
 ### Evidence (from the owner's run)
 
-_Pending._
+Owner's key, `node` transport (plain Node fetch reached Google from this machine):
+
+| requested | generateContent | modelVersion | stream: first chunk has modelVersion | text before it | all chunks |
+| --- | --- | --- | --- | --- | --- |
+| `gemini-3.8-flash` | 200 | `gemini-3.8-flash` | yes | no | `gemini-3.8-flash` |
+| `gemini-3.6-flash` | 200 | `gemini-3.6-flash` | yes | no | `gemini-3.6-flash` |
+| `gemini-3.1-pro-preview` | 200 | `gemini-3.1-pro-preview` | yes | no | `gemini-3.1-pro-preview` |
+| `gemini-3.7-flash` | 200 | **`gemini-3.8-flash`** | yes | no | `gemini-3.8-flash` |
+| `gemini-3.5-flash-lite` | 200 | `gemini-3.5-flash-lite` | yes | no | `gemini-3.5-flash-lite` |
+
+Decisions:
+
+- **Match rule: exact.** Every model reported its own ID with no suffix, in both
+  transports, so `answeredByRequestedModel` accepts only `modelVersion === requested`.
+  No suffix was observed, so none is allowed (the work order's "allowed suffix → true"
+  test became "an unseen suffix → false"). If Google ever adds one, the probe shows it
+  and the rule is widened for that suffix only.
+- **The aliasing is proven:** `gemini-3.7-flash` answers as `gemini-3.8-flash`, in
+  generateContent and in every stream chunk. The check refuses it.
+- **Streams:** the first chunk always carries `modelVersion` and no text came before
+  it, so a stream is checked on its first chunk, before anything reaches `onChunk`.
+  Text arriving before any chunk named the model is refused as "missing".
+- **`gemini-3.6-flash` answers on the owner's key** → free, `(ھەقسىز)`, not in
+  `PAID_ONLY_MODELS`.
+- **`gemini-3.1-pro-preview` also answered (HTTP 200).** On 2026-08-20 a non-billing
+  key got 429 «limit: 0». Either the owner's key has billing or Google opened a free
+  tier. The work order keeps it paid-only and its label unchanged; asked the owner
+  which it is (see Phase 1 report).
+
+## Phase 1 — implement
+
+Status: **done, waiting for the owner's tests** (commit below).
+
+- Line-up in `ai.js` and `src/ai-client.js`: `gemini-3.8-flash` (default, «تەۋسىيە ·
+  ئەڭ يېڭى»), `gemini-3.6-flash` (ھەقسىز), `gemini-3.1-pro-preview` (پۇللۇق,
+  unchanged). `RETIRED_MODELS`: 3.7-flash, 3.5-flash-lite, 3.5-flash, 3.1-flash-lite
+  → `gemini-3.8-flash`, through the existing `resolveModelForSettings` /
+  `PREF_MODEL_MIGRATED` notice. The notice now says the old model was taken off the
+  list (it used to say Google stopped it — not true of 3.5-flash-lite).
+- `answeredByRequestedModel` + the named error on every path: `callGemini` (`ask`,
+  `probeKey` → test connection / per-slot tests / test all keys, `ocrImages`, the
+  non-stream retries of chat and translate), `askStream`, `streamOnce` (chat,
+  translate). A mismatch is never retried, never fails over to another key, never
+  counted as a success; a stream that switched model after showing text is cleared
+  (`onReset('')`). The status line receives the verified `modelVersion`.
+- Test seam: `ai._setHttpFetchForTests(fn)` (tests only).
+- `tests/main/ai-models.js`: 8 tests; with the check disabled the four mismatch tests
+  fail and the failover guard passes. `npm test` all green.
+- Docs: `CLAUDE.md` (AI line + the rule), `BUILD-GUIDE.md` (model notes).
+- `scripts/dev-set-ai-model.js` — TEMPORARY, uncommitted, for the owner's test 4
+  (DEV library only). Delete before the Phase 2 merge.

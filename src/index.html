@@ -3381,7 +3381,7 @@ async function showSettings() {
       if (migratedFrom) {
         mig.style.display = '';
         mig.innerHTML = '✔ <b>مودېلىڭىز يېڭىلاندى.</b> بۇرۇن تاللىغان «<b>' + sanitize(migratedFrom)
-          + '</b>» مودېلىنى Google توختاتقانلىقى ئۈچۈن، ئۇنىڭ ئورنىغا «<b>' + sanitize(cur)
+          + '</b>» مودېلى تىزىملىكتىن چىقىرىۋېتىلگەنلىكى ئۈچۈن، ئۇنىڭ ئورنىغا «<b>' + sanitize(cur)
           + '</b>» تاللاندى. خالىسىڭىز تۆۋەندىكى تىزىملىكتىن باشقىسىنى تاللىسىڭىز بولىدۇ.';
         try { await window.AI.ackModelMigration(); } catch (_) {}
       } else {

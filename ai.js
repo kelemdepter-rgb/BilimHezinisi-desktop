@@ -17,10 +17,10 @@
 // margin and has a generous free quota from https://aistudio.google.com —
 // keys begin with "AIza...".
 //
-// Default model: gemini-3.7-flash (line-up verified against the live models
-// endpoint on 2026-08-20). Older Gemini models are deliberately excluded
-// because their Uyghur output quality is too low to be useful for classical
-// religious-text scholarship.
+// Default model: gemini-3.8-flash (line-up verified with
+// scripts/probe-gemini-models.js on 2026-10-29). Older Gemini models are
+// deliberately excluded because their Uyghur output quality is too low to be
+// useful for classical religious-text scholarship.
 //
 // STORAGE: all settings go through database.getSetting / setSetting (the
 // existing key/value settings table — no schema change). The API key is the
@@ -32,7 +32,7 @@ const database = require('./database');
 // Constants
 // ----------------------------------------------------------------
 
-// gemini-3.7-flash is the current flagship Flash model — frontier reasoning
+// gemini-3.8-flash is the current flagship Flash model — frontier reasoning
 // quality with the speed we need for an inline Q&A flow. The user can
 // override the choice in Settings.
 //
@@ -50,17 +50,29 @@ const database = require('./database');
 // happens when Settings is opened — never mid-request. MODEL_FALLBACKS and
 // selfHealModel below are retained for reference/diagnostics only; they
 // must NEVER be used to change the model the user picked.
-const DEFAULT_MODEL  = 'gemini-3.7-flash';
+//
+// THE MODEL THAT ANSWERS IS THE MODEL THAT WAS CHOSEN: Google may route a
+// retired ID to another model without saying so in the HTTP status, so every
+// answer's `modelVersion` is checked against the requested ID
+// (answeredByRequestedModel) before any of its text is used. A mismatch is a
+// named error, never a substitute answer.
+const DEFAULT_MODEL  = 'gemini-3.8-flash';
 // Models offered in the Settings selector, in display order. Verified live
-// on 2026-08-20 (models endpoint + a real generateContent call per model):
-//   gemini-3.7-flash        free tier YES  — answered on a non-billing key
-//   gemini-3.5-flash-lite   free tier YES  — answered on a non-billing key
-//   gemini-3.1-pro-preview  free tier NO   — 429 "limit: 0" without billing
+// on 2026-10-29 with scripts/probe-gemini-models.js (generateContent and
+// streamGenerateContent per model, the owner's key):
+//   gemini-3.8-flash        HTTP 200, modelVersion gemini-3.8-flash
+//   gemini-3.6-flash        HTTP 200, modelVersion gemini-3.6-flash
+//   gemini-3.1-pro-preview  HTTP 200, modelVersion gemini-3.1-pro-preview
+//                           (kept PAID-only: on 2026-08-20 a non-billing key
+//                           got 429 "limit: 0")
+// Removed: gemini-3.7-flash answered as gemini-3.8-flash (Google's
+// deprecations page: the endpoint "automatically routes API requests to
+// gemini-3.8-flash"), and gemini-3.5-flash-lite (the owner's choice).
 // NOTE: model IDs change over time — if one stops matching a live ID, adjust
 // it HERE and in src/ai-client.js (SELECTABLE_MODELS + MODEL_INFO).
 const SELECTABLE_MODELS = [
-  'gemini-3.7-flash',
-  'gemini-3.5-flash-lite',
+  'gemini-3.8-flash',
+  'gemini-3.6-flash',
   'gemini-3.1-pro-preview'
 ];
 // Data-only mirror kept for the renderer (window.AI.MODEL_FALLBACKS) and for
@@ -73,9 +85,13 @@ const PAID_ONLY_MODELS = ['gemini-3.1-pro-preview'];
 // Retired model ID → its successor. Applied ONCE, VISIBLY, when the Settings
 // dialog loads (see resolveModelForSettings) — the user is told their model
 // was updated because the old one was retired. Never applied mid-request.
+// Every retired ID points straight at the current default, so a user is
+// moved once, never twice.
 const RETIRED_MODELS = {
-  'gemini-3.5-flash':      'gemini-3.7-flash',
-  'gemini-3.1-flash-lite': 'gemini-3.5-flash-lite'
+  'gemini-3.7-flash':      'gemini-3.8-flash',
+  'gemini-3.5-flash-lite': 'gemini-3.8-flash',
+  'gemini-3.5-flash':      'gemini-3.8-flash',
+  'gemini-3.1-flash-lite': 'gemini-3.8-flash'
 };
 const API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 // Google's own pages — linked from the UI instead of hardcoding prices or
@@ -102,7 +118,7 @@ const PREF_MODEL_MIGRATED = 'ai_model_migrated_from';
 const MAX_TRIES = 3;
 const BACKOFF_MS = [400, 1200, 3000];
 
-// Safety ceiling for a single whole-book request. gemini-3.5-flash handles
+// Safety ceiling for a single whole-book request. The Gemini 3.x models handle
 // very large inputs, so normal books/articles are sent in FULL — we never
 // pre-emptively warn about size. This 1M-char cap is only a last-resort
 // guard against a pathological payload; if the API still rejects on size,
@@ -392,12 +408,12 @@ function isPaidOnlyModel(name) {
 }
 
 // ONE-TIME, VISIBLE model migration — called ONLY when the Settings dialog
-// loads, never from a request path. A user upgrading from v3.1.0 has a
-// retired ID saved (gemini-3.5-flash / gemini-3.1-flash-lite); we move them
-// to its successor, persist that, and hand the dialog `migratedFrom` so it
-// can TELL them their model changed and why. Requests keep using exactly
-// what is stored — a retired ID that Google still serves keeps working
-// until the user opens Settings.
+// loads, never from a request path. A user upgrading from an older version
+// may have a retired ID saved (see RETIRED_MODELS); we move them to its
+// successor, persist that, and hand the dialog `migratedFrom` so it can TELL
+// them their model changed and why. Requests keep using exactly what is
+// stored until then — and an ID Google routes to another model fails with the
+// named mismatch error, which sends the user to Settings, where this runs.
 function resolveModelForSettings() {
   const current = getModel();
   const successor = RETIRED_MODELS[current];
@@ -884,6 +900,66 @@ function fetchWithTimeout(url, opts, timeoutMs) {
 }
 
 // ----------------------------------------------------------------
+// Which model answered
+// ----------------------------------------------------------------
+
+// Returns true when Gemini's reported modelVersion belongs to the requested ID.
+// The rule is the probe's evidence (scripts/probe-gemini-models.js,
+// 2026-10-29): every model on the list reported its own ID exactly — in
+// generateContent and in the first SSE chunk, no version suffix — while the
+// retired gemini-3.7-flash reported gemini-3.8-flash. So only an exact match
+// is the requested model, and a missing modelVersion is not. Should Google
+// start adding a suffix, the probe will show it; widen this for that suffix
+// only.
+function answeredByRequestedModel(requested, json) {
+  const v = json && json.modelVersion;
+  return typeof v === 'string' && v !== '' && v === String(requested || '');
+}
+
+function modelMismatchMessage(requested, actual) {
+  return 'Google بۇ سوئالغا تاللانغان مودېل (' + requested + ') ئەمەس، باشقا مودېل ('
+       + (actual || 'نامەلۇم') + ') بىلەن جاۋاب قايتۇردى. شۇڭا جاۋاب قوبۇل قىلىنمىدى. تەڭشەكلەردىن باشقا مودېل تاللاڭ.';
+}
+
+// The answer came from another model (or did not say which). Logs the two
+// model names only — never the key or the prompt. No key and no retry can
+// fix it (isFailoverError / callGemini treat it like a missing model).
+function modelMismatchError(requested, actual) {
+  const a = (actual == null || actual === '') ? null : String(actual);
+  console.warn('[ai] model mismatch — requested ' + requested + ', answered ' + (a || '(none)'));
+  const e = new Error(modelMismatchMessage(requested, a));
+  e.modelMismatch = true;
+  e.requestedModel = requested;
+  e.actualModel = a;
+  return e;
+}
+
+// The { ok:false } shape every request path returns for a mismatch.
+function mismatchResult(requested, err) {
+  const actual = (err && err.actualModel) || null;
+  return {
+    ok: false,
+    modelMismatch: true,
+    model: requested,
+    actualModel: actual,
+    error: modelMismatchMessage(requested, actual)
+  };
+}
+
+// One SSE chunk, checked BEFORE its text is used. `state.model` holds the
+// verified modelVersion once a chunk has named it. Throws the mismatch error
+// when a chunk names another model, or when text arrives before any chunk
+// has named the model at all (the probe saw it on the first chunk, always).
+function verifyStreamChunk(requested, j, hasText, state) {
+  if (j && j.modelVersion != null) {
+    if (!answeredByRequestedModel(requested, j)) throw modelMismatchError(requested, j.modelVersion);
+    state.model = j.modelVersion;
+  } else if (hasText && !state.model) {
+    throw modelMismatchError(requested, null);
+  }
+}
+
+// ----------------------------------------------------------------
 // Main API call
 // ----------------------------------------------------------------
 
@@ -958,10 +1034,13 @@ async function callGemini(model, key, body, opts) {
       }
 
       const json = await resp.json();
+      // Another model answered: never used, never retried.
+      if (!answeredByRequestedModel(model, json)) throw modelMismatchError(model, json && json.modelVersion);
       return json;
     } catch (e) {
-      // Network / abort errors retry; explicit "notFound" doesn't.
-      if (e && e.notFound) throw e;
+      // Network / abort errors retry; explicit "notFound" and a model
+      // mismatch don't.
+      if (e && (e.notFound || e.modelMismatch)) throw e;
       lastErr = e;
       console.warn('[ai] attempt', attempt + 1, 'failed:', (e && e.message) || e);
       // Fast-fail mode (every key except the last): ONE attempt per key, then
@@ -1032,8 +1111,9 @@ const SAFETY_SETTINGS = [
 // gemini-3.1-pro-preview ("Budget 0 is invalid. This model only works in
 // thinking mode"). That is exactly why gemini-3.1-pro-preview failed in
 // v3.1.0 even on a billing-enabled key — the request never reached the
-// model. `thinkingLevel` is accepted by all three current models and by the
-// two retired ones, so it is what every path sends now.
+// model. `thinkingLevel` is accepted by every model on the list (the
+// 2026-10-29 probe sent thinkingLevel 'low' to all of them, HTTP 200), so it
+// is what every path sends now.
 //   low  → minimum thinking, fastest, cheapest (the default for Q&A)
 //   high → deep reasoning (the deepThink toggle)
 // NOTE: thinking tokens are billed as output AND count against
@@ -1168,7 +1248,7 @@ function isPaidOnly2(a, b) {
 // blaming the key.
 function isNetworkError(err) {
   if (!err) return false;
-  if (err.noKey || err.aborted || err.notFound) return false;
+  if (err.noKey || err.aborted || err.notFound || err.modelMismatch) return false;
   if (err.status != null) return false;
   return /fetch failed|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|network|socket|بەلگىلەنگەن ۋاقىتتا/i
     .test(String(err.message || '')) || err.status == null;
@@ -1194,7 +1274,9 @@ function isKeyInvalidError(err) {
 // rejection, or any other 4xx is identical for every key → no.
 function isFailoverError(err) {
   if (!err) return false;
-  if (err.notFound || err.aborted || err.noKey) return false;
+  // Another model answered: every key reaches the same model — and switching
+  // keys must never be a way to get a different answer.
+  if (err.notFound || err.aborted || err.noKey || err.modelMismatch) return false;
   if (isSizeError(err)) return false;
   // A paid-only model on a key without billing: a DIFFERENT key may well have
   // billing enabled, so keep walking the slots. (isQuotaError already covers
@@ -1389,13 +1471,17 @@ async function ask(opts) {
     }
     bumpUsage();
     logTokenUsage(requestedModel, json.usageMetadata, deepThink);
-    return { ok: true, text: text, model: requestedModel };
+    // callGemini verified it: this is the model Google says answered.
+    return { ok: true, text: text, model: json.modelVersion };
   } catch (e) {
     // STRICT: the selected model failed on every key — no model substitution.
     // The error is mapped to a clear message below and the USER decides what
     // to do (switch model / enable billing / wait).
     lastErr = e;
   }
+
+  // Another model answered: its text is not used.
+  if (lastErr && lastErr.modelMismatch) return mismatchResult(requestedModel, lastErr);
 
   // The API rejected the input on size. Signal the UI to offer the
   // in-book-search fallback instead of dumping a raw 400.
@@ -1468,6 +1554,7 @@ async function ask(opts) {
 //   paid_only  — the key is fine, but the SELECTED model needs billing
 //   busy       — the key is fine, the model is overloaded (5xx)
 //   model_gone — the selected model ID is unavailable to this key
+//   model_mismatch — another model answered for the selected one
 //   offline    — nothing reached Google
 //   empty      — answered with no text (safety / token budget)
 //   error      — anything else
@@ -1492,6 +1579,11 @@ async function probeKey(key, model) {
                 || 'unknown';
     return { status: 'empty', keyOk: true, message: emptyAnswerMessage(reason), model: model };
   } catch (e) {
+    // The key works, but another model answered for the selected one: that is
+    // never a ✓.
+    if (e && e.modelMismatch) {
+      return { status: 'model_mismatch', keyOk: true, model: model, message: e.message };
+    }
     // Order matters: a paid-only model reports as a 429, and a dead key can
     // report as a 400 that also mentions the model.
     if (isPaidOnlyModelError(e)) {
@@ -1723,6 +1815,7 @@ function askStream(opts, onChunk, onDone, onError, onReset) {
         const decoder = new TextDecoder('utf-8');
         let buf = '';
         let usage = null;
+        const verified = { model: null };   // modelVersion, once a chunk named it
         while (true) {
           if (aborted) { try { reader.cancel(); } catch (_) {} return; }
           const piece = await reader.read();
@@ -1743,6 +1836,10 @@ function askStream(opts, onChunk, onDone, onError, onReset) {
             let j = null;
             try { j = JSON.parse(payload); } catch (_) { continue; }
             const delta = extractDelta(j);   // no trim — preserve inter-chunk spaces
+            // Which model is answering is checked before its text reaches
+            // the UI; a mismatch stops the stream here.
+            try { verifyStreamChunk(requestedModel, j, !!delta, verified); }
+            catch (mm) { try { reader.cancel(); } catch (_) {} throw mm; }
             if (delta) { streamed += delta; emittedAny = true; if (!aborted) onChunk(delta); }
             if (j.usageMetadata) usage = j.usageMetadata;
           }
@@ -1753,7 +1850,7 @@ function askStream(opts, onChunk, onDone, onError, onReset) {
         markSlotGood(s);
         bumpUsage();
         logTokenUsage(requestedModel, usage, !!opts.deepThink);
-        onDone(streamed, requestedModel, usage, { slot: s.slot });
+        onDone(streamed, verified.model, usage, { slot: s.slot });
         return;
       } catch (e) {
         if (aborted) return;
@@ -1780,9 +1877,19 @@ function askStream(opts, onChunk, onDone, onError, onReset) {
 
     if (aborted) return;
 
+    // Another model answered. Nothing of that answer stays on screen (a later
+    // chunk may have changed model after text was shown), and it is not
+    // re-asked through ask(): the same model would answer again.
+    if (lastErr && lastErr.modelMismatch) {
+      if (emittedAny) { try { onReset(''); } catch (_) {} }
+      onError(mismatchResult(requestedModel, lastErr));
+      return;
+    }
+
     // The LAST key died mid-answer and there is nothing left to fail over to.
     // Keeping the partial text beats throwing the user's answer away — it is
-    // one answer cut short, not two spliced together.
+    // one answer cut short, not two spliced together. Every chunk of it was
+    // checked to come from the requested model.
     if (emittedAny && streamed) {
       bumpUsage();
       onDone(streamed, requestedModel, null, { slot: activeSlot, partial: true });
@@ -1941,6 +2048,7 @@ async function streamOnce(model, key, body, onDelta, isAborted, setController) {
   const reader = resp.body.getReader();
   const decoder = new TextDecoder('utf-8');
   let buf = '', text = '', usage = null;
+  const verified = { model: null };   // modelVersion, once a chunk named it
   while (true) {
     if (isAborted && isAborted()) { try { reader.cancel(); } catch (_) {} const e = new Error('ABORTED'); e.aborted = true; throw e; }
     const piece = await reader.read();
@@ -1958,11 +2066,14 @@ async function streamOnce(model, key, body, onDelta, isAborted, setController) {
       let j = null;
       try { j = JSON.parse(payload); } catch (_) { continue; }
       const d = extractDelta(j);
+      // Checked before the text reaches onDelta; a mismatch stops here.
+      try { verifyStreamChunk(model, j, !!d, verified); }
+      catch (mm) { try { reader.cancel(); } catch (_) {} throw mm; }
       if (d) { text += d; if (onDelta) onDelta(d); }
       if (j.usageMetadata) usage = j.usageMetadata;
     }
   }
-  return { text: text, usage: usage };
+  return { text: text, usage: usage, model: verified.model };
 }
 
 // Stream ONE request across the ordered key list (same advance rules as
@@ -1991,6 +2102,9 @@ async function streamOnceFailover(model, body, onDelta, isAborted, setController
     } catch (e) {
       if (e && e.aborted) throw e;
       if (isAborted && isAborted()) { const e2 = new Error('ABORTED'); e2.aborted = true; throw e2; }
+      // Another model answered: no partial text is kept and no other key is
+      // tried. The caller clears what was shown.
+      if (e && e.modelMismatch) throw e;
       attempts++;
       if (attemptText && (isLast || !isFailoverError(e))) {
         // Nothing left to fail over to — keep the partial answer rather than
@@ -2078,6 +2192,13 @@ function translateStream(opts, onChunk, onDone, onError, onReset) {
       } catch (e) {
         if (aborted) return;
         if (e && e.aborted) return;
+        // Another model answered: none of the translation stays on screen,
+        // and the segment is not re-asked (the same model would answer).
+        if (e && e.modelMismatch) {
+          if (emittedAny) { full = ''; try { onReset(''); } catch (_) {} }
+          onError(mismatchResult(model, e));
+          return;
+        }
         // Streaming failed for this segment → non-stream fallback.
         try {
           const json = await callGeminiFailover(model, body);
@@ -2088,6 +2209,11 @@ function translateStream(opts, onChunk, onDone, onError, onReset) {
           if (t) { full = full.slice(0, fullLenBeforeSegment) + t; emittedAny = true; onChunk(t); }
         } catch (e2) {
           if (aborted) return;
+          if (e2 && e2.modelMismatch) {
+            if (emittedAny) { full = ''; try { onReset(''); } catch (_) {} }
+            onError(mismatchResult(model, e2));
+            return;
+          }
           if (isSizeError(e) || isSizeError(e2)) { onError({ ok: false, tooLargeFallback: true, error: 'بۇ تېكىست بەك چوڭ بولۇپ، API نى بىراقلا قوبۇل قىلمىدى.' }); return; }
           if (isPaidOnly2(e, e2)) { onError({ ok: false, paidOnlyModel: true, model: model, error: paidOnlyMessage(model) }); return; }
           if (isKeyInvalidError(e) || isKeyInvalidError(e2)) { onError({ ok: false, keyInvalid: true, canSwitchKey: true, error: KEY_INVALID_MSG }); return; }
@@ -2146,9 +2272,10 @@ function chatStream(messages, onChunk, onDone, onError, onReset) {
       safetySettings: SAFETY_SETTINGS
     };
 
+    let emitted = false;
     try {
       const r = await streamOnceFailover(model, body,
-        function (d) { if (!aborted) onChunk(d); },
+        function (d) { if (!aborted) { emitted = true; onChunk(d); } },
         function () { return aborted; },
         function (c) { controller = c; },
         function () { onReset(''); });   // restarting on another key — clear the bubble
@@ -2156,18 +2283,27 @@ function chatStream(messages, onChunk, onDone, onError, onReset) {
       if (!r.text || !r.text.trim()) { onError({ ok: false, error: 'جاۋاب چىقمىدى. قايتا سىناڭ.' }); return; }
       bumpUsage();
       logTokenUsage(model, r.usage, false);
-      onDone(r.text, model, r.usage, { slot: activeSlot });
+      // The verified model, except for a partial answer kept after the last
+      // key died (r.model is unset there; every chunk was still checked).
+      onDone(r.text, r.model || model, r.usage, { slot: activeSlot });
     } catch (e) {
       if (aborted || (e && e.aborted)) return;
+      // Another model answered: clear the bubble, do not re-ask.
+      if (e && e.modelMismatch) {
+        if (emitted) { try { onReset(''); } catch (_) {} }
+        onError(mismatchResult(model, e));
+        return;
+      }
       // Streaming failed → one non-stream retry on the SAME model (STRICT).
       try {
         const json = await callGeminiFailover(model, body);
         if (aborted) return;
         const t = extractText(json);
-        if (t) { bumpUsage(); onChunk(t); onDone(t, model, json.usageMetadata || null, { slot: activeSlot }); return; }
+        if (t) { bumpUsage(); onChunk(t); onDone(t, json.modelVersion, json.usageMetadata || null, { slot: activeSlot }); return; }
         onError({ ok: false, error: 'جاۋاب چىقمىدى. قايتا سىناڭ.' });
       } catch (e2) {
         if (aborted) return;
+        if (e2 && e2.modelMismatch) { onError(mismatchResult(model, e2)); return; }
         if (isPaidOnly2(e, e2)) { onError({ ok: false, paidOnlyModel: true, model: model, error: paidOnlyMessage(model) }); return; }
         if (isKeyInvalidError(e) || isKeyInvalidError(e2)) { onError({ ok: false, keyInvalid: true, canSwitchKey: true, error: KEY_INVALID_MSG }); return; }
         if (isModelUnavailableError(e) || isModelUnavailableError(e2)) { onError({ ok: false, error: modelUnavailableMessage(model) }); return; }
@@ -2241,6 +2377,9 @@ async function ocrImages(imagesBase64, opts) {
         try { opts.onProgress(Math.min(i + batch, images.length), images.length); } catch (_) {}
       }
     } catch (e) {
+      // Another model answered this batch: its text is not used. The pages
+      // before it came from the selected model (each batch is checked).
+      if (e && e.modelMismatch) return Object.assign(mismatchResult(model, e), { pages: out });
       // Paid-only model first — it arrives as a 429 and would otherwise be
       // mistaken for an ordinary free-tier limit.
       if (e && (e.paidOnlyAllKeys || isPaidOnlyModelError(e))) {
@@ -2285,10 +2424,15 @@ module.exports = {
   chatStream: chatStream,
   ocrImages: ocrImages,
   test: test,
+  answeredByRequestedModel: answeredByRequestedModel,
+  // tests/main/ai-models.js only: a fake transport in place of
+  // electron.net.fetch (null puts the real one back). The app never calls it.
+  _setHttpFetchForTests: function (fn) { netFetchImpl = (typeof fn === 'function') ? fn : undefined; },
   DEFAULT_MODEL: DEFAULT_MODEL,
   MODEL_FALLBACKS: MODEL_FALLBACKS,
   SELECTABLE_MODELS: SELECTABLE_MODELS,
   PAID_ONLY_MODELS: PAID_ONLY_MODELS,
+  RETIRED_MODELS: RETIRED_MODELS,
   MAX_CONTEXT_CHARS: MAX_CONTEXT_CHARS,
   URL_PRICING: URL_PRICING,
   URL_BILLING: URL_BILLING,

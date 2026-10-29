@@ -21,15 +21,16 @@
   // selection: the main process only ever calls the model the user picked —
   // MODEL_FALLBACKS is kept as mirrored data only and is never used to
   // substitute another model.
-  const DEFAULT_MODEL = 'gemini-3.7-flash';
+  const DEFAULT_MODEL = 'gemini-3.8-flash';
   // Offered in the settings selector, in display order. Verified live on
-  // 2026-08-20: the two flash tiers answer on a key WITHOUT billing;
-  // gemini-3.1-pro-preview is PAID-only (a free key gets a named Uyghur
-  // error, never a silent model switch). If an ID changes upstream, adjust
-  // here AND in ai.js.
+  // 2026-10-29 (scripts/probe-gemini-models.js): each answers as itself, the
+  // two flash models on a key WITHOUT billing; gemini-3.1-pro-preview is
+  // listed PAID-only (a free key gets a named Uyghur error, never a silent
+  // model switch). gemini-3.7-flash is gone — Google answers it with
+  // gemini-3.8-flash. If an ID changes upstream, adjust here AND in ai.js.
   const SELECTABLE_MODELS = [
-    'gemini-3.7-flash',
-    'gemini-3.5-flash-lite',
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
     'gemini-3.1-pro-preview'
   ];
   // Data-only mirror for ported code; never used to substitute a model.
@@ -43,8 +44,8 @@
   // NO price figures here on purpose: Google changes them, so the dialog
   // links to the pricing page instead.
   const MODEL_INFO = {
-    'gemini-3.7-flash':       'تەۋسىيە · ئۈنۈمى ياخشى · سۈرئىتى تېز · (ھەقسىز)',
-    'gemini-3.5-flash-lite':  'ئۈنۈمى ئادەتتىكىدەك · سۈرئىتى ئەڭ تېز · ئىنتايىن ئەرزان · (ھەقسىز)',
+    'gemini-3.8-flash':       'تەۋسىيە · ئەڭ يېڭى · ئۈنۈمى ياخشى · سۈرئىتى تېز · (ھەقسىز)',
+    'gemini-3.6-flash':       'ئۈنۈمى ياخشى · سۈرئىتى تېز · (ھەقسىز)',
     'gemini-3.1-pro-preview': 'ئۈنۈمى ناھايىتى سۈپەتلىك · سۈرئىتى ئاستا · (پۇللۇق · سېتىۋېلىشىڭىز كېرەك)'
   };
   // Google's own pages (prices and terms change — link, don't copy).
