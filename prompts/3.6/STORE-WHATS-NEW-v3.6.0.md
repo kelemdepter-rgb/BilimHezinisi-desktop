@@ -2,12 +2,12 @@
 
 Paste each text, between the lines, into the matching language's «What's new
 in this version» field. Partner Center allows 1,500 characters. Measured:
-Uyghur **1,045**, English **989** characters with a line break counted once (1,061 and 1,005 if counted twice); both inside 1,500.
+Uyghur **1,202**, English **1,119** characters with a line break counted once (1,219 and 1,136 if counted twice); both inside 1,500.
 
 ## Uyghur
 
 ---
-بۇ نەشردە PDF ئەكىرىشتىكى ئېغىر خاتالىق تۈزىتىلدى ۋە ئالتە يېڭى ئىقتىدار قوشۇلدى.
+بۇ نەشردە PDF ئەكىرىشتىكى ئېغىر خاتالىق تۈزىتىلدى ۋە يەتتە يېڭى ئىقتىدار قوشۇلدى.
 
 خاتالىق تۈزىتىشلەر:
 • ئۇزۇن PDF نىڭ 100-بەتتىن كېيىنكى بەتلىرى يوقىلاتتى — ئەمدى ھەر بىر بەت ئوقۇلىدۇ. 3.6 دىن بۇرۇن ئەكىرىلگەن ئۇزۇن PDF كىتابلارنى قايتا ئەكىرىڭ.
@@ -22,6 +22,7 @@ Uyghur **1,045**, English **989** characters with a line break counted once (1,0
 • بىلىم خەزىنىسى تور بېتىدىن كىتاب چۈشۈرۈش ۋە يېڭىلاش — دېتال ئىچىدىكى تىزىملىكتىن.
 • ئىككى كىتابنى يانمۇيان ئوقۇش.
 • PDF بېتىنى تېكىستى بىلەن سېلىشتۇرۇپ شۇ يەردە تۈزىتىش، ئەسلىگە قايتۇرغىلى بولىدۇ.
+• سۈنئىي ئىدراك: يېڭى Gemini 3.8 Flash (تەۋسىيە) ۋە Gemini 3.6 Flash مودېللىرى قوشۇلدى. ھەر جاۋابنىڭ راستتىنلا سىز تاللىغان مودېلدىن كەلگەنلىكى تەكشۈرۈلىدۇ.
 
 دېتال پەقەت تور بېتىنىڭ تىزىملىكىنى ئاچقاندا ياكى كىتاب چۈشۈرگەندىلا تورغا ئۇلىنىدۇ؛ كۇتۇپخانا ۋە خاتىرىلىرىڭىزدىن ھېچنېمە ئەۋەتىلمەيدۇ.
 ---
@@ -29,7 +30,7 @@ Uyghur **1,045**, English **989** characters with a line break counted once (1,0
 ## English
 
 ---
-This release fixes a serious PDF import bug and adds six features.
+This release fixes a serious PDF import bug and adds seven features.
 
 Fixes:
 • Pages after page 100 of a long PDF were lost — every page is read now. Re-import long PDF books added before 3.6.
@@ -44,6 +45,7 @@ New:
 • Download and update books from the Bilim Hezinisi website, from a catalog inside the app.
 • Read two books side by side.
 • Compare a PDF page with its text and correct it there, with undo.
+• AI: new Gemini 3.8 Flash (recommended) and Gemini 3.6 Flash models. Every answer is checked to come from the model you chose.
 
 The app goes online for the website only when you open its catalog or download a book; nothing from your library or notebook is sent.
 ---
