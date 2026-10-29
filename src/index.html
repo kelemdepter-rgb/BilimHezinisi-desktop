@@ -101,6 +101,45 @@ button, .hbtn, .vb, .ci, .mt, input, select, textarea { transition: background-c
 #sb:focus-within { border-color: var(--am); box-shadow: 0 0 0 3px var(--ab); }
 #si { flex: 1; background: none; border: none; outline: none; color: var(--text); font-family: var(--jf); font-size: 14px; padding: 9px 0; direction: rtl; min-width: 0; }
 #si::placeholder { color: var(--text3); }
+/* «قوشۇمچىلىرى بىلەن» — the search finds the Uyghur forms of a word too (3.6). */
+.sb-forms { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 11px; color: var(--text2); cursor: pointer; white-space: nowrap; user-select: none; }
+.sb-forms input { margin: 0; accent-color: var(--am); cursor: pointer; }
+.sr-forms { font-size: 12px; color: var(--text3); margin: 0 0 10px; }
+/* «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» (3.6). The header button's label is
+   shortened where the bar is narrow — measured: the whole name fits from
+   1,300 px, «تور بېتىدىن» from 1,040 px, below that the icon alone (at the
+   window's 900 px minimum the short label still overflowed by 8 px). The
+   tooltip always holds the whole name. */
+.wl-btn .wl-short { display: none; }
+@media (max-width: 1299px) { .wl-btn .wl-full { display: none; } .wl-btn .wl-short { display: inline; } }
+@media (max-width: 1039px) { .wl-btn .wl-short { display: none; } }
+.wl-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.wl-bar #wlq { flex: 1; min-width: 180px; }
+.wl-bar select { width: auto; max-width: 200px; cursor: pointer; }
+.wl-status { font-size: 12px; color: var(--text2); margin: 6px 0 10px; }
+.wl-status button { margin-inline-start: 8px; }
+.wl-list { max-height: 62vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.wl-book { display: flex; gap: 12px; padding: 10px; border: 0.5px solid var(--border); border-radius: var(--radius2); background: var(--bg); }
+.wl-book .cover { width: 56px; height: 78px; flex-shrink: 0; font-size: 7px; }
+.wl-info { flex: 1; min-width: 0; }
+.wl-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.wl-meta { font-size: 11px; color: var(--text3); margin: 2px 0 4px; }
+.wl-desc { font-size: 12px; color: var(--text2); line-height: 1.7; }
+.wl-act { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.wl-act select { width: auto; max-width: 240px; }
+.wl-prog { font-size: 12px; color: var(--am); font-family: sans-serif; }
+.wl-done { font-size: 12px; color: var(--text3); }
+/* One search across the books, the Qur'an and the notebook (3.6). */
+.srch-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.srch-chip { font-family: var(--jf); font-size: 12px; color: var(--text2); background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 14px; padding: 4px 12px; cursor: pointer; }
+.srch-chip.on { background: var(--am); border-color: var(--am); color: #fff; }
+.srch-cat-note { font-size: 11px; color: var(--text3); }
+.srch-sec { margin-bottom: 18px; }
+.srch-sec-head { font-size: 13px; font-weight: 700; color: var(--text); margin: 0 0 8px; }
+.srch-sec-msg { font-size: 12px; color: var(--text3); padding: 4px 2px 8px; }
+.srch-more { font-family: var(--jf); font-size: 12px; color: var(--am); background: none; border: 0.5px dashed var(--border2); border-radius: var(--radius2); padding: 6px 12px; cursor: pointer; width: 100%; }
+.src-label { display: inline-block; font-size: 10px; font-weight: 600; color: var(--am); background: var(--ab); border-radius: 8px; padding: 1px 7px; margin-inline-end: 8px; vertical-align: middle; }
+.srch-ar { font-family: 'UthmanicHafs', serif; font-size: 19px; line-height: 1.9; color: var(--text); direction: rtl; margin-top: 4px; }
 .hbtn { font-size: 12px; background: none; border: 0.5px solid var(--border2); color: var(--text2); padding: 7px 13px; border-radius: 9px; cursor: pointer; font-family: var(--jf); white-space: nowrap; transition: all .15s; }
 .hbtn:hover { background: var(--bg2); color: var(--text); }
 .hbtn.p { background: var(--am); border-color: var(--am); color: #fff; font-weight: 600; box-shadow: 0 2px 8px rgba(176,131,47,.3); }
@@ -300,6 +339,32 @@ mark.reader-hit-flash { animation: readerHitFlash 1.5s ease-out 1; }
 #rai-answer code { font-family: monospace; font-size: 11px; background: var(--bg3); padding: 1px 4px; border-radius: 3px; }
 #rai-answer-actions { display: none; gap: 6px; padding-top: 6px; border-top: 0.5px solid var(--border); }
 #aiSelChip { display: none; position: fixed; z-index: 300; padding: 5px 12px; background: var(--am); color: #fff; border: none; border-radius: 14px; font-size: 12px; font-family: var(--jf); cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+/* «ئەسلى بەت بىلەن سېلىشتۇرۇش» (3.6): over the reader; the text on the right, the PDF page on the left. */
+#pcv { position: fixed; inset: 0; z-index: 120; display: none; flex-direction: column; background: var(--bg); }
+#pcv.on { display: flex; }
+.pcv-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 16px; min-height: 52px; border-bottom: 0.5px solid var(--border); background-color: var(--bg); background-image: var(--grain); flex-shrink: 0; }
+.pcv-title { flex: 1; min-width: 120px; font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcv-nav, .pcv-zoom { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text2); font-family: sans-serif; }
+.pcv-pgin { width: 60px; text-align: center; padding: 4px 2px; border: 0.5px solid var(--border2); border-radius: var(--radius2); background: var(--bg); color: var(--text); font-size: 12px; outline: none; }
+.pcv-nav button[disabled] { opacity: 0.4; cursor: not-allowed; }
+.pcv-banner, .pcv-ask { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 16px; background: var(--ab); border-bottom: 0.5px solid var(--border); font-size: 13px; color: var(--text); flex-shrink: 0; }
+.pcv-body { flex: 1; display: flex; min-height: 0; }
+.pcv-textside { flex: 1 1 50%; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-left: 0.5px solid var(--border); }
+.pcv-state { font-size: 12px; color: var(--text2); min-height: 16px; }
+.pcv-state.guess { color: var(--am); font-weight: 600; }
+.pcv-text { flex: 1; min-height: 160px; width: 100%; resize: none; padding: 14px 16px; border: 0.5px solid var(--paper-bd); border-radius: var(--radius2); background: var(--paper); color: var(--text); line-height: 2; direction: rtl; outline: none; }
+.pcv-text:focus { border-color: var(--am); }
+.pcv-text[readonly] { color: var(--text2); background: var(--bg2); }
+.pcv-acts, .pcv-preview-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.pcv-acts button[disabled] { opacity: 0.45; cursor: not-allowed; }
+.pcv-preview { display: flex; flex-direction: column; gap: 6px; max-height: 42%; padding: 10px; border: 0.5px solid var(--am); border-radius: var(--radius2); background: var(--bg2); }
+.pcv-preview-head { font-size: 12px; font-weight: 600; color: var(--am); }
+.pcv-preview-text { flex: 1; min-height: 0; overflow-y: auto; white-space: pre-wrap; line-height: 1.9; font-size: 14px; color: var(--text); direction: rtl; }
+.pcv-pageside { flex: 1 1 50%; min-width: 0; overflow: auto; background: var(--bg3); direction: ltr; }
+.pcv-canvas-wrap { padding: 16px; text-align: center; }
+.pcv-canvas { display: inline-block; background: #fff; box-shadow: var(--shadow-1); }
+.pcv-msg { padding: 40px 16px; color: var(--text2); font-size: 13px; direction: rtl; }
+@media (max-width: 1399px) { #pcvBtn .pcv-btn-label { display: none; } }
 #rnotes-header { padding: 12px; border-bottom: 0.5px solid var(--border); font-size: 13px; font-weight: 600; color: var(--text); }
 #rnotes-list { flex: 1; overflow-y: auto; padding: 8px; }
 .rnote { padding: 10px; border: 0.5px solid var(--border); border-radius: var(--radius2); margin-bottom: 6px; background: var(--bg); cursor: pointer; transition: all .12s; }
@@ -322,7 +387,7 @@ mark.reader-hit-flash { animation: readerHitFlash 1.5s ease-out 1; }
 #rnotes-input-area { padding: 8px; border-top: 0.5px solid var(--border); }
 #rnotes-input-area textarea { width: 100%; padding: 8px; border: 0.5px solid var(--border); border-radius: var(--radius2); font-family: var(--jf); font-size: 12px; color: var(--text); background: var(--bg); direction: rtl; resize: vertical; min-height: 60px; }
 #rnotes-input-area button { width: 100%; margin-top: 6px; padding: 6px; background: var(--am); color: #fff; border: none; border-radius: var(--radius2); cursor: pointer; font-size: 12px; font-family: var(--jf); }
-#rh { display: flex; align-items: center; gap: 8px; padding: 0 16px; height: 52px; border-bottom: 0.5px solid var(--border); flex-shrink: 0; background-color: var(--bg); background-image: var(--grain); flex-wrap: wrap; }
+#rh { display: flex; align-items: center; gap: 8px; padding: 6px 16px; min-height: 52px; border-bottom: 0.5px solid var(--border); flex-shrink: 0; background-color: var(--bg); background-image: var(--grain); flex-wrap: wrap; }
 #rtitle { flex: 1; font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); min-width: 200px; }
 .rsc { display: flex; align-items: center; gap: 5px; background: var(--bg2); border: 0.5px solid var(--border2); border-radius: 14px; padding: 4px 10px; }
 .rsc input { background: none; border: none; outline: none; color: var(--text); font-family: var(--jf); font-size: 12px; width: 120px; direction: rtl; }
@@ -424,6 +489,8 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
 <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
 <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="i-columns" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></symbol>
+<symbol id="i-swap" viewBox="0 0 24 24"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></symbol>
 <symbol id="i-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
 <symbol id="i-list" viewBox="0 0 24 24"><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/></symbol>
 <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M21.17 6.81a1 1 0 0 0-3.98-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/><path d="m15 5 4 4"/></symbol>
@@ -489,6 +556,7 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
         <button onclick="closeMenus();showAdd()"><span class="mi-label"><svg class="ic"><use href="#i-plus"></use></svg> يېڭى كىتاب قوشۇش</span><span class="shortcut">Ctrl+N</span></button>
         <button onclick="closeMenus();showBatchImport()"><span class="mi-label"><svg class="ic"><use href="#i-folder-plus"></use></svg> توپلاپ كىتاب قوشۇش</span></button>
         <button onclick="closeMenus();showWebImport()"><span class="mi-label"><svg class="ic"><use href="#i-globe"></use></svg> تور بەت قوشۇش (URL)</span></button>
+        <button onclick="closeMenus();showWebLibrary()"><span class="mi-label"><svg class="ic"><use href="#i-download"></use></svg> بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش</span></button>
         <div class="sep"></div>
         <button onclick="closeMenus();showBulkExport()"><span class="mi-label"><svg class="ic"><use href="#i-download"></use></svg> تۈر بويىچە توپلاپ چۈشۈرۈش</span></button>
         <div class="sep"></div>
@@ -551,12 +619,14 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
     <svg class="ic" style="width:15px;height:15px;color:var(--text3)"><use href="#i-search"></use></svg>
     <input type="text" id="si" placeholder="كىتاب نامى، ئاپتور ياكى مەزمۇن ئىچىدىن ئىزدەش..." onkeydown="if(event.key==='Enter'){hideSearchHistory(true);doSearch()}" onfocus="if(!this.value)loadSearchHistory()" onblur="hideSearchHistory()">
     <button onclick="clearSearch()" id="clr" style="background:none;border:none;color:var(--text3);cursor:pointer;display:none;align-items:center"><svg class="ic" style="width:14px;height:14px"><use href="#i-x"></use></svg></button>
+    <label class="sb-forms" title="سۆزنىڭ قوشۇمچىلىق شەكىللىرىنىمۇ ئىزدەش: «بالىلار» دەپ ئىزدىسىڭىز «بالا»، «بالىسى» نىمۇ تاپىدۇ"><input type="checkbox" id="sbForms" checked onchange="setSearchForms(this.checked)"><span>قوشۇمچىلىرى بىلەن</span></label>
     <button onclick="doSearch()" style="background:none;border:none;color:var(--am);font-size:13px;cursor:pointer;font-family:var(--jf);font-weight:600">ئىزدەش</button>
     <div id="search-history"></div>
   </div>
   <button class="hbtn" onclick="showCatsMgr()" title="تۈرلەرنى باشقۇرۇش"><svg class="ic"><use href="#i-folder"></use></svg> تۈرلەر</button>
   <button class="hbtn" onclick="showBatchImport()" title="بىرنەچچە كىتابنى بىراقلا قوشۇش"><svg class="ic"><use href="#i-folder-plus"></use></svg> توپلاپ قوشۇش</button>
   <button class="hbtn" onclick="showWebImport()" title="تور بەتتىكى ماقالىنى كىتاب سۈپىتىدە قوشۇش"><svg class="ic"><use href="#i-globe"></use></svg> تور بەت قوشۇش</button>
+  <button class="hbtn wl-btn" onclick="showWebLibrary()" title="بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش"><svg class="ic"><use href="#i-download"></use></svg> <span class="wl-full">بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش</span><span class="wl-short">تور بېتىدىن</span></button>
   <button class="hbtn p" onclick="showAdd()" title="يېڭى كىتاب قوشۇشۇش (Ctrl+N)"><svg class="ic"><use href="#i-plus"></use></svg> كىتاب قوشۇش</button>
 </div>
 
@@ -704,6 +774,47 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
         <button onclick="hideWebImport()" class="hbtn">بىكار قىلىش</button>
         <button onclick="importWebPage()" class="hbtn p" id="webbtn">✓ قوشۇش</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» (3.6): the website's published books. -->
+<div class="ov" id="wlov">
+  <div class="mbox" style="max-width: 920px; width: 94vw;">
+    <div class="mh">
+      <h2><svg class="ic"><use href="#i-download"></use></svg>بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش</h2>
+      <button onclick="hideWebLibrary()" style="background:none;border:none;font-size:18px;color:var(--text2);cursor:pointer">✕</button>
+    </div>
+    <div class="mc">
+      <div class="wl-bar">
+        <input type="search" id="wlq" class="inp" dir="rtl" placeholder="ماۋزۇ، ئاپتور ياكى چۈشەندۈرۈشتىن ئىزدەش..." oninput="renderWebLibrary()">
+        <select id="wlcat" class="inp" onchange="renderWebLibrary()" title="تۈرى"></select>
+        <select id="wlsort" class="inp" onchange="renderWebLibrary()" title="تەرتىپ">
+          <option value="new">ئەڭ يېڭىسى ئالدىدا</option>
+          <option value="title">ماۋزۇ بويىچە</option>
+        </select>
+        <button type="button" class="hbtn" onclick="loadWebLibrary(true)" title="تىزىملىكنى تور بېتىدىن قايتا ئوقۇش">يېڭىلاش</button>
+      </div>
+      <div id="wlstatus" class="wl-status"></div>
+      <div id="wllist" class="wl-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- «ئەسلى بەت بىلەن سېلىشتۇرۇش» (3.6): a PDF page beside its text (src/pdf-compare.js). -->
+<div id="pcv"></div>
+
+<!-- «يانمۇيان ئوقۇش» (3.6): the second book, for the reader's left pane. -->
+<div class="ov" id="parov">
+  <div class="mbox" style="max-width: 560px; width: 94vw;">
+    <div class="mh">
+      <h2><svg class="ic"><use href="#i-columns"></use></svg>يانمۇيان ئوقۇش</h2>
+      <button onclick="hideParallelPick()" style="background:none;border:none;font-size:18px;color:var(--text2);cursor:pointer">✕</button>
+    </div>
+    <div class="mc">
+      <div class="par-pick-hint">تاللىغان كىتاب سول تەرەپتە ئېچىلىدۇ. خەتكۈچ، ئىزاھات، سۈنئىي ئىدراك ۋە ئوقۇش ئورنى ئوڭ تەرەپتىكى كىتابتا قالىدۇ.</div>
+      <input type="search" id="parq" class="inp" dir="rtl" placeholder="ماۋزۇ ياكى ئاپتوردىن ئىزدەش..." oninput="renderParallelPick()" onkeydown="if(event.key==='Enter')parallelPickFirst()">
+      <div id="parlist" class="par-list"></div>
     </div>
   </div>
 </div>
@@ -858,6 +969,8 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
     <span id="matchcount" style="font-size:11px;color:var(--text3);font-family:sans-serif;white-space:nowrap"></span>
     <button onclick="toggleBookmarks()" class="hbtn icob" title="خەتكۈچلەر"><svg class="ic"><use href="#i-bookmark"></use></svg></button>
     <button onclick="toggleNotes()" class="hbtn icob" title="ئىزاھات"><svg class="ic"><use href="#i-notebook-pen"></use></svg></button>
+    <button onclick="showPdfCompare()" class="hbtn" id="pcvBtn" style="display:none" title="ئەسلى بەت بىلەن سېلىشتۇرۇش — PDF نىڭ بېتى تېكىستى بىلەن يانمۇيان؛ تېكىستنى شۇ يەردە تۈزىتىش"><svg class="ic"><use href="#i-file-text"></use></svg><span class="pcv-btn-label"> ئەسلى بەت</span></button>
+    <button onclick="showParallelPick()" class="hbtn" id="parBtn" title="يانمۇيان ئوقۇش — ئىككىنچى بىر كىتابنى سول تەرەپتە ئېچىش"><svg class="ic"><use href="#i-columns"></use></svg><span class="par-btn-label"> يانمۇيان ئوقۇش</span></button>
     <button onclick="toggleAiPanel()" class="hbtn" id="aiReaderBtn" style="display:none" title="سۈنئىي ئىدراك ياردەمچىسى"><svg class="ic"><use href="#i-sparkles"></use></svg> AI</button>
     <button onclick="downloadBook('txt')" class="hbtn" title="TXT ھالىتىدە چۈشۈرۈش"><svg class="ic"><use href="#i-download"></use></svg> TXT</button>
     <button onclick="downloadBook('docx')" class="hbtn" title="Word ھالىتىدە چۈشۈرۈش"><svg class="ic"><use href="#i-download"></use></svg> DOCX</button>
@@ -1140,6 +1253,15 @@ async function init() {
   migrateTheme();
   applyTheme();
 
+  // «قوشۇمچىلىرى بىلەن»: on unless the owner switched it off (3.6).
+  try {
+    const r = await window.electron.dbGetSetting('search_forms', 'on');
+    const v = (r && typeof r === 'object' && 'value' in r) ? r.value : r;
+    S.searchForms = v !== 'off';
+  } catch (_) { S.searchForms = true; }
+  const sbForms = document.getElementById('sbForms');
+  if (sbForms) sbForms.checked = S.searchForms;
+
   renderSide();
   renderBooks();
   setupFileZone();
@@ -1419,9 +1541,10 @@ function setMode(mode) {
     }
     renderBooks();
   } else if (mode === 'quran' && typeof renderQuranView === 'function') {
-    renderQuranView();
+    // The view's promise, for a caller that opens something in it (3.6).
+    return renderQuranView();
   } else if (mode === 'notes' && typeof renderNotesView === 'function') {
-    renderNotesView();
+    return renderNotesView();
   }
 }
 
@@ -1549,20 +1672,72 @@ function setCat(c) {
 }
 function setView(v) { S.view=v; S.page=1; document.getElementById('gvb').className='vb'+(v==='g'?' on':''); document.getElementById('lvb').className='vb'+(v==='l'?' on':''); renderBooks(); }
 
+// One search across the books, the Qur'an and the notebook (3.6): one request
+// per source, all three at once, each section drawn as its answer arrives —
+// a slow source never holds back the others. A newer search makes an older
+// answer stale (S.srchSeq).
 async function doSearch() {
   const q = document.getElementById('si').value.trim();
   if (!q) { clearSearch(); return; }
   document.getElementById('clr').style.display='block';
   S.srch = true; S.res = []; S.page = 1;
+  // The forms the search added (3.6), and whether it looked for them.
+  S.resForms = []; S.resWithForms = S.searchForms !== false;
+  S.resQuran = []; S.resNotes = [];
+  S.srchQuery = q;
+  S.srchFilter = S.srchFilter || 'all';
+  S.srchState = { books: 'loading', quran: 'loading', notes: 'loading' };
+  const seq = S.srchSeq = (S.srchSeq || 0) + 1;
+  const forms = S.resWithForms;
+  renderSearch(q);
+  const settle = (part, ok) => {
+    if (seq !== S.srchSeq) return false;
+    S.srchState[part] = ok ? 'done' : 'error';
+    renderSearch(q);
+    return true;
+  };
 
+  const quran = (async () => {
+    let r = null;
+    try {
+      if (!S.quran.suras.length) {
+        const sr = await window.electron.quranGetSuras();
+        if (sr && sr.success) S.quran.suras = sr.suras || [];
+      }
+      r = await window.electron.quranSearch(q, { lang: 'auto', limit: 200, forms: forms });
+    } catch (e) { r = null; }
+    if (seq !== S.srchSeq) return;
+    S.resQuran = (r && r.success && Array.isArray(r.results)) ? r.results : [];
+    settle('quran', !!(r && r.success));
+  })();
+
+  const notes = (async () => {
+    let r = null;
+    try { r = await window.electron.notesSearch(q, { forms: forms }); } catch (e) { r = null; }
+    if (seq !== S.srchSeq) return;
+    S.resNotes = (r && r.success && Array.isArray(r.notes)) ? r.notes : [];
+    // A query too short for the notebook (one letter) is not a failure.
+    settle('notes', !!(r && r.success));
+  })();
+
+  const books = searchBooksPart(q, seq, forms).then(ok => settle('books', ok));
+  await Promise.all([books, quran, notes]);
+}
+
+// The books' part of the search: the search as before, with the forms when
+// the switch is on. Resolves whether it worked; a stale answer changes nothing.
+async function searchBooksPart(q, seq, forms) {
+  let ok = true;
+  let res = [];
+  let resForms = [];
   try {
     // Fast path: use SQLite FTS5 search in the backend (single query, no per-book IPC)
-    const result = await window.electron.dbSearch(q, S.cat);
+    const result = await window.electron.dbSearch(q, S.cat, { forms: forms });
     if (!result || !result.success || !Array.isArray(result.results)) {
       throw new Error(result && result.error ? result.error : 'search failed');
     }
 
-    S.res = result.results.map(r => {
+    res = result.results.map(r => {
       // Strip FTS5 snippet() markers so renderSearch can highlight cleanly
       const cleanSnip = (r.snip || '')
         .replace(/<\/?mark>/g, '')
@@ -1579,17 +1754,23 @@ async function doSearch() {
         book: book,
         snip: cleanSnip,
         snips: cleanSnip ? [cleanSnip] : [],
+        // Where the word found lies in the snippet and in the title (3.6).
+        mark: (Array.isArray(r.mark) && cleanSnip === (r.snip || '')) ? r.mark : null,
+        titleMark: Array.isArray(r.titleMark) ? r.titleMark : null,
+        pos: r.pos,
         inT: !!r.inT,
         inA: !!r.inA,
         inC: !!r.inC
       };
     });
+    resForms = Array.isArray(result.forms) ? result.forms : [];
   } catch(e) {
     console.error('Backend search failed, using lightweight fallback:', e);
+    ok = false;
     // Fallback: search only titles and authors from the cached list (no content load)
     const lq = q.toLowerCase();
     const pool = S.cat === 'all' ? S.books : S.books.filter(b => b.category === S.cat);
-    S.res = pool
+    res = pool
       .filter(b => b.title.toLowerCase().includes(lq) || (b.author||'').toLowerCase().includes(lq))
       .map(b => ({
         book: b,
@@ -1599,14 +1780,75 @@ async function doSearch() {
         inA: (b.author||'').toLowerCase().includes(lq),
         inC: false
       }));
-    toast('ئارقا ئىزدەش مۇلازىمىتى ئىشلىمىدى، پەقەت ماۋزۇ/ئاپتوردىن ئىزدەلدى','i');
+    if (seq === S.srchSeq) toast('ئارقا ئىزدەش مۇلازىمىتى ئىشلىمىدى، پەقەت ماۋزۇ/ئاپتوردىن ئىزدەلدى','i');
   }
+  if (seq !== S.srchSeq) return ok;
+  S.res = res;
+  S.resForms = resForms;
+  // The fallback above still has results to show.
+  return true;
+}
 
-  renderSearch(q);
+// «قوشۇمچىلىرى بىلەن» (3.6): remembered; a search on screen is run again.
+function setSearchForms(on) {
+  S.searchForms = !!on;
+  try { window.electron.dbSetSetting('search_forms', on ? 'on' : 'off'); } catch (_) {}
+  if (S.srch && document.getElementById('si').value.trim()) doSearch();
+}
+
+// A search result opened at its place, with every form of the query the
+// search found in that book marked and counted (3.6).
+async function openSearchHit(idx, pos) {
+  const r = S.res[idx];
+  if (!r || !r.book) return;
+  const q = document.getElementById('si').value.trim();
+  let words = [];
+  if (S.resWithForms) {
+    try {
+      const w = await window.electron.dbSearchWords(r.book.id, q);
+      if (w && w.success && Array.isArray(w.words)) words = w.words;
+    } catch (_) { /* the query as typed is still marked */ }
+  }
+  openReader(r.book.id, q, (typeof pos === 'number' && pos >= 0) ? pos : null, words);
+}
+
+// A text with the span the search found in it marked.
+function markedAt(text, span) {
+  return sanitize(text.slice(0, span[0])) + '<mark>' + sanitize(text.slice(span[0], span[1])) + '</mark>' + sanitize(text.slice(span[1]));
 }
 
 function clearSearch() {
+  S.srchSeq = (S.srchSeq || 0) + 1;   // an answer still on its way is stale now
+  S.srchFilter = 'all';
   S.srch=false; document.getElementById('si').value=''; document.getElementById('clr').style.display='none'; S.page=1; renderBooks();
+}
+
+// «ھەممىسى · كىتابلار · قۇرئان كەرىم · خاتىرە دەپتىرىم» (3.6).
+function setSearchFilter(f) {
+  S.srchFilter = f;
+  S.page = 1;
+  renderSearch();
+  const bd = document.getElementById('bd');
+  if (bd && bd.parentElement) bd.parentElement.scrollTop = 0;
+}
+
+// A verse found: the Qur'an at that verse, selected (3.6).
+async function openQuranHit(idx) {
+  const r = (S.resQuran || [])[idx];
+  if (!r) return;
+  Object.assign(S.quran, { curSura: r.sura, curAya: r.aya, searchResults: null, searchQuery: '', selectAya: true });
+  await setMode('quran');
+}
+
+// A note found: the notebook with that note open and the words found painted
+// with the find highlight — nothing is written into the note (3.6).
+async function openNoteHit(idx) {
+  const n = (S.resNotes || [])[idx];
+  if (!n) return;
+  const q = S.srchQuery || '';
+  await setMode('notes');
+  if (typeof window.notesOpen === 'function') await window.notesOpen(n.id);
+  if (typeof window.notesShowFound === 'function') window.notesShowFound(q, n.words || []);
 }
 
 /**
@@ -1639,6 +1881,7 @@ async function toggleSnips(btn) {
   // First open → fetch all occurrences from the backend.
   const bookId = parseInt(btn.dataset.book, 10);
   const query  = btn.dataset.query || '';
+  const idx    = parseInt(btn.dataset.idx, 10);
   if (!bookId || !query) return;
 
   const originalLabel = btn.innerHTML;
@@ -1646,7 +1889,7 @@ async function toggleSnips(btn) {
   btn.disabled = true;
 
   try {
-    const r = await window.electron.dbGetAllSnippets(bookId, query);
+    const r = await window.electron.dbGetAllSnippets(bookId, query, { forms: btn.dataset.forms === '1' });
     if (!r || !r.success || !Array.isArray(r.snippets) || r.snippets.length === 0) {
       btn.innerHTML = '⚠️ باشقا ئورۇن تېپىلمىدى';
       btn.disabled = true;
@@ -1656,14 +1899,13 @@ async function toggleSnips(btn) {
     const total = r.snippets.length;
     // Each snippet came back with §MARK_OPEN§ … §MARK_CLOSE§ around the hit.
     // Sanitize first, then swap the markers for real <mark> tags.
-    const queryAttr = String(query).replace(/'/g, "\\'");
     const html = r.snippets.map((s, i) => {
       let safe = sanitize(s.snip || '');
       safe = safe
         .replace(/§MARK_OPEN§/g, '<mark>')
         .replace(/§MARK_CLOSE§/g, '</mark>');
       const pos = (typeof s.pos === 'number' && s.pos >= 0) ? s.pos : 'null';
-      return `<div class="snip sr-snip-row" onclick="event.stopPropagation();openReader(${bookId},'${queryAttr}',${pos})" style="cursor:pointer">
+      return `<div class="snip sr-snip-row" onclick="event.stopPropagation();openSearchHit(${idx},${pos})" style="cursor:pointer">
         <span class="sr-snip-num">${i + 1}.</span> ${safe}
       </div>`;
     }).join('');
@@ -1681,75 +1923,168 @@ async function toggleSnips(btn) {
   }
 }
 
+// The search page (3.6): three sections — «كىتابلار», «قۇرئان كەرىم»,
+// «خاتىرە دەپتىرىم» — in that order, each with its count, each card with its
+// source as a small label. «ھەممىسى» shows each section's first results and
+// «يەنە كۆرسىتىش»; a chip shows one section whole (the books with the
+// pagination they always had). The category filters the books only.
+const SEARCH_SECTION_FIRST = 5;
+const SEARCH_SOURCES = [
+  ['books', 'كىتابلار', 'كىتاب'],
+  ['quran', 'قۇرئان كەرىم', 'قۇرئان كەرىم'],
+  ['notes', 'خاتىرە دەپتىرىم', 'خاتىرە دەپتىرىم']
+];
+
 function renderSearch(q) {
-  const sq = q||document.getElementById('si').value.trim();
-  const catLabel = S.cat === 'all' ? 'بارلىق كىتابلار' : sanitize(S.cat);
-  document.getElementById('vtitle').textContent = `ئىزدەش: "${sanitize(sq)}" — ${catLabel} (${S.res.length} نەتىجە)`;
-  if (!S.res.length) {
-    document.getElementById('bd').innerHTML = `<div class="empty"><div class="ei">${icon('search')}</div><h3 style="font-size:16px;font-weight:600;margin-bottom:6px">نەتىجە تېپىلمىدى</h3><p style="font-size:13px">باشقا سۆز بىلەن سىناپ كۆرۈڭ</p></div>`;
-    document.getElementById('pagination').innerHTML = '';
-    return;
+  const sq = q || S.srchQuery || document.getElementById('si').value.trim();
+  const st = S.srchState || { books: 'done', quran: 'done', notes: 'done' };
+  const lists = { books: S.res || [], quran: S.resQuran || [], notes: S.resNotes || [] };
+  const filter = S.srchFilter || 'all';
+  const counted = part => st[part] === 'loading' ? '…' : String(lists[part].length);
+  const total = SEARCH_SOURCES.reduce((n, s) => n + (st[s[0]] === 'loading' ? 0 : lists[s[0]].length), 0);
+  const pending = SEARCH_SOURCES.some(s => st[s[0]] === 'loading');
+  document.getElementById('vtitle').textContent = `ئىزدەش: "${sq}" (${total} نەتىجە${pending ? '…' : ''})`;
+
+  const chip = (key, label) =>
+    `<button type="button" class="srch-chip${filter === key ? ' on' : ''}" onclick="setSearchFilter('${key}')">${label}${key === 'all' ? '' : ` (${counted(key)})`}</button>`;
+  let html = `<div class="srch-chips">${chip('all', 'ھەممىسى')}${SEARCH_SOURCES.map(s => chip(s[0], s[1])).join('')}`;
+  if (S.cat !== 'all') html += `<span class="srch-cat-note">«${sanitize(S.cat)}» تۈرى پەقەت كىتابلارغا قوللىنىلدى</span>`;
+  html += '</div>';
+  // «ئىزدەلگەن شەكىللەر»: the forms the search added to what was typed (3.6).
+  if (S.resForms && S.resForms.length) {
+    html += `<div class="sr-forms">ئىزدەلگەن شەكىللەر: ${S.resForms.map(f => sanitize(f)).join('، ')}</div>`;
   }
-  const re = new RegExp(esc(sq),'gi');
-  const totalPages = Math.ceil(S.res.length / S.pageSize);
-  const start = (S.page - 1) * S.pageSize;
-  const end = start + S.pageSize;
-  const paginated = S.res.slice(start, end);
-
-  const safeQueryAttr = sanitize(sq).replace(/"/g, '&quot;');
-  document.getElementById('bd').innerHTML = paginated.map((r, idx) => {
-    let snipHtml = '';
-    if (r.snip) {
-      snipHtml = `<div class="snip">${sanitize(r.snip).replace(re, m => `<mark>${sanitize(m)}</mark>`)}</div>`;
-    }
-
-    // Show the expand "+" button on every result that has a content match.
-    // Clicking it lazy-loads ALL occurrences of the query inside that book.
-    let expandHtml = '';
-    if (r.inC && r.book && r.book.id != null) {
-      expandHtml = `<div class="sr-expand">
-        <button class="sr-toggle"
-                data-book="${r.book.id}"
-                data-query="${safeQueryAttr}"
-                onclick="event.stopPropagation();toggleSnips(this)"
-                title="بۇ كىتابنىڭ ئىچىدىكى بارلىق ئورۇنلارنى كۆرۈش">+ بۇ كىتابتىكى بارلىق ئورۇنلارنى كۆرۈش</button>
-        <div class="sr-more" style="display:none"></div>
-      </div>`;
-    }
-
-    const posArg = (typeof r.pos === 'number' && r.pos >= 0) ? r.pos : 'null';
-    return `<div class="sr" onclick="openReader(${r.book.id},'${sanitize(sq).replace(/'/g,"\\'")}',${posArg})">
-      <div class="srt2">${sanitize(r.book.title).replace(re, m => `<mark>${sanitize(m)}</mark>`)}</div>
-      <div class="srm">${sanitize(r.book.author || '—')} · ${sanitize(r.book.category)} · ${r.book.format}${r.inC ? ' · <span style="color:var(--am)">مەزمۇن ئىچىدە تېپىلدى</span>' : ''}</div>
-      ${snipHtml}
-      ${expandHtml}
-    </div>`;
-  }).join('');
 
   let paginationHtml = '';
-  if (totalPages > 1) {
-    paginationHtml = '<div class="pagination">';
-    if (S.page > 1) {
-      paginationHtml += `<button onclick="S.page--;renderBooks()">← ئالدىنقى بەت</button>`;
-    } else {
-      paginationHtml += `<button disabled>← ئالدىنقى بەت</button>`;
+  for (const [part, name, label] of SEARCH_SOURCES) {
+    if (filter !== 'all' && filter !== part) continue;
+    const list = lists[part];
+    html += `<div class="srch-sec" data-part="${part}"><div class="srch-sec-head">${name} (${counted(part)})</div>`;
+    if (st[part] === 'loading') {
+      html += `<div class="srch-sec-msg">ئىزدەۋاتىدۇ...</div></div>`;
+      continue;
     }
-    paginationHtml += `<span style="min-width:80px">${S.page} / ${totalPages}</span>`;
-    if (S.page < totalPages) {
-      paginationHtml += `<button onclick="S.page++;renderBooks()">كېيىنكى بەت →</button>`;
-    } else {
-      paginationHtml += `<button disabled>كېيىنكى بەت →</button>`;
+    if (!list.length) {
+      html += `<div class="srch-sec-msg">${st[part] === 'error' ? 'بۇ قىسىمدىن ئىزدىيەلمىدى' : 'نەتىجە يوق'}</div></div>`;
+      continue;
     }
-    paginationHtml += '</div>';
+    let start = 0;
+    let shown = list;
+    if (filter === 'all') {
+      shown = list.slice(0, SEARCH_SECTION_FIRST);
+    } else if (part === 'books') {
+      start = (S.page - 1) * S.pageSize;
+      shown = list.slice(start, start + S.pageSize);
+      paginationHtml = searchPaginationHtml(Math.ceil(list.length / S.pageSize));
+    }
+    html += shown.map((r, i) => {
+      const at = start + i;
+      if (part === 'books') return bookHitHtml(r, at, sq, label);
+      if (part === 'quran') return quranHitHtml(r, at, label);
+      return noteHitHtml(r, at, label);
+    }).join('');
+    if (filter === 'all' && list.length > SEARCH_SECTION_FIRST) {
+      html += `<button type="button" class="srch-more" onclick="setSearchFilter('${part}')">يەنە كۆرسىتىش (${list.length - SEARCH_SECTION_FIRST})</button>`;
+    }
+    html += '</div>';
   }
+
+  if (!pending && total === 0) {
+    html = html.split('<div class="srch-sec"')[0] +
+      `<div class="empty"><div class="ei">${icon('search')}</div><h3 style="font-size:16px;font-weight:600;margin-bottom:6px">نەتىجە تېپىلمىدى</h3><p style="font-size:13px">باشقا سۆز بىلەن سىناپ كۆرۈڭ</p></div>`;
+  }
+  document.getElementById('bd').innerHTML = html;
   document.getElementById('pagination').innerHTML = paginationHtml;
 }
 
-async function openReader(id, hl='', targetPos=null) {
+function searchPaginationHtml(totalPages) {
+  if (totalPages <= 1) return '';
+  let h = '<div class="pagination">';
+  h += S.page > 1 ? `<button onclick="S.page--;renderBooks()">← ئالدىنقى بەت</button>` : `<button disabled>← ئالدىنقى بەت</button>`;
+  h += `<span style="min-width:80px">${S.page} / ${totalPages}</span>`;
+  h += S.page < totalPages ? `<button onclick="S.page++;renderBooks()">كېيىنكى بەت →</button>` : `<button disabled>كېيىنكى بەت →</button>`;
+  return h + '</div>';
+}
+
+function srcLabelHtml(label) {
+  return `<span class="src-label">${label}</span>`;
+}
+
+// A book found — the card as it always was, with its source.
+function bookHitHtml(r, at, sq, label) {
+  // The query as typed, anywhere — where the search did not say where it found it.
+  const re = window.ReaderPlaces.searchRe(sq, []);
+  const safeQueryAttr = sanitize(sq).replace(/"/g, '&quot;');
+  let snipHtml = '';
+  if (r.snip && r.mark) {
+    // The word actually found, where the search found it.
+    snipHtml = `<div class="snip">${markedAt(r.snip, r.mark)}</div>`;
+  } else if (r.snip) {
+    snipHtml = `<div class="snip">${sanitize(r.snip).replace(re, m => `<mark>${sanitize(m)}</mark>`)}</div>`;
+  }
+
+  // Show the expand "+" button on every result that has a content match.
+  // Clicking it lazy-loads ALL occurrences of the query inside that book.
+  let expandHtml = '';
+  if (r.inC && r.book && r.book.id != null) {
+    expandHtml = `<div class="sr-expand">
+      <button class="sr-toggle"
+              data-book="${r.book.id}"
+              data-idx="${at}"
+              data-forms="${S.resWithForms ? '1' : '0'}"
+              data-query="${safeQueryAttr}"
+              onclick="event.stopPropagation();toggleSnips(this)"
+              title="بۇ كىتابنىڭ ئىچىدىكى بارلىق ئورۇنلارنى كۆرۈش">+ بۇ كىتابتىكى بارلىق ئورۇنلارنى كۆرۈش</button>
+      <div class="sr-more" style="display:none"></div>
+    </div>`;
+  }
+
+  const posArg = (typeof r.pos === 'number' && r.pos >= 0) ? r.pos : 'null';
+  return `<div class="sr" onclick="openSearchHit(${at},${posArg})">
+    <div class="srt2">${srcLabelHtml(label)}${r.titleMark ? markedAt(r.book.title || '', r.titleMark) : sanitize(r.book.title).replace(re, m => `<mark>${sanitize(m)}</mark>`)}</div>
+    <div class="srm">${sanitize(r.book.author || '—')} · ${sanitize(r.book.category)} · ${r.book.format}${r.inC ? ' · <span style="color:var(--am)">مەزمۇن ئىچىدە تېپىلدى</span>' : ''}</div>
+    ${snipHtml}
+    ${expandHtml}
+  </div>`;
+}
+
+// A verse found: its sura and verses, each verse's Arabic, the translation
+// once with its label «[4 _ 6]» (one card per translation group).
+function quranHitHtml(r, at, label) {
+  const sura = (S.quran.suras || []).find(s => s.number === r.sura);
+  const where = sura ? `${sanitize(sura.name_ug)} (${sanitize(sura.name_ar)})` : `سۈرە ${r.sura}`;
+  const verses = (Array.isArray(r.verses) && r.verses.length) ? r.verses : [{ aya: r.aya, text_ar: r.text_ar, snip_ar: r.snip_ar }];
+  const arabic = verses.map(v => `<div class="srch-ar">${v.snip_ar ? v.snip_ar : sanitize(v.text_ar)}</div>`).join('');
+  const g = window.VerseLabel.range(r);
+  const ug = r.snip_ug ? r.snip_ug : sanitize(window.VerseLabel.translation(r));
+  return `<div class="sr" onclick="openQuranHit(${at})">
+    <div class="srt2">${srcLabelHtml(label)}${where} — ${verses.map(v => v.aya).join('، ')}-ئايەت</div>
+    ${arabic}
+    ${ug ? `<div class="snip">${ug} ${sanitize(window.VerseLabel.label(g.from, g.to))}</div>` : ''}
+  </div>`;
+}
+
+// A note found: its title and the words around the one found.
+function noteHitHtml(n, at, label) {
+  const title = n.titleMark ? markedAt(n.title || '', n.titleMark) : sanitize(n.title || '');
+  const snip = n.mark ? markedAt(n.snip || '', n.mark) : sanitize(n.preview || '');
+  const when = String(n.updated_at || '').slice(0, 10);
+  return `<div class="sr" onclick="openNoteHit(${at})">
+    <div class="srt2">${srcLabelHtml(label)}${title}</div>
+    <div class="srm">${when ? sanitize(when) : ''}</div>
+    ${snip ? `<div class="snip">${snip}</div>` : ''}
+  </div>`;
+}
+
+// `words` (3.6): the forms of the query the search found in this book, which
+// are marked and counted with it (ReaderPlaces.searchRe).
+async function openReader(id, hl='', targetPos=null, words=null) {
   const b = S.books.find(x=>x.id===id);
   if(!b) return;
   addToRecent(id);
   S.curB=b; S.matches=[]; S.matchIdx=0;
+  setReaderMarks(hl, words);
+  document.getElementById('pcvBtn').style.display = raiCurrentBookIsPdf() ? '' : 'none';
   document.getElementById('rtitle').textContent = sanitize(b.title);
   document.getElementById('rmeta').innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -1795,8 +2130,7 @@ async function openReader(id, hl='', targetPos=null) {
 
   if (hl) {
     // When searching, show all content with highlights (paragraph formatted)
-    const re = new RegExp(esc(hl),'gi');
-    rt.innerHTML = highlightInHtml(textToParagraphs(content, false, 0), re);
+    rt.innerHTML = highlightInHtml(textToParagraphs(content, false, 0), S.readerMarkRe);
     S.readerSearchMode = true;
   } else {
     // Not in search mode before the page is drawn: drawing it saves the place.
@@ -1847,6 +2181,8 @@ function renderReaderPage() {
 
   // Render page navigation
   renderReaderPagination();
+  // «بىللە سىيرىلىش»: the left pane follows a turn (3.6).
+  if (PAR) PAR.mainTurned();
 }
 
 function renderReaderPagination() {
@@ -1906,11 +2242,215 @@ function readerJumpToPage() {
 function closeReader() {
   // While the page can still be measured: the paragraph in view is the place.
   saveReadingPosition();
+  if (PAR) PAR.close();
   document.getElementById('rdr').classList.remove('on');
   document.getElementById('rnotes-panel').classList.remove('on');
   raiOnReaderClose();
   readerUpdateSplitter();
   S.curB=null;
+}
+
+// ===== «يانمۇيان ئوقۇش» (3.6) =====
+// A second book on the left (src/parallel.js); the reader's own book stays on
+// the right. The pane draws with this reader's renderer — textToParagraphs
+// with its smart Arabic/Uyghur fonts — and saves nothing: bookmarks, notes,
+// the AI and the reading position stay with the book on the right. The pair
+// and the divider are kept in the setting `reader_parallel`.
+const PAR_KEY = 'reader_parallel';
+let PAR = null;
+let PAR_LAST = undefined;   // { main, side, ratio } once read; null when there is none
+
+async function parLoadLast() {
+  if (PAR_LAST !== undefined) return PAR_LAST;
+  PAR_LAST = null;
+  try {
+    const r = await window.electron.dbGetSetting(PAR_KEY, '');
+    const v = (r && typeof r === 'object' && 'value' in r) ? r.value : r;
+    const p = v ? JSON.parse(v) : null;
+    if (p && Number.isFinite(p.main) && Number.isFinite(p.side)) PAR_LAST = p;
+  } catch (_) { /* no pair yet */ }
+  return PAR_LAST;
+}
+
+function parSession() {
+  if (PAR) return PAR;
+  PAR = window.Parallel.createSession({
+    wrapper: document.getElementById('rdr-wrapper'),
+    mainEl: document.getElementById('rc'),
+    reader: {
+      book: () => S.curB,
+      content: () => S.readerContent || '',
+      page: () => S.readerPage || 1,
+      pages: () => (S.readerPages || []).length,
+      searching: () => !!S.readerSearchMode,
+      turn: (p) => { S.readerPage = p; renderReaderPage(); },
+      // The reader takes the book at that page — its bookmarks, notes and AI with it.
+      open: async (book, page) => {
+        await openReader(book.id);
+        if (!S.curB || S.curB.id !== book.id) { toast('كىتابنى ئاچقىلى بولمىدى', 'e'); throw new Error('not opened'); }
+        S.readerPage = Math.max(1, Math.min(S.readerPages.length, page));
+        renderReaderPage();
+      }
+    },
+    render: (text, base) => textToParagraphs(text, true, base),
+    highlight: highlightInHtml,
+    searchRe: (q) => window.ReaderPlaces.searchRe(q, []),
+    paginate: (content) => window.ReaderPlaces.paginate(content, window.ReaderPlaces.PER_PAGE),
+    loadContent: async (id) => {
+      const r = await window.electron.loadBookContent(id);
+      return (r && r.success) ? r.content : '(مەزمۇن يوق)';
+    },
+    fontSize: () => S.fs,
+    ratio: PAR_LAST ? PAR_LAST.ratio : 0.5,
+    remember: (pair) => {
+      PAR_LAST = pair;
+      try {
+        const p = window.electron.dbSetSetting(PAR_KEY, JSON.stringify(pair));
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch (_) {}
+    },
+    icon: icon
+  });
+  return PAR;
+}
+
+async function showParallelPick() {
+  if (!S.curB) return;
+  await parLoadLast();
+  document.getElementById('parq').value = '';
+  renderParallelPick();
+  document.getElementById('parov').classList.add('on');
+  setTimeout(() => { const q = document.getElementById('parq'); if (q) q.focus(); }, 50);
+}
+
+function hideParallelPick() {
+  document.getElementById('parov').classList.remove('on');
+}
+
+// The library, without the book on the right; the last pair first.
+function parPickBooks() {
+  const q = wlNorm(document.getElementById('parq').value.trim());
+  const cur = S.curB ? S.curB.id : null;
+  return S.books
+    .filter(b => b.id !== cur && (!q || wlNorm(b.title).includes(q) || wlNorm(b.author).includes(q)))
+    .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
+}
+
+function renderParallelPick() {
+  const list = document.getElementById('parlist');
+  if (!list) return;
+  const q = document.getElementById('parq').value.trim();
+  const side = PAR && PAR.isOpen() && PAR.state().book ? PAR.state().book.id : null;
+  let html = '';
+  const last = PAR_LAST;
+  const lm = last && S.books.find(b => b.id === last.main);
+  const ls = last && S.books.find(b => b.id === last.side);
+  if (!q && lm && ls && !(S.curB && S.curB.id === lm.id && side === ls.id)) {
+    html += `<div class="par-row par-last" onclick="parallelOpenLast()">
+      <div class="par-row-k">ئاخىرقى قېتىمقى جۈپ</div>
+      <div class="par-row-t">${sanitize(lm.title)} ↔ ${sanitize(ls.title)}</div>
+    </div>`;
+  }
+  const books = parPickBooks();
+  html += books.map(b => `<div class="par-row${b.id === side ? ' on' : ''}" onclick="parallelOpen(${b.id})">
+      <div class="par-row-t">${sanitize(b.title)}</div>
+      <div class="par-row-m">${[b.author, b.category].filter(Boolean).map(sanitize).join(' · ')}</div>
+    </div>`).join('');
+  if (!books.length) html += `<div class="srch-sec-msg">ھېچنېمە تېپىلمىدى</div>`;
+  list.innerHTML = html;
+}
+
+function parallelPickFirst() {
+  const books = parPickBooks();
+  if (books.length) parallelOpen(books[0].id);
+}
+
+async function parallelOpen(id) {
+  const b = S.books.find(x => x.id === id);
+  if (!b || !S.curB) return;
+  hideParallelPick();
+  await parLoadLast();   // the remembered divider, before the session is made
+  try { await parSession().open(b); }
+  catch (e) { toast('كىتابنى ئاچقىلى بولمىدى', 'e'); }
+}
+
+// ===== «ئەسلى بەت بىلەن سېلىشتۇرۇش» (3.6) =====
+// A PDF book's page beside its text (src/pdf-compare.js), over the reader. A
+// correction moves bookmarks, notes and the reading position in the database;
+// the screen takes them from there at once, before anything here could save
+// its own copy over them, and the reader is drawn again from the new text
+// when the view closes.
+let PCV = null;
+
+async function pcvReloadPlaces() {
+  try {
+    const data = await window.electron.loadLibrary();
+    applyLibraryData(data, false, ['bookmarks', 'notes']);
+  } catch (e) { /* the next start reads them */ }
+}
+
+async function showPdfCompare() {
+  if (!S.curB || !raiCurrentBookIsPdf() || PCV) return;
+  const book = S.curB;
+  // The place being read, kept now: nothing in the reader saves while the view is open.
+  saveReadingPosition();
+  clearTimeout(_readerPlaceTimer);
+  const startOffset = readerVisibleOffset();
+  const host = document.getElementById('pcv');
+  host.classList.add('on');
+  PCV = window.PdfCompare.createView({
+    host: host,
+    pdfjs: window.pdfjsLib,
+    renderPage: window.PdfText.renderPage,
+    title: book.title,
+    api: {
+      status: () => window.electron.pdfOriginalStatus(book.id),
+      locate: () => window.electron.pdfLocateOriginal(book.id),
+      bytes: (from) => window.electron.pdfOriginalBytes(book.id, from),
+      info: (p, n) => window.electron.pdfPageInfo(book.id, p, n),
+      pageAt: (off, n) => window.electron.pdfPageAt(book.id, off, n),
+      save: (p, t) => window.electron.pdfPageSave(book.id, p, t),
+      undo: (p) => window.electron.pdfPageUndo(book.id, p),
+      align: (texts) => window.electron.pdfAlignPages(book.id, texts),
+      place: (p, n, t) => window.electron.pdfPlacePage(book.id, p, n, t)
+    },
+    // The offline engine, as the importer reads a page: binarized, the UKIJ model.
+    ocrPage: async (canvas) => {
+      binarizeCanvas(canvas);
+      const r = await window.electron.ocrRecognize([canvas.toDataURL('image/png')], 'ukij');
+      if (!r || !r.success) throw new Error((r && r.error) || '');
+      return (r.pages && r.pages[0]) || '';
+    },
+    aiAvailable: naiAvailable,
+    aiCleanup: (text) => naiOcrCleanupCore(text, {
+      onError: (res) => toast(String((res && res.error) || 'AI تۈزىتىش مەغلۇپ بولدى').replace(/^HTTP\s+\d+\s*—\s*/, ''), 'e')
+    }),
+    textFont: getComputedStyle(document.getElementById('rt')).fontFamily,
+    textSize: S.fs,
+    toast: toast,
+    onChanged: pcvReloadPlaces,
+    onClose: async (changed) => {
+      host.classList.remove('on');
+      PCV = null;
+      if (!changed) return;
+      if (PAR && PAR.isOpen() && PAR.state().book && PAR.state().book.id === book.id) PAR.close();
+      if (S.curB && S.curB.id === book.id) await openReader(book.id);
+    }
+  });
+  await PCV.open(typeof startOffset === 'number' ? startOffset : undefined);
+}
+
+// «ئاخىرقى قېتىمقى جۈپ»: its right-hand book in the reader, its left in the pane.
+async function parallelOpenLast() {
+  const last = PAR_LAST;
+  const main = last && S.books.find(b => b.id === last.main);
+  const side = last && S.books.find(b => b.id === last.side);
+  if (!main || !side) return;
+  hideParallelPick();
+  try {
+    if (!S.curB || S.curB.id !== main.id) await openReader(main.id);
+    await parSession().open(side);
+  } catch (e) { toast('كىتابنى ئاچقىلى بولمىدى', 'e'); }
 }
 
 async function downloadBook(type) {
@@ -1957,15 +2497,26 @@ function searchInBook(q) {
   }
   // Show all content with highlights (exit pagination mode for search)
   S.readerSearchMode = true;
-  const re=new RegExp(esc(q),'gi');
-  rt.innerHTML=highlightInHtml(textToParagraphs(content, false, 0), re);
+  // The forms the library search found stay marked while its query is in the box.
+  setReaderMarks(q, q === S.readerMarkQuery ? S.readerMarkWords : null);
+  rt.innerHTML=highlightInHtml(textToParagraphs(content, false, 0), S.readerMarkRe);
   updateMatchNav(q);
   renderReaderPagination();
+}
+
+// What the reader marks: the query as typed and the forms of it the search
+// found in this book (3.6) — one expression for the marks and for counting
+// the matches before a place, so the two always agree.
+function setReaderMarks(q, words) {
+  if (words && words.length) { S.readerMarkQuery = q; S.readerMarkWords = words; }
+  else if (q !== S.readerMarkQuery) { S.readerMarkQuery = ''; S.readerMarkWords = null; }
+  S.readerMarkRe = q ? window.ReaderPlaces.searchRe(q, words || []) : null;
 }
 
 // Mark the matches in the TEXT of rendered paragraphs, never inside a tag: a
 // search for a number used to land in data-off="…" and break the page.
 function highlightInHtml(html, re) {
+  if (!re) return html;
   return html.replace(/(^|>)([^<]+)/g, (all, gt, words) => gt + words.replace(re, m => `<mark>${m}</mark>`));
 }
 
@@ -1982,9 +2533,9 @@ function updateMatchNav(q, targetPos) {
     // match whose offset in the source content matches targetPos. We count
     // the number of matches that occur before targetPos using the same regex
     // that produced the highlight tags.
-    if (typeof targetPos === 'number' && targetPos > 0 && q && S.readerContent) {
+    if (typeof targetPos === 'number' && targetPos > 0 && q && S.readerContent && S.readerMarkRe) {
       try {
-        const re = new RegExp(esc(q), 'gi');
+        const re = new RegExp(S.readerMarkRe.source, S.readerMarkRe.flags);
         let count = 0, m;
         while ((m = re.exec(S.readerContent)) !== null) {
           if (m.index >= targetPos) break;
@@ -2377,42 +2928,11 @@ function jumpToNote(bookId, noteId) {
 
 // ===== Web page / HTML article import =====
 
-// Option-B markdown cleanup: turn markdown SOURCE into clean plain prose.
-// Strips #, *, _, **, __, backticks, >, list markers and horizontal rules;
-// [text](url) becomes text with the url DROPPED; bare URLs are dropped too.
-// Paragraph structure is preserved. Used for .md file imports and as the last
-// step of the web/HTML article pipeline, so stored content stays in the same
-// safe plain-text path as TXT/DOCX books.
+// Markdown source as plain prose: the one converter, in src/markdown-text.js
+// (3.6) — the .md import, the web/HTML article pipeline and the website's
+// Markdown books all use it.
 function markdownToPlainText(md) {
-  if (!md) return '';
-  let t = String(md).replace(/\r\n/g, '\n');
-  // fenced code blocks: drop the ``` / ~~~ fence lines, keep the inner text
-  t = t.replace(/^[ \t]*(```|~~~)[^\n]*$/gm, '');
-  // images: ![alt](url) → alt ; links: [text](url) → text (url dropped)
-  t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1');
-  t = t.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
-  // reference-style links: definition lines dropped, [text][id] → text
-  t = t.replace(/^[ \t]*\[[^\]]+\]:[ \t]+\S.*$/gm, '');
-  t = t.replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1');
-  // autolinks <https://…> and bare URLs → dropped entirely
-  t = t.replace(/<https?:\/\/[^>\s]+>/g, '');
-  t = t.replace(/https?:\/\/\S+/g, '');
-  // headings, blockquotes, list markers, horizontal rules
-  t = t.replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, '');
-  t = t.replace(/^[ \t]{0,3}>[ \t]?/gm, '');
-  t = t.replace(/^[ \t]*[-*+][ \t]+/gm, '');
-  t = t.replace(/^[ \t]*\d+[.)][ \t]+/gm, '');
-  t = t.replace(/^[ \t]*([-*_][ \t]*){3,}$/gm, '');
-  // emphasis and inline code: keep the text, drop the markers
-  t = t.replace(/(\*\*\*|___)([\s\S]*?)\1/g, '$2');
-  t = t.replace(/(\*\*|__)([\s\S]*?)\1/g, '$2');
-  t = t.replace(/(\*|_)([^*_\n]+)\1/g, '$2');
-  t = t.replace(/`([^`\n]*)`/g, '$1');
-  // markdown backslash-escapes: \* → *
-  t = t.replace(/\\([\\`*_{}\[\]()#+\-.!>])/g, '$1');
-  // collapse 3+ blank lines into one paragraph break
-  t = t.replace(/\n{3,}/g, '\n\n');
-  return t.trim();
+  return window.MarkdownText.toPlain(md);
 }
 
 // Trim WordPress-style post-footer noise Readability can leave at the very END
@@ -2527,6 +3047,213 @@ function showWebImport() {
 function hideWebImport() {
   document.getElementById('webov').classList.remove('on');
 }
+
+// ===== «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» (3.6) =====
+// The website's published books. Main reads them (web-library.js): the
+// catalog once a session, a book through the website's own gate, one at a
+// time. Here: the list, filtered and sorted locally, and each book's state —
+// «چۈشۈرۈش», the category to put it in, the progress and «توختىتىش»,
+// «چۈشۈرۈلگەن — ئېچىش», «تور بېتىدە يېڭىلانغان — يېڭىلاش».
+const WL = { books: [], categories: [], local: new Map(), loaded: false, error: '', pick: null, confirm: null, job: null };
+let _wlUnsub = null;
+
+function showWebLibrary() {
+  document.getElementById('wlov').classList.add('on');
+  if (!WL.loaded) loadWebLibrary(false);
+  else renderWebLibrary();
+  setTimeout(() => { const q = document.getElementById('wlq'); if (q) q.focus(); }, 100);
+}
+
+function hideWebLibrary() {
+  document.getElementById('wlov').classList.remove('on');
+}
+
+async function loadWebLibrary(refresh) {
+  WL.error = '';
+  const status = document.getElementById('wlstatus');
+  if (status) status.textContent = 'تىزىملىك ئوقۇلىۋاتىدۇ...';
+  let r = null;
+  try { r = await window.electron.webCatalog(!!refresh); } catch (e) { r = null; }
+  if (!r || !r.success) {
+    WL.error = (r && r.error) || 'تورغا ئۇلىنالمىدى';
+  } else {
+    WL.books = r.books || [];
+    WL.categories = r.categories || [];
+    WL.local = new Map((r.local || []).map(x => [Number(x.source_id), x]));
+    WL.loaded = true;
+    const sel = document.getElementById('wlcat');
+    const used = new Set(WL.books.map(b => b.categoryName).filter(Boolean));
+    const names = WL.categories.map(c => c.name).filter(n => used.has(n));
+    const keep = sel.value;
+    sel.innerHTML = `<option value="">ھەممە تۈرلەر</option>` + names.map(n => `<option value="${sanitize(n)}">${sanitize(n)}</option>`).join('');
+    if (names.includes(keep)) sel.value = keep;
+  }
+  renderWebLibrary();
+}
+
+function wlNorm(s) { return String(s || '').toLowerCase().replace(/ـ/g, ''); }
+
+function renderWebLibrary() {
+  const list = document.getElementById('wllist');
+  const status = document.getElementById('wlstatus');
+  if (!list || !status) return;
+  if (WL.error) {
+    status.innerHTML = `${sanitize(WL.error)} <button type="button" class="hbtn" onclick="loadWebLibrary(true)">قايتا سىناش</button>`;
+    if (!WL.loaded) { list.innerHTML = ''; return; }
+  }
+  if (!WL.loaded) return;
+  const q = wlNorm(document.getElementById('wlq').value.trim());
+  const cat = document.getElementById('wlcat').value;
+  const sort = document.getElementById('wlsort').value;
+  let books = WL.books.filter(b =>
+    (!cat || b.categoryName === cat) &&
+    (!q || wlNorm(b.title).includes(q) || wlNorm(b.author).includes(q) || wlNorm(b.description).includes(q)));
+  if (sort === 'title') books = books.slice().sort((a, b) => a.title.localeCompare(b.title));
+  else books = books.slice().sort((a, b) => String(b.publishedAt || b.updatedAt || '').localeCompare(String(a.publishedAt || a.updatedAt || '')));
+  if (!WL.error) status.textContent = `${WL.books.length} كىتاب ئېلان قىلىنغان` + (books.length !== WL.books.length ? ` — ${books.length} كۆرسىتىلدى` : '');
+  list.innerHTML = books.length
+    ? books.map(wlBookHtml).join('')
+    : `<div class="srch-sec-msg">ھېچنېمە تېپىلمىدى</div>`;
+}
+
+function wlBookHtml(b) {
+  const cover = bookCover({ id: 'web' + b.id, title: b.title, category: b.categoryName, format: 'TXT' });
+  const desc = b.description.length > 180 ? b.description.slice(0, 180) + '…' : b.description;
+  const meta = [b.author, b.categoryName, b.pageCount ? b.pageCount + ' بەت' : ''].filter(Boolean).map(sanitize).join(' · ');
+  return `<div class="wl-book" data-id="${b.id}">
+    ${cover}
+    <div class="wl-info">
+      <div class="wl-title">${sanitize(b.title)}</div>
+      <div class="wl-meta">${meta}</div>
+      ${desc ? `<div class="wl-desc">${sanitize(desc)}</div>` : ''}
+      <div class="wl-act">${wlActionsHtml(b)}</div>
+    </div>
+  </div>`;
+}
+
+function wlActionsHtml(b) {
+  const here = WL.local.get(b.id);
+  if (WL.job && WL.job.bookId === b.id) {
+    const p = WL.job.total ? `بەت ${WL.job.done} / ${WL.job.total}` : 'باشلىنىۋاتىدۇ...';
+    return `<span class="wl-prog">${p}</span><button type="button" class="hbtn" onclick="webLibraryStop()">توختىتىش</button>`;
+  }
+  if (here) {
+    const changed = b.updatedAt && here.source_updated_at && Date.parse(b.updatedAt) > Date.parse(here.source_updated_at);
+    if (changed && WL.confirm === here.id) {
+      return `<span class="wl-done">يېڭى نۇسخا كونىسىنىڭ ئورنىغا يېزىلىدۇ؛ خەتكۈچ ۋە ئىزاھاتلار سەل سىلجىشى مۇمكىن.</span>
+        <button type="button" class="hbtn p" onclick="webLibraryUpdate(${here.id}, ${b.id})">يېڭىلاش</button>
+        <button type="button" class="hbtn" onclick="WL.confirm=null;renderWebLibrary()">ياق</button>`;
+    }
+    if (changed) {
+      return `<button type="button" class="hbtn" onclick="WL.confirm=${here.id};renderWebLibrary()">تور بېتىدە يېڭىلانغان — يېڭىلاش</button>
+        <button type="button" class="hbtn" onclick="webLibraryOpen(${here.id})">ئېچىش</button>`;
+    }
+    return `<button type="button" class="hbtn" onclick="webLibraryOpen(${here.id})">چۈشۈرۈلگەن — ئېچىش</button>`;
+  }
+  if (WL.pick === b.id) {
+    // The desktop category with the website's name; otherwise «باشقا», or a
+    // new category of that name.
+    const named = b.categoryName && S.cats.includes(b.categoryName);
+    const fallback = S.cats.includes('باشقا') ? 'باشقا' : (S.cats[0] || '');
+    const options = S.cats.map(c => `<option value="${sanitize(c)}"${c === (named ? b.categoryName : fallback) ? ' selected' : ''}>${sanitize(c)}</option>`);
+    if (b.categoryName && !named) options.push(`<option value="new:${sanitize(b.categoryName)}">يېڭى تۈر قوشۇش: ${sanitize(b.categoryName)}</option>`);
+    return `<label class="wl-done">تۈرى:</label><select id="wlpick-${b.id}" class="inp">${options.join('')}</select>
+      <button type="button" class="hbtn p" onclick="webLibraryStart(${b.id})">چۈشۈرۈشنى باشلاش</button>
+      <button type="button" class="hbtn" onclick="WL.pick=null;renderWebLibrary()">بىكار قىلىش</button>`;
+  }
+  return `<button type="button" class="hbtn p"${WL.job ? ' disabled title="بىر كىتاب چۈشۈرۈلۈۋاتىدۇ"' : ''} onclick="WL.pick=${b.id};renderWebLibrary()">${icon('download')} چۈشۈرۈش</button>`;
+}
+
+function wlWatchProgress(bookId) {
+  if (_wlUnsub) { try { _wlUnsub(); } catch (_) {} }
+  _wlUnsub = window.electron.onWebProgress(d => {
+    if (!WL.job || WL.job.bookId !== bookId) return;
+    WL.job.done = d.done; WL.job.total = d.total;
+    const card = document.querySelector(`.wl-book[data-id="${bookId}"] .wl-prog`);
+    if (card) card.textContent = `بەت ${d.done} / ${d.total}`;
+  });
+}
+
+function wlEndJob() {
+  WL.job = null;
+  if (_wlUnsub) { try { _wlUnsub(); } catch (_) {} _wlUnsub = null; }
+}
+
+// After a download or an update, the library on screen takes what changed.
+async function wlReloadLibrary(parts) {
+  try {
+    const data = await window.electron.loadLibrary();
+    applyLibraryData(data, false, parts);
+  } catch (e) { /* the next start reads it */ }
+  renderSide();
+  if (S.mode === 'library') renderBooks();
+  const r = await window.electron.webCatalog(false).catch(() => null);
+  if (r && r.success) WL.local = new Map((r.local || []).map(x => [Number(x.source_id), x]));
+}
+
+async function webLibraryStart(bookId) {
+  if (WL.job) return;
+  const b = WL.books.find(x => x.id === bookId);
+  const sel = document.getElementById('wlpick-' + bookId);
+  if (!b || !sel) return;
+  let category = sel.value;
+  if (category.indexOf('new:') === 0) {
+    category = category.slice(4);
+    if (!S.cats.includes(category)) { S.cats.push(category); await saveData(); renderSide(); }
+  }
+  WL.pick = null;
+  WL.job = { bookId: bookId, done: 0, total: b.pageCount };
+  wlWatchProgress(bookId);
+  renderWebLibrary();
+  let r = null;
+  try { r = await window.electron.webImport(bookId, category); } catch (e) { r = null; }
+  wlEndJob();
+  if (r && r.success && r.ok) {
+    await wlReloadLibrary(['books', 'cats', 'nid']);
+    toast('«' + b.title + '» چۈشۈرۈلدى', 's', { action: { label: 'ئېچىش', run: () => webLibraryOpen(r.id) }, ms: 8000 });
+  } else if (r && r.success && r.duplicate) {
+    await wlReloadLibrary(['books']);
+    toast('بۇ كىتاب كۇتۇپخانىڭىزدا ئاللىقاچان بار', 'i');
+  } else if (r && r.cancelled) {
+    toast('چۈشۈرۈش توختىتىلدى — ھېچنېمە قوشۇلمىدى', 'i');
+  } else {
+    toast((r && r.error) || 'تورغا ئۇلىنالمىدى', 'e');
+  }
+  renderWebLibrary();
+}
+
+function webLibraryStop() {
+  try { window.electron.webCancel(); } catch (_) {}
+}
+
+async function webLibraryUpdate(localId, bookId) {
+  if (WL.job) return;
+  const b = WL.books.find(x => x.id === bookId);
+  WL.confirm = null;
+  WL.job = { bookId: bookId, done: 0, total: b ? b.pageCount : 0 };
+  wlWatchProgress(bookId);
+  renderWebLibrary();
+  let r = null;
+  try { r = await window.electron.webUpdate(localId); } catch (e) { r = null; }
+  wlEndJob();
+  if (r && r.success && r.ok) {
+    // The places were clamped in the database: the screen takes them from there.
+    await wlReloadLibrary(['books', 'bookmarks', 'notes']);
+    toast('«' + (b ? b.title : '') + '» يېڭىلاندى', 's');
+  } else if (r && r.cancelled) {
+    toast('يېڭىلاش توختىتىلدى — كىتاب ئۆزگەرمىدى', 'i');
+  } else {
+    toast((r && r.error) || 'تورغا ئۇلىنالمىدى', 'e');
+  }
+  renderWebLibrary();
+}
+
+function webLibraryOpen(localId) {
+  hideWebLibrary();
+  if (S.mode !== 'library') setMode('library');
+  openReader(Number(localId));
+}
+
 
 async function importWebPage() {
   const url = (document.getElementById('weburl').value || '').trim();
@@ -4476,6 +5203,7 @@ function hideAiSelChip() {
 }
 
 document.getElementById('rc').addEventListener('scroll', readerScrolled, { passive: true });
+document.getElementById('rc').addEventListener('scroll', () => { if (PAR) PAR.mainScrolled(); }, { passive: true });
 
 (function bindAiSelection() {
   const rc = document.getElementById('rc');
@@ -4523,11 +5251,21 @@ function setupFileZone() {
   });
 }
 
+// The PDF pages of the book being added, and the text they were measured in
+// (3.6). They go with the book only while S.tempContent is still that very
+// text: another file, or an AI cleanup of the OCR, changes the text, and the
+// pages would no longer be where the ranges say.
+function stagePages(text, ranges) {
+  S.tempPages = (ranges && ranges.length) ? ranges : null;
+  S.tempPagesFor = S.tempPages ? text : null;
+}
+
 async function handleFileResult(result) {
   const { filePath, fileName, ext, size } = result;
   S.tempFile = filePath;
   S.tempExt = ext.toUpperCase();
   S.tempContent = '';
+  stagePages('', null);
 
   const bt = document.getElementById('btitle');
   if(!bt.value) bt.value = fileName.replace(/\.[^.]+$/,'');
@@ -4559,19 +5297,22 @@ async function handleFileResult(result) {
           // fonts to Unicode, so getTextContent returns correct shaped text
           // (not garbage) — the reason text-layer PDFs now import cleanly.
           const pdf=await pdfjsLib.getDocument({data:arr,cMapUrl:'../assets/pdfjs/cmaps/',cMapPacked:true,standardFontDataUrl:'../assets/pdfjs/standard_fonts/'}).promise;
-          let text='';const total=Math.min(pdf.numPages,100);
-          for(let i=1;i<=total;i++){const page=await pdf.getPage(i);const tc=await page.getTextContent();text+=tc.items.map(x=>x.str).join(' ')+'\n';pf.style.width=Math.round((i/total)*100)+'%';}
+          // Every page (3.6) — this stopped at page 100 while the dialog said
+          // «(N بەت)» with the whole count — and where each page lies in the text.
+          const ex=await PdfText.extract(pdf,{onPage:(i,n)=>{pf.style.width=Math.round((i/n)*100)+'%';fi.textContent='PDF ئوقۇلىۋاتىدۇ: بەت '+i+' / '+n;}});
+          const text=ex.text;const total=ex.pageCount;
           // Scanned-PDF detection: image-only pages yield almost no extractable
           // text. < 50 chars/page ⇒ treat as scanned and offer offline OCR.
           const avgCharsPerPage = total > 0 ? (text.replace(/\s/g,'').length / total) : 0;
           if (avgCharsPerPage < 50) {
-            S.ocrPdf = { bytes: ocrBytes, fileName: fileName, numPages: pdf.numPages, fallbackText: text };
+            S.ocrPdf = { bytes: ocrBytes, fileName: fileName, numPages: pdf.numPages, fallbackText: text, fallbackPages: ex.ranges };
             S.tempContent = text;   // keep the (near-empty) extraction aside
+            stagePages(text, ex.ranges);
             fi.textContent = '⚠ PDF (سىكان): ' + fileName + ' (' + pdf.numPages + ' بەت)';
             pf.style.width = '100%';
             showOcrOffer();
           } else {
-            S.tempContent=text;fi.textContent='✓ PDF: '+fileName+' ('+pdf.numPages+' بەت)';progress(100);toast('PDF مۇۋەپپەقىيەتلىك ئوقۇلدى','s');
+            S.tempContent=text;stagePages(text,ex.ranges);fi.textContent='✓ PDF: '+fileName+' ('+pdf.numPages+' بەت)';progress(100);toast('PDF مۇۋەپپەقىيەتلىك ئوقۇلدى','s');
           }
         }
       } catch(e){S.tempContent='[PDF: '+fileName+']';fi.textContent='✓ '+fileName;pf.style.width='100%';}
@@ -4653,7 +5394,10 @@ function hideOcrOffer() {
 
 // "ياق، شۇنداق قوشۇلسۇن" — keep the plain extraction (possibly empty) as-is.
 function dismissOcrOffer() {
-  if (S.ocrPdf) S.tempContent = S.ocrPdf.fallbackText || S.tempContent || '';
+  if (S.ocrPdf) {
+    S.tempContent = S.ocrPdf.fallbackText || S.tempContent || '';
+    if (S.ocrPdf.fallbackText) stagePages(S.ocrPdf.fallbackText, S.ocrPdf.fallbackPages);
+  }
   hideOcrOffer();
   if (typeof maybeShowMetaBtn === 'function') maybeShowMetaBtn();
   progress(100);
@@ -4731,8 +5475,12 @@ async function startPdfOcr(engine) {
   const pbar  = document.getElementById('ocrProgressBar');
   const engLabel = (engine === 'gemini') ? 'Gemini' : 'UKIJ';
 
-  const maxPages = Math.min(S.ocrPdf.numPages, 300);   // hard cap
-  ptext.textContent = engLabel + ' OCR: بەت 0 / ' + maxPages;
+  // OCR is slow: it reads at most PdfText.OCR_MAX_PAGES pages, and says so
+  // while it reads and when it is done (3.6).
+  const totalPages = S.ocrPdf.numPages;
+  const maxPages = Math.min(totalPages, PdfText.OCR_MAX_PAGES);
+  const capNote = maxPages < totalPages ? ' (PDF دا ' + totalPages + ' بەت؛ ئالدىنقى ' + maxPages + ' بېتى ئوقۇلىدۇ)' : '';
+  ptext.textContent = engLabel + ' OCR: بەت 0 / ' + maxPages + capNote;
   pbar.style.width = '0';
 
   let pdf;
@@ -4751,7 +5499,7 @@ async function startPdfOcr(engine) {
   if (_ocrUnsub) { try { _ocrUnsub(); } catch (_) {} }
   _ocrUnsub = window.electron.onOcrProgress((d) => {
     const done = basePage + (d.page || 0);
-    ptext.textContent = engLabel + ' OCR: بەت ' + done + ' / ' + maxPages;
+    ptext.textContent = engLabel + ' OCR: بەت ' + done + ' / ' + maxPages + capNote;
     pbar.style.width = Math.round((done / maxPages) * 100) + '%';
   });
 
@@ -4760,30 +5508,24 @@ async function startPdfOcr(engine) {
   // below for Tesseract; Gemini keeps the colour render.
   const SCALE = (engine === 'gemini') ? 3.0 : 3.2;
   const BATCH = (engine === 'gemini') ? 2 : 5;
+  // UKIJ: one entry per page, in page order (an empty page too). Gemini: one
+  // per request of two pages, so where a page ends is not known.
   const allText = [];
+  let pagesRead = 0;
   let geminiFailed = false, geminiMsg = '';
   try {
     for (let start = 1; start <= maxPages && !_ocrCancel; start += BATCH) {
       const end = Math.min(start + BATCH - 1, maxPages);
       const imgs = [];
       for (let p = start; p <= end && !_ocrCancel; p++) {
-        const page = await pdf.getPage(p);
-        const viewport = page.getViewport({ scale: SCALE });
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.ceil(viewport.width);
-        canvas.height = Math.ceil(viewport.height);
-        const ctx = canvas.getContext('2d');
-        // pdf.js renders onto a TRANSPARENT canvas — paint white first, or
-        // Tesseract can see an "empty" page (a likely cause of blank OCR).
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+        // White under the page, and drawn even while the window is behind
+        // another one (PdfText.renderPage).
+        const canvas = await PdfText.renderPage(pdf, p, SCALE);
         // UKIJ (Tesseract): grayscale + Otsu binarize — the biggest accuracy
         // lever. Gemini vision keeps the colour render.
         if (engine !== 'gemini') binarizeCanvas(canvas);
         imgs.push(canvas.toDataURL('image/png'));
         canvas.width = canvas.height = 0;   // free the bitmap promptly
-        if (page.cleanup) try { page.cleanup(); } catch (_) {}
       }
       if (_ocrCancel || !imgs.length) break;
       basePage = start - 1;
@@ -4800,11 +5542,13 @@ async function startPdfOcr(engine) {
           break;
         }
         if (r.text) allText.push(r.text);
+        pagesRead = end;
         pbar.style.width = Math.round((end / maxPages) * 100) + '%';
       } else {
         const r = await window.electron.ocrRecognize(imgs, langStr);
         if (!r || !r.success) { toast('OCR خاتالىقى: ' + ((r && r.error) || ''), 'e'); break; }
         for (const t of r.pages) allText.push(t);
+        pagesRead = allText.length;
         pbar.style.width = Math.round((end / maxPages) * 100) + '%';
         if (r.cancelled) break;
       }
@@ -4816,8 +5560,15 @@ async function startPdfOcr(engine) {
   if (_ocrUnsub) { try { _ocrUnsub(); } catch (_) {} _ocrUnsub = null; }
 
   // Keep whatever was produced as the fallback content, regardless of outcome.
-  const joined = allText.join('\n\n').trim();
-  if (joined) S.tempContent = joined;
+  // The join is the one OCR always used; the offline engine's pages also
+  // keep their places (book_page_map).
+  const ocrJoin = PdfText.joinPages(allText, '\n\n', { trim: true });
+  const joined = ocrJoin.text;
+  if (joined) {
+    S.tempContent = joined;
+    stagePages(joined, engine === 'gemini' ? null : ocrJoin.ranges);
+  }
+  const readLine = PdfText.readLabel(pagesRead, totalPages);
 
   if (geminiFailed) {
     // Free-tier limit / unavailable: stop, keep partial text, steer to UKIJ.
@@ -4826,14 +5577,15 @@ async function startPdfOcr(engine) {
     document.getElementById('ocrButtons').style.display = 'flex';
     if (fbMsg) { fbMsg.textContent = geminiMsg; fbMsg.style.display = 'block'; }
     if (ukBtn) { ukBtn.classList.add('hbtn-glow'); try { ukBtn.focus(); } catch (_) {} }
-    if (joined) document.getElementById('finfo').textContent = '⚠ PDF (Gemini OCR قىسمەن): ' + S.ocrPdf.fileName;
+    if (joined) document.getElementById('finfo').textContent = '⚠ PDF (Gemini OCR قىسمەن): ' + S.ocrPdf.fileName + ' — ' + readLine;
     return;
   }
 
   if (joined) {
     document.getElementById('finfo').textContent =
-      '✓ PDF (' + engLabel + ' OCR): ' + S.ocrPdf.fileName + ' (' + allText.length + ' بۆلەك)';
-    toast(_ocrCancel ? 'OCR توختىتىلدى — قىسمەن تېكىست ساقلاندى' : 'OCR تامام بولدى', 's');
+      '✓ PDF (' + engLabel + ' OCR): ' + S.ocrPdf.fileName + ' — ' + readLine;
+    toast((_ocrCancel ? 'OCR توختىتىلدى — قىسمەن تېكىست ساقلاندى' : 'OCR تامام بولدى') + ' — ' + readLine, 's');
+    noteOcrPagesInDescription(pagesRead, totalPages);
     naiAvailable().then(ok => { const box = document.getElementById('ocrCleanupBox'); if (box) box.style.display = ok ? 'block' : 'none'; });
     if (typeof maybeShowMetaBtn === 'function') maybeShowMetaBtn();
   } else if (!_ocrCancel) {
@@ -4841,6 +5593,16 @@ async function startPdfOcr(engine) {
   }
   hideOcrOffer();
   progress(100);
+}
+
+// When OCR read fewer pages than the PDF has, the description says so — a
+// line the owner can edit or remove. A later OCR run replaces it.
+function noteOcrPagesInDescription(read, total) {
+  const d = document.getElementById('bdesc');
+  if (!d) return;
+  const kept = d.value.split('\n').filter(line => !/^PDF دا \d+ بەت بار؛ OCR بىلەن ئالدىنقى \d+ بېتى ئوقۇلدى\.$/.test(line.trim())).join('\n').trim();
+  const note = PdfText.ocrNote(read, total);
+  d.value = note ? (kept ? kept + '\n' + note : note) : kept;
 }
 
 async function addBook() {
@@ -4864,11 +5626,17 @@ async function addBook() {
     }
   }
 
+  // A PDF also sends where each page lies in its text (only while the text
+  // is the one they were measured in) and where the PDF is — main records
+  // the file's facts; the PDF is never copied (3.6).
+  const pages = (S.tempPages && S.tempPagesFor === content) ? S.tempPages : null;
+  const originalPath = (format === 'PDF' && S.tempFile) ? S.tempFile : '';
+
   // Use SQLite API: atomic insert + duplicate check + FTS5 indexing
   let result;
   try {
     result = await window.electron.dbAddBook({
-      title, author, category, format, date, description, content, fileHash
+      title, author, category, format, date, description, content, fileHash, pages, originalPath
     });
   } catch(e) {
     console.error('dbAddBook IPC error:', e);
@@ -4894,6 +5662,8 @@ async function addBook() {
   // Clear staged upload so the next "add" starts fresh
   S.tempContent = '';
   S.tempExt = '';
+  S.tempFile = '';
+  stagePages('', null);
   S.ocrPdf = null;
   hideOcrOffer();
 
@@ -4975,7 +5745,7 @@ function showAdd(){
   document.getElementById('bcat').innerHTML=S.cats.map(c=>`<option value="${sanitize(c)}">${sanitize(c)}</option>`).join('');
   document.getElementById('btitle').value='';document.getElementById('bauth').value='';document.getElementById('bdesc').value='';
   document.getElementById('finfo').style.display='none';document.getElementById('pb').style.display='none';document.getElementById('pf').style.width='0';
-  S.tempFile=null;S.tempExt='';S.tempContent='';S.ocrPdf=null;
+  S.tempFile=null;S.tempExt='';S.tempContent='';S.ocrPdf=null;stagePages('',null);
   hideOcrOffer();
   const _cb=document.getElementById('ocrCleanupBox'); if(_cb) _cb.style.display='none';
   const _mb=document.getElementById('aiMetaBtn'); if(_mb) _mb.style.display='none';
@@ -5062,6 +5832,8 @@ async function confirmBatchImport() {
     const ext = (String(filePath).split('.').pop() || 'txt').toLowerCase();
     try {
       let content = '';
+      let pages = null;         // a PDF's pages in `content`
+      let originalPath = '';    // a PDF's file, recorded (never copied) by main
 
       if (ext === 'txt') {
         const r = await window.electron.readTxt(filePath);
@@ -5075,14 +5847,12 @@ async function confirmBatchImport() {
           const arr = new Uint8Array(bin.length);
           for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
           const pdf = await pdfjsLib.getDocument({ data: arr, cMapUrl: '../assets/pdfjs/cmaps/', cMapPacked: true, standardFontDataUrl: '../assets/pdfjs/standard_fonts/' }).promise;
-          let text = '';
-          const totalPages = Math.min(pdf.numPages, 200);
-          for (let i = 1; i <= totalPages; i++) {
-            const page = await pdf.getPage(i);
-            const tc = await page.getTextContent();
-            text += tc.items.map(x => x.str).join(' ') + '\n';
-          }
-          content = text;
+          // Every page, and where each lies in the text (3.6) — this
+          // stopped at page 200.
+          const ex = await PdfText.extract(pdf);
+          content = ex.text;
+          pages = ex.ranges;
+          originalPath = filePath;
         } else {
           content = '[PDF: ' + fileName + ']';
         }
@@ -5134,7 +5904,9 @@ async function confirmBatchImport() {
           date: new Date().toISOString().slice(0, 10),
           description: '',
           content,
-          fileHash
+          fileHash,
+          pages,
+          originalPath
         }
       };
     } catch (e) {
@@ -5452,6 +6224,11 @@ function setupKeyboardShortcuts() {
       }
     }
     if (e.key === 'Escape') {
+      // The PDF page view closes first (asking about unsaved text), not the reader under it.
+      if (PCV) { PCV.close(); return; }
+      // The «يانمۇيان ئوقۇش» book list closes first, not the reader under it.
+      const parov = document.getElementById('parov');
+      if (parov && parov.classList.contains('on')) { hideParallelPick(); return; }
       // Notes AI flyout closes first if open.
       const naiFly = document.getElementById('notes-ai-flyout');
       if (naiFly && naiFly.classList.contains('on')) { naiFly.classList.remove('on'); return; }
@@ -5633,6 +6410,7 @@ init();
 </script>
 <link rel="stylesheet" href="quran.css">
 <link rel="stylesheet" href="notes.css">
+<link rel="stylesheet" href="parallel.css">
 <script src="../assets/vendor/purify.min.js"></script>
 <!-- Web/HTML article import: Readability (article extraction) + Turndown (HTML→MD). Vendored, offline. -->
 <script src="../assets/vendor/Readability.js"></script>
@@ -5645,11 +6423,22 @@ init();
      and the reference scanner. Must load before all three. -->
 <script src="textmap.js"></script>
 <script src="spellcheck.js"></script>
+<!-- A verse's translation and its label «[4]» / «[4 _ 6]»: the Qur'an view
+     and the notebook. Must load before both. -->
+<script src="verse-label.js"></script>
 <script src="quran.js"></script>
+<!-- A PDF's text, every page, and where each page lies in it (3.6). -->
+<script src="pdf-text.js"></script>
+<!-- Markdown source as plain prose (3.6: the one converter). -->
+<script src="markdown-text.js"></script>
 <!-- The notebook's export: the document model, Markdown and text (W6). -->
 <script src="notes-export.js"></script>
 <script src="note-units.js"></script>
 <script src="reader-places.js"></script>
+<!-- Two books side by side (3.6): the reader's left pane. -->
+<script src="parallel.js"></script>
+<!-- A PDF page beside its text (3.6): the view, and where pages lie in the text. -->
+<script src="pdf-compare.js"></script>
 <script src="notes.js"></script>
 </body>
 </html>

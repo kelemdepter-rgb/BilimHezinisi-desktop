@@ -1,6 +1,6 @@
 {
   "name": "bilim-hezinisi",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "بىلىم خەزىنىسى - Uyghur Digital Library",
   "main": "main.js",
   "scripts": {
@@ -80,6 +80,10 @@
       "backup.js",
       "navigation.js",
       "note-export.js",
+      "pdf-original.js",
+      "ocr-engine.js",
+      "search-forms.js",
+      "web-library.js",
       "ocr-postprocess.js",
       "text-normalize.js",
       "src/**/*",

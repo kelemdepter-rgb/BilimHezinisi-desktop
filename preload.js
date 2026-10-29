@@ -11,7 +11,8 @@ contextBridge.exposeInMainWorld('electron', {
   dbGetContent: (bookId) => ipcRenderer.invoke('db-get-content', bookId),
   dbSaveContent: (bookId, content) => ipcRenderer.invoke('db-save-content', bookId, content),
   dbSearch: (query, category, opts) => ipcRenderer.invoke('db-search', query, category, opts),
-  dbGetAllSnippets: (bookId, query) => ipcRenderer.invoke('db-get-all-snippets', bookId, query),
+  dbGetAllSnippets: (bookId, query, opts) => ipcRenderer.invoke('db-get-all-snippets', bookId, query, opts),
+  dbSearchWords: (bookId, query) => ipcRenderer.invoke('db-search-words', bookId, query),
   dbSearchHistory: () => ipcRenderer.invoke('db-search-history'),
   dbClearSearchHistory: () => ipcRenderer.invoke('db-clear-search-history'),
   dbGetCategories: () => ipcRenderer.invoke('db-get-categories'),
@@ -73,6 +74,16 @@ contextBridge.exposeInMainWorld('electron', {
     // Return an unsubscribe so callers can detach between OCR sessions.
     return () => ipcRenderer.removeListener('ocr-progress', handler);
   },
+  // «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» (3.6): main talks to the website.
+  webCatalog: (refresh) => ipcRenderer.invoke('web-catalog', !!refresh),
+  webImport: (bookId, category) => ipcRenderer.invoke('web-import', bookId, category),
+  webUpdate: (localBookId) => ipcRenderer.invoke('web-update', localBookId),
+  webCancel: () => ipcRenderer.invoke('web-cancel'),
+  onWebProgress: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('web-progress', handler);
+    return () => ipcRenderer.removeListener('web-progress', handler);
+  },
   getVersion: () => ipcRenderer.invoke('get-version'),
   openDataFolder: () => ipcRenderer.invoke('open-data-folder'),
   getContentSize: () => ipcRenderer.invoke('get-content-size'),
@@ -83,6 +94,18 @@ contextBridge.exposeInMainWorld('electron', {
   // Quran API
   quranGetSuras: () => ipcRenderer.invoke('quran-get-suras'),
   quranGetAyas: (n) => ipcRenderer.invoke('quran-get-ayas', n),
+  // A PDF book's original file (3.6): found | moved | missing, and pointing to it.
+  pdfOriginalStatus: (bookId) => ipcRenderer.invoke('pdf-original-status', bookId),
+  pdfLocateOriginal: (bookId) => ipcRenderer.invoke('pdf-locate-original', bookId),
+  // «ئەسلى بەت بىلەن سېلىشتۇرۇش» (3.6): the PDF from its recorded place, one
+  // page's text, a correction and its undo, pages found in the text.
+  pdfOriginalBytes: (bookId, from) => ipcRenderer.invoke('pdf-original-bytes', bookId, from),
+  pdfPageInfo: (bookId, pageNo, pageCount) => ipcRenderer.invoke('pdf-page-info', bookId, pageNo, pageCount),
+  pdfPageAt: (bookId, offset, pageCount) => ipcRenderer.invoke('pdf-page-at', bookId, offset, pageCount),
+  pdfPageSave: (bookId, pageNo, text) => ipcRenderer.invoke('pdf-page-save', bookId, pageNo, text),
+  pdfPageUndo: (bookId, pageNo) => ipcRenderer.invoke('pdf-page-undo', bookId, pageNo),
+  pdfAlignPages: (bookId, pageTexts) => ipcRenderer.invoke('pdf-align-pages', bookId, pageTexts),
+  pdfPlacePage: (bookId, pageNo, pageCount, ocrText) => ipcRenderer.invoke('pdf-place-page', bookId, pageNo, pageCount, ocrText),
   quranGetAya: (sura, aya) => ipcRenderer.invoke('quran-get-aya', sura, aya),
   quranSearch: (q, opts) => ipcRenderer.invoke('quran-search', q, opts),
   quranBookmarks: () => ipcRenderer.invoke('quran-bookmarks'),
@@ -100,7 +123,7 @@ contextBridge.exposeInMainWorld('electron', {
   notesDeleteForever: (id) => ipcRenderer.invoke('notes-delete-forever', id),
   notesEmptyTrash: () => ipcRenderer.invoke('notes-empty-trash'),
   notesSetPinned: (id, pinned) => ipcRenderer.invoke('notes-set-pinned', id, pinned),
-  notesSearch: (query) => ipcRenderer.invoke('notes-search', query),
+  notesSearch: (query, opts) => ipcRenderer.invoke('notes-search', query, opts),
   notesDiscardEmpty: (id) => ipcRenderer.invoke('notes-discard-empty', id),
   // Earlier versions of a note (W1): kept in the background, listed, read back.
   notesVersionKeep: (noteId, reason, title, html, text) => ipcRenderer.invoke('notes-version-keep', noteId, reason, title, html, text),

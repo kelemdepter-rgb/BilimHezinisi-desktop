@@ -6,6 +6,7 @@
 const path = require('path');
 const fs = require('fs');
 const textNormalize = require('./text-normalize');
+const searchForms = require('./search-forms');
 
 /**
  * Text as the library stores it: letters, never glyph codepoints (W18, K15).
@@ -18,6 +19,9 @@ function letters(value) {
 }
 
 let db = null;
+// Columns and tables that migration steps add, looked up once per library:
+// the code keeps working on a library whose step could not run.
+const schemaCache = new Map();
 let hasFTS5 = false;
 let hasQuranFTS = false;
 
@@ -292,6 +296,7 @@ function close() {
   // Cached text belongs to the library it was read from (a restore, or the
   // tests, open another one).
   contentCache.clear();
+  schemaCache.clear();
 }
 
 // ========== SCHEMA MIGRATIONS ==========
@@ -396,6 +401,100 @@ const MIGRATIONS = [
       `);
       db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(FTS_FILL_KEY, '0');
     }
+  },
+  {
+    // 3.6 — which verses share one translation, and the translation without
+    // its verse markers. 185 runs of consecutive verses carry the same
+    // sentence in the bundled QuranEnc file, with a range marker such as
+    // «(160ـ161)»; the 3.5 cleaner did not know the tatweel, so about 430
+    // verses showed that marker inside the translation. Both come from the
+    // bundled XML, the source of truth (scripts/seed-quran.js), never from
+    // the cleaned column. This is bundled text, not the writer's: the step
+    // rewrites text_ug from the file, after the usual backup.
+    //
+    // A library not seeded yet gets the columns only; the seed, which runs
+    // after the steps, writes both.
+    version: 6,
+    name: 'quran_translation_groups',
+    up(db) {
+      db.exec(`
+        ALTER TABLE quran_ayas ADD COLUMN ug_from INTEGER;
+        ALTER TABLE quran_ayas ADD COLUMN ug_to INTEGER;
+      `);
+      if (!db.prepare('SELECT COUNT(*) AS n FROM quran_ayas').get().n) return;
+      const rows = require('./scripts/seed-quran').uyghurTranslationRows(__dirname);
+      const update = db.prepare('UPDATE quran_ayas SET text_ug=?, ug_from=?, ug_to=? WHERE sura=? AND aya=?');
+      for (const r of rows) update.run(r.text_ug, r.ug_from, r.ug_to, r.sura, r.aya);
+      db.exec('UPDATE quran_ayas SET ug_from = aya, ug_to = aya WHERE ug_from IS NULL OR ug_to IS NULL');
+      // quran_fts indexes quran_ayas through insert and delete triggers only;
+      // after an UPDATE it would still hold the old words.
+      if (hasQuranFTS) db.exec("INSERT INTO quran_fts(quran_fts) VALUES('rebuild')");
+    }
+  },
+  {
+    // 3.6 — a PDF book remembers where each of its PDF pages lies in its
+    // text, [start, end) in the stored text, and where the PDF itself is:
+    // the path (the old, never-filled original_path), size, time and
+    // SHA-256 — the PDF is never copied. Books from before have neither.
+    // "end" is quoted: END is an SQL keyword.
+    version: 7,
+    name: 'pdf_pages_and_original',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS book_page_map (
+          book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+          page_no INTEGER NOT NULL,
+          start INTEGER NOT NULL,
+          "end" INTEGER NOT NULL,
+          PRIMARY KEY (book_id, page_no)
+        );
+        ALTER TABLE books ADD COLUMN original_size INTEGER;
+        ALTER TABLE books ADD COLUMN original_mtime INTEGER;
+        ALTER TABLE books ADD COLUMN original_sha256 TEXT;
+      `);
+      const cols = db.prepare('PRAGMA table_info(books)').all().map(c => c.name);
+      if (cols.indexOf('original_path') === -1) db.exec("ALTER TABLE books ADD COLUMN original_path TEXT DEFAULT ''");
+    }
+  },
+  {
+    // 3.6 — where a book came from. A book downloaded from the website
+    // (web-library.js) has source 'bilimhezinisi.com', the website's id for
+    // it, and the website's updated_at as it was downloaded — what the
+    // catalog compares to offer «يېڭىلاش». A book from a file has none.
+    version: 8,
+    name: 'book_source',
+    up(db) {
+      db.exec(`
+        ALTER TABLE books ADD COLUMN source TEXT;
+        ALTER TABLE books ADD COLUMN source_id INTEGER;
+        ALTER TABLE books ADD COLUMN source_updated_at TEXT;
+        CREATE INDEX IF NOT EXISTS idx_books_source ON books(source, source_id);
+      `);
+    }
+  },
+  {
+    // 3.6 — corrections made in the PDF page view, one row each: the page;
+    // where the change begins, counted from the PAGE'S OWN START (a later
+    // correction of an earlier page moves the page, not this row); what was
+    // there and what came in; and the places it had to move (JSON), so that
+    // «ئەسلىگە قايتۇرۇش» puts everything back byte for byte.
+    version: 9,
+    name: 'book_edits',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS book_edits (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+          page_no INTEGER NOT NULL,
+          start INTEGER NOT NULL,
+          old_text TEXT NOT NULL,
+          new_text TEXT NOT NULL,
+          moved TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_book_edits_page ON book_edits(book_id, page_no, id);
+      `);
+    }
   }
 ];
 
@@ -483,13 +582,17 @@ async function runMigrations(opts) {
   if (typeof options.beforeFirst === 'function') await options.beforeFirst(from, to);
 
   const ran = [];
-  for (const step of pending) {
-    db.transaction(() => {
-      step.up(db);
-      db.pragma('user_version = ' + step.version);
-    })();
-    ran.push(step.version);
-    console.log('[migration] ' + step.version + ' ' + (step.name || '') + ' applied');
+  try {
+    for (const step of pending) {
+      db.transaction(() => {
+        step.up(db);
+        db.pragma('user_version = ' + step.version);
+      })();
+      ran.push(step.version);
+      console.log('[migration] ' + step.version + ' ' + (step.name || '') + ' applied');
+    }
+  } finally {
+    schemaCache.clear(); // a step may have added columns
   }
   return { from: from, to: to, ran: ran };
 }
@@ -507,6 +610,16 @@ async function backupTo(file) {
   return file;
 }
 
+/** Does this library have the column (a table that does not exist has none)? */
+function hasColumn(table, column) {
+  const key = table + '.' + column;
+  if (!schemaCache.has(key)) {
+    const cols = db.prepare('PRAGMA table_info(' + table + ')').all().map(c => c.name);
+    schemaCache.set(key, cols.indexOf(column) !== -1);
+  }
+  return schemaCache.get(key);
+}
+
 /** Fold the WAL back into the main file — before the file is replaced. */
 function checkpoint() {
   if (db) db.pragma('wal_checkpoint(TRUNCATE)');
@@ -514,39 +627,318 @@ function checkpoint() {
 
 // ========== BOOKS ==========
 
-function addBook(title, author, category, format, date, description, content, fileHash) {
+// ========== PDF PAGES AND THE ORIGINAL FILE (3.6, migration step 7) ==========
+
+/**
+ * Where each PDF page lies in the stored text: page n is ranges[n - 1],
+ * [start, end). An empty page has an empty range at its place.
+ */
+function writePageMap(bookId, ranges) {
+  if (!hasColumn('book_page_map', 'book_id')) return;
+  db.prepare('DELETE FROM book_page_map WHERE book_id=?').run(bookId);
+  // The page view's corrections are kept against this map: a new map, or
+  // none, leaves nothing for them to undo.
+  if (hasColumn('book_edits', 'id')) db.prepare('DELETE FROM book_edits WHERE book_id=?').run(bookId);
+  if (!Array.isArray(ranges) || !ranges.length) return;
+  const insert = db.prepare('INSERT INTO book_page_map (book_id, page_no, start, "end") VALUES (?, ?, ?, ?)');
+  ranges.forEach((r, i) => insert.run(bookId, i + 1, r[0], r[1]));
+}
+
+/** The book's page map, in page order: [{ page_no, start, end }]. */
+function getPageMap(bookId) {
+  if (!hasColumn('book_page_map', 'book_id')) return [];
+  return db.prepare('SELECT page_no, start, "end" AS "end" FROM book_page_map WHERE book_id=? ORDER BY page_no').all(bookId);
+}
+
+function wholeOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+/** Record where the book's PDF is: { path, size, mtime (ms), sha256 } (pdf-original.js). */
+function setBookOriginal(bookId, facts) {
+  if (!facts || !hasColumn('books', 'original_sha256')) return false;
+  db.prepare('UPDATE books SET original_path=?, original_size=?, original_mtime=?, original_sha256=? WHERE id=?')
+    .run(String(facts.path || ''), wholeOrNull(facts.size), wholeOrNull(facts.mtime),
+      facts.sha256 ? String(facts.sha256) : null, bookId);
+  return true;
+}
+
+/** Where the book's PDF was recorded to be; every field null when nothing was. */
+function getBookOriginal(bookId) {
+  const none = { path: null, size: null, mtime: null, sha256: null };
+  if (!hasColumn('books', 'original_sha256')) return none;
+  const row = db.prepare('SELECT original_path, original_size, original_mtime, original_sha256 FROM books WHERE id=?').get(bookId);
+  if (!row) return none;
+  return { path: row.original_path || null, size: row.original_size, mtime: row.original_mtime, sha256: row.original_sha256 };
+}
+
+/**
+ * Add a book. `extra` (3.6), for a PDF: `pages`, each page's [start, end) in
+ * `content` as it was extracted — mapped through the normalisation, so the
+ * stored map is true for the stored text — and `original`, the PDF's facts.
+ */
+function addBook(title, author, category, format, date, description, content, fileHash, extra) {
   title = letters(title);
   author = letters(author);
   description = letters(description);
-  content = letters(content);
-  const stmt = db.prepare(`
-    INSERT INTO books (title, author, category, format, date, description, file_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `);
-  const info = stmt.run(
-    title,
-    author || '',
-    category || '',
-    format || 'TXT',
-    date || new Date().toISOString().slice(0, 10),
-    description || '',
-    fileHash || ''
-  );
-  const bookId = info.lastInsertRowid;
+  const mapped = textNormalize.normalizeWithRanges(content, extra && extra.pages);
+  content = mapped.text;
+  return db.transaction(() => {
+    const stmt = db.prepare(`
+      INSERT INTO books (title, author, category, format, date, description, file_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    const info = stmt.run(
+      title,
+      author || '',
+      category || '',
+      format || 'TXT',
+      date || new Date().toISOString().slice(0, 10),
+      description || '',
+      fileHash || ''
+    );
+    const bookId = info.lastInsertRowid;
 
-  if (content) {
-    db.prepare('INSERT OR REPLACE INTO book_content (book_id, content) VALUES (?, ?)')
-      .run(bookId, content);
+    if (content) {
+      db.prepare('INSERT OR REPLACE INTO book_content (book_id, content) VALUES (?, ?)')
+        .run(bookId, content);
 
-    if (hasFTS5) {
-      try {
-        db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
-          .run(bookId, title, author || '', content);
-      } catch (e) { /* ignore FTS5 errors */ }
+      if (hasFTS5) {
+        try {
+          db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
+            .run(bookId, title, author || '', content);
+        } catch (e) { /* ignore FTS5 errors */ }
+      }
+    }
+    if (mapped.ranges) writePageMap(bookId, mapped.ranges);
+    if (extra && extra.original) setBookOriginal(bookId, extra.original);
+    if (extra && extra.source) setBookSource(bookId, extra.source);
+
+    return bookId;
+  })();
+}
+
+// ========== WHERE A BOOK CAME FROM (3.6, migration step 8) ==========
+
+/** { source, id, updatedAt } — a book downloaded from the website (web-library.js). */
+function setBookSource(bookId, src) {
+  if (!src || !hasColumn('books', 'source')) return false;
+  db.prepare('UPDATE books SET source=?, source_id=?, source_updated_at=? WHERE id=?')
+    .run(String(src.source || ''), wholeOrNull(src.id), src.updatedAt ? String(src.updatedAt) : null, bookId);
+  return true;
+}
+
+/** The book downloaded from `source` as its book `sourceId`, or null. */
+function findBookBySource(source, sourceId) {
+  if (!hasColumn('books', 'source')) return null;
+  return db.prepare('SELECT id, title, source_updated_at FROM books WHERE source=? AND source_id=? ORDER BY id LIMIT 1')
+    .get(String(source), wholeOrNull(sourceId)) || null;
+}
+
+/** Every book downloaded from `source`: { id, source_id, source_updated_at }. */
+function getBookSources(source) {
+  if (!hasColumn('books', 'source')) return [];
+  return db.prepare('SELECT id, source_id, source_updated_at FROM books WHERE source=? ORDER BY id').all(String(source));
+}
+
+/**
+ * A book's whole text replaced by a newer one from where it came (3.6,
+ * «يېڭىلاش»): stored as letters, indexed, its page map dropped
+ * (saveBookContent). Bookmarks, in-book notes and the reading position keep
+ * their offsets, clamped to the new length. One transaction.
+ */
+function replaceBookText(bookId, content, opts) {
+  const o = opts || {};
+  return db.transaction(() => {
+    saveBookContent(bookId, content);
+    const stored = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(bookId);
+    const length = stored ? (stored.content || '').length : 0;
+    for (const table of ['bookmarks', 'notes', 'reading_progress']) {
+      if (!hasColumn(table, 'char_offset')) continue;
+      db.prepare(`UPDATE ${table} SET char_offset=? WHERE book_id=? AND char_offset > ?`).run(length, bookId, length);
+    }
+    if (o.sourceUpdatedAt && hasColumn('books', 'source_updated_at')) {
+      db.prepare("UPDATE books SET source_updated_at=?, updated_at=datetime('now') WHERE id=?").run(String(o.sourceUpdatedAt), bookId);
+    }
+    return { length: length };
+  })();
+}
+
+// ========== CORRECTING A PDF PAGE (3.6, migration step 9) ==========
+// The PDF page view corrects one page at a time. A correction replaces only
+// what changed — the page's common beginning and end stay — and everything
+// that points into the text moves with it: the later pages of the map,
+// bookmarks, in-book notes and the reading position. Places after the
+// change move by its length difference; places strictly inside what was
+// removed go to its start, and are remembered, so an undo puts them back.
+
+/** The tables whose rows keep a place in a book's text (char_offset). */
+const PLACE_TABLES = ['bookmarks', 'notes', 'reading_progress'];
+
+/**
+ * `removeLen` characters at `at` replaced by `insert`, inside page `pageNo`:
+ * the text, the page map, every place, the search index and the cache. Runs
+ * in the caller's transaction.
+ * @returns {{moved: Array<{t: string, r: number, o: number}>, delta: number}}
+ */
+function changeBookText(bookId, pageNo, at, removeLen, insert) {
+  const row = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(bookId);
+  const content = row ? (row.content || '') : '';
+  const end = at + removeLen;
+  const next = content.slice(0, at) + insert + content.slice(end);
+  const delta = insert.length - removeLen;
+  db.prepare('UPDATE book_content SET content=? WHERE book_id=?').run(next, bookId);
+  if (delta) {
+    db.prepare('UPDATE book_page_map SET "end" = "end" + ? WHERE book_id=? AND page_no=?').run(delta, bookId, pageNo);
+    db.prepare('UPDATE book_page_map SET start = start + ?, "end" = "end" + ? WHERE book_id=? AND page_no > ?')
+      .run(delta, delta, bookId, pageNo);
+  }
+  const moved = [];
+  for (const table of PLACE_TABLES) {
+    if (!hasColumn(table, 'char_offset')) continue;
+    // Inside first, from the old offsets; then everything at or after the end.
+    const inside = db.prepare(`SELECT rowid AS r, char_offset AS o FROM ${table} WHERE book_id=? AND char_offset > ? AND char_offset < ?`)
+      .all(bookId, at, end);
+    if (inside.length) {
+      inside.forEach(x => moved.push({ t: table, r: x.r, o: x.o }));
+      db.prepare(`UPDATE ${table} SET char_offset=? WHERE book_id=? AND char_offset > ? AND char_offset < ?`).run(at, bookId, at, end);
+    }
+    if (delta) {
+      db.prepare(`UPDATE ${table} SET char_offset = char_offset + ? WHERE book_id=? AND char_offset >= ?`).run(delta, bookId, end);
     }
   }
+  if (hasFTS5) {
+    try {
+      db.prepare('DELETE FROM book_fts WHERE rowid=?').run(bookId);
+      const book = getBook(bookId);
+      if (book && next) {
+        db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
+          .run(bookId, book.title || '', book.author || '', next);
+      }
+    } catch (e) { /* the substring search does not need the index */ }
+  }
+  contentCache.delete(bookId);
+  db.prepare("UPDATE books SET updated_at=datetime('now') WHERE id=?").run(bookId);
+  return { moved: moved, delta: delta };
+}
 
-  return bookId;
+function pageRow(bookId, pageNo) {
+  if (!hasColumn('book_page_map', 'book_id')) return null;
+  return db.prepare('SELECT page_no, start, "end" AS "end" FROM book_page_map WHERE book_id=? AND page_no=?').get(bookId, pageNo) || null;
+}
+
+/**
+ * What the PDF page view shows for page `pageNo` of `pageCount`: the page's
+ * text when it is placed; otherwise the estimate (PdfCompare.estimateRange),
+ * which cannot be saved over. `mapped`: how many pages are placed.
+ */
+function pdfPageInfo(bookId, pageNo, pageCount, estimate) {
+  const content = getBookContent(bookId);
+  const map = getPageMap(bookId);
+  const row = map.find(r => r.page_no === pageNo) || null;
+  const edits = hasColumn('book_edits', 'id')
+    ? db.prepare('SELECT COUNT(*) AS n FROM book_edits WHERE book_id=? AND page_no=?').get(bookId, pageNo).n : 0;
+  if (row) {
+    return { placed: true, start: row.start, end: row.end, text: content.slice(row.start, row.end), edits: edits, mapped: map.length, length: content.length };
+  }
+  const guess = typeof estimate === 'function' && pageCount > 0 ? estimate(content, pageNo, pageCount, map) : null;
+  return {
+    placed: false, edits: 0, mapped: map.length, length: content.length,
+    estimated: guess ? { start: guess.start, end: guess.end } : null,
+    text: guess ? content.slice(guess.start, guess.end) : ''
+  };
+}
+
+/**
+ * The owner's correction of page `pageNo`: `text` is the page as it should
+ * read. Only a placed page can be corrected.
+ * @returns {{ok: boolean, reason?: string, unchanged?: boolean, editId?: number, start?: number, end?: number}}
+ */
+function savePageEdit(bookId, pageNo, text) {
+  if (!hasColumn('book_edits', 'id')) return { ok: false, reason: 'schema' };
+  return db.transaction(() => {
+    const page = pageRow(bookId, pageNo);
+    if (!page) return { ok: false, reason: 'unplaced' };
+    const row = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(bookId);
+    const content = row ? (row.content || '') : '';
+    const old = content.slice(page.start, page.end);
+    const now = letters(String(text == null ? '' : text).replace(/\r\n?/g, '\n'));
+    if (now === old) return { ok: true, unchanged: true, start: page.start, end: page.end };
+    let p = 0;
+    while (p < old.length && p < now.length && old.charCodeAt(p) === now.charCodeAt(p)) p++;
+    let q = 0;
+    while (q < old.length - p && q < now.length - p &&
+           old.charCodeAt(old.length - 1 - q) === now.charCodeAt(now.length - 1 - q)) q++;
+    const removed = old.slice(p, old.length - q);
+    const inserted = now.slice(p, now.length - q);
+    const r = changeBookText(bookId, pageNo, page.start + p, removed.length, inserted);
+    const info = db.prepare('INSERT INTO book_edits (book_id, page_no, start, old_text, new_text, moved) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(bookId, pageNo, p, removed, inserted, JSON.stringify(r.moved));
+    const after = pageRow(bookId, pageNo);
+    return { ok: true, editId: Number(info.lastInsertRowid), start: after.start, end: after.end };
+  })();
+}
+
+/**
+ * «ئەسلىگە قايتۇرۇش»: the latest correction of page `pageNo` undone through
+ * the same path, the places it moved put back where they were (those still
+ * where it left them). Refused when the text there is no longer what the
+ * correction wrote.
+ */
+function undoPageEdit(bookId, pageNo) {
+  if (!hasColumn('book_edits', 'id')) return { ok: false, reason: 'schema' };
+  return db.transaction(() => {
+    const edit = db.prepare('SELECT * FROM book_edits WHERE book_id=? AND page_no=? ORDER BY id DESC LIMIT 1').get(bookId, pageNo);
+    if (!edit) return { ok: false, reason: 'none' };
+    const page = pageRow(bookId, pageNo);
+    if (!page) return { ok: false, reason: 'unplaced' };
+    const row = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(bookId);
+    const content = row ? (row.content || '') : '';
+    const at = page.start + edit.start;
+    if (at + edit.new_text.length > page.end || content.slice(at, at + edit.new_text.length) !== edit.new_text) {
+      return { ok: false, reason: 'changed' };
+    }
+    changeBookText(bookId, pageNo, at, edit.new_text.length, edit.old_text);
+    let moved = [];
+    try { moved = JSON.parse(edit.moved || '[]'); } catch (e) { moved = []; }
+    for (const m of moved) {
+      if (PLACE_TABLES.indexOf(m.t) === -1 || !hasColumn(m.t, 'char_offset')) continue;
+      db.prepare(`UPDATE ${m.t} SET char_offset=? WHERE rowid=? AND book_id=? AND char_offset=?`).run(m.o, m.r, bookId, at);
+    }
+    db.prepare('DELETE FROM book_edits WHERE id=?').run(edit.id);
+    const after = pageRow(bookId, pageNo);
+    return { ok: true, start: after.start, end: after.end };
+  })();
+}
+
+/**
+ * Pages of a book that had no map, found in its text (PdfCompare): written
+ * only where they keep the pages in order — each starts no earlier than the
+ * placed page before it ends, and ends no later than the placed page after
+ * it starts.
+ * @param {Array<{page: number, start: number, end: number}>} placements
+ * @returns {number} how many were written
+ */
+function placePages(bookId, placements) {
+  if (!hasColumn('book_page_map', 'book_id')) return 0;
+  return db.transaction(() => {
+    const length = getBookContent(bookId).length;
+    const insert = db.prepare('INSERT OR REPLACE INTO book_page_map (book_id, page_no, start, "end") VALUES (?, ?, ?, ?)');
+    let written = 0;
+    for (const p of (placements || []).slice().sort((a, b) => a.page - b.page)) {
+      const page = Math.round(Number(p.page));
+      const start = Math.round(Number(p.start));
+      const end = Math.round(Number(p.end));
+      if (!(page >= 1) || !(start >= 0) || !(end >= start) || end > length) continue;
+      const before = db.prepare('SELECT "end" AS "end" FROM book_page_map WHERE book_id=? AND page_no<? ORDER BY page_no DESC LIMIT 1').get(bookId, page);
+      const after = db.prepare('SELECT start FROM book_page_map WHERE book_id=? AND page_no>? ORDER BY page_no LIMIT 1').get(bookId, page);
+      if ((before && start < before.end) || (after && end > after.start)) continue;
+      insert.run(bookId, page, start, end);
+      written++;
+    }
+    return written;
+  })();
 }
 
 /**
@@ -588,7 +980,8 @@ function addBooksBatch(books) {
     for (const b of books) {
       const title = letters(String(b.title || '').trim());
       const author = letters(b.author);
-      const content = letters(b.content);
+      const mapped = textNormalize.normalizeWithRanges(b.content, b.pages);
+      const content = mapped.text;
       if (!title) {
         skipped.push({ title: b.title || '(empty)', reason: 'empty_title' });
         continue;
@@ -624,6 +1017,8 @@ function addBooksBatch(books) {
             } catch (e) { /* skip FTS insert error per book */ }
           }
         }
+        if (mapped.ranges) writePageMap(bookId, mapped.ranges);
+        if (b.original) setBookOriginal(bookId, b.original);
 
         added.push({ id: bookId, title });
       } catch (e) {
@@ -718,6 +1113,14 @@ function getBookContent(bookId) {
 
 function saveBookContent(bookId, content) {
   content = letters(content);
+  // A page map is true only for the text it was made for: a whole text
+  // written over it (the reader's page fix rebuilds it from its pages) drops
+  // it. The PDF page view's own edits keep it, shifting it with the edit.
+  if (hasColumn('book_page_map', 'book_id') &&
+      db.prepare('SELECT 1 FROM book_page_map WHERE book_id=? LIMIT 1').get(bookId)) {
+    const old = db.prepare('SELECT content FROM book_content WHERE book_id=?').get(bookId);
+    if (!old || old.content !== content) writePageMap(bookId, null);
+  }
   contentCache.delete(bookId);
   db.prepare('INSERT OR REPLACE INTO book_content (book_id, content) VALUES (?, ?)')
     .run(bookId, content);
@@ -824,6 +1227,7 @@ async function presentationFormsFix(opts) {
           .run(next.title, next.author, next.description, candidate.id);
         if (current.hasContent) {
           db.prepare('UPDATE book_content SET content=? WHERE book_id=?').run(next.content, candidate.id);
+          if (next.content !== current.content) writePageMap(candidate.id, null);
         }
         if (hasFTS5) {
           db.prepare('DELETE FROM book_fts WHERE rowid=?').run(candidate.id);
@@ -858,8 +1262,81 @@ async function presentationFormsFix(opts) {
  * (migration step 5) and serves the notebook's reference scan (ngramFindWord);
  * a ranked word search on it would find less, and is a decision of its own.
  */
-function searchBooks(query, category) {
+function searchBooks(query, category, opts) {
+  if (opts && opts.forms) return searchBooksWithForms(query, category);
   return searchBooksSimple(query, category);
+}
+
+/**
+ * The search with the Uyghur forms (3.6, search-forms.js): every book today's
+ * search finds, and every book where a form of a typed word starts a word.
+ * When the full-text index is ready, it names the books where a form can be
+ * (a prefix query per form), and only those are scanned for the forms; the
+ * exact query is still looked for in every book, as before.
+ *
+ * A result also carries `mark`, where the word found lies in `snip`, and
+ * `titleMark`, where it lies in the title. The words the forms found in a
+ * book, which the reader marks, come with searchWordsInBook when the book is
+ * opened: listing them here would mean finding every hit in every book.
+ */
+function searchBooksWithForms(query, category) {
+  const m = searchForms.compile(query);
+  if (!m.query) return [];
+  let candidates = null;
+  const fts = m.ftsQuery();
+  if (fts && hasFTS5 && !ftsRebuildPending()) {
+    try {
+      candidates = new Set(db.prepare('SELECT rowid FROM book_fts WHERE book_fts MATCH ?').all(fts).map(r => r.rowid));
+    } catch (e) {
+      candidates = null;   // a query the index cannot read: scan every book
+    }
+  }
+  const exactOnly = searchForms.compile(query, { forms: false });
+
+  let sql = 'SELECT * FROM books';
+  const params = [];
+  if (category && category !== 'all') {
+    sql += ' WHERE category = ?';
+    params.push(category);
+  }
+  const results = [];
+  for (const row of db.prepare(sql).all(...params)) {
+    const book = rowToBook(row);
+    const scan = (candidates === null || candidates.has(row.id)) ? m : exactOnly;
+    const inTitle = scan.findAll(searchForms.lowered(book.title), 1)[0];
+    const inT = !!inTitle;
+    const inA = scan.findAll(searchForms.lowered(book.author), 1).length > 0;
+
+    let inC = false;
+    let snip = '';
+    let pos = null;
+    let mark = null;
+    const content = getBookContent(book.id);
+    if (content) {
+      const first = scan.findAll(searchForms.lowered(content), 1)[0];
+      if (first) {
+        inC = true;
+        pos = first.start;
+        const s = Math.max(0, first.start - 60);
+        const e = Math.min(content.length, first.end + 60);
+        snip = content.slice(s, e).replace(/\n/g, ' ');
+        mark = [first.start - s, first.end - s];
+      }
+    }
+    const titleMark = inTitle ? [inTitle.start, inTitle.end] : null;
+    if (inT || inA || inC) results.push({ book, snip, pos, mark, titleMark, inT, inA, inC });
+  }
+  return results;
+}
+
+/**
+ * Every different word the Uyghur forms of `query` found in one book, as
+ * written there — what the reader marks and counts with the query (3.6).
+ */
+function searchWordsInBook(bookId, query) {
+  const content = getBookContent(bookId);
+  if (!content || !query) return [];
+  return searchForms.compile(query).foundWords(searchForms.lowered(content), content);
 }
 
 function searchBooksSimple(query, category) {
@@ -876,15 +1353,15 @@ function searchBooksSimple(query, category) {
   const rows = db.prepare(sql).all(...params);
   for (const row of rows) {
     const book = rowToBook(row);
-    const inT = (book.title || '').toLowerCase().includes(lq);
-    const inA = (book.author || '').toLowerCase().includes(lq);
+    const inT = searchForms.lowered(book.title).includes(lq);
+    const inA = searchForms.lowered(book.author).includes(lq);
 
     let inC = false;
     let snip = '';
     let pos = null;
     const content = getBookContent(book.id);
     if (content) {
-      const lcContent = content.toLowerCase();
+      const lcContent = searchForms.lowered(content);
       const idx = lcContent.indexOf(lq);
       if (idx !== -1) {
         inC = true;
@@ -906,7 +1383,7 @@ function searchBooksSimple(query, category) {
  * Pure JS string-scan: returns marked snippets for every occurrence of `query`
  * in the book content. Used by the Notes auto-reference scanner.
  */
-function getAllSnippetsForBook(bookId, query, maxResults, ctx) {
+function getAllSnippetsForBook(bookId, query, maxResults, ctx, opts) {
   const MAX = Math.max(1, Math.min(1000, maxResults || 200));
   const CTX = Math.max(10, Math.min(400, ctx || 70));
 
@@ -920,13 +1397,26 @@ function getAllSnippetsForBook(bookId, query, maxResults, ctx) {
   if (!needle) return [];
 
   const lcNeedle  = needle.toLowerCase();
-  const lcContent = content.toLowerCase();
-  const nLen = needle.length;
+  const lcContent = searchForms.lowered(content);
+
+  // With the Uyghur forms (3.6): each hit is the span search-forms.js found.
+  const spans = (opts && opts.forms) ? searchForms.compile(needle).findAll(lcContent, MAX) : null;
+  let spanAt = 0;
 
   const snippets = [];
   let cursor = 0;
   while (snippets.length < MAX) {
-    const hit = lcContent.indexOf(lcNeedle, cursor);
+    let hit;
+    let nLen;
+    if (spans) {
+      if (spanAt >= spans.length) break;
+      hit = spans[spanAt].start;
+      nLen = spans[spanAt].end - spans[spanAt].start;
+      spanAt++;
+    } else {
+      hit = lcContent.indexOf(lcNeedle, cursor);
+      nLen = needle.length;
+    }
     if (hit === -1) break;
 
     // Expand context outward to the nearest whitespace/newline for a clean cut.
@@ -964,12 +1454,13 @@ function quranSeedBulk(suras, ayas) {
     throw new Error('quranSeedBulk: suras and ayas must be arrays');
   }
 
+  const groups = hasQuranGroups();
   const insertSura = db.prepare(
     `INSERT INTO quran_suras (number, name_ar, name_ug, name_translit, revelation, aya_count) VALUES (?,?,?,?,?,?)`
   );
-  const insertAya = db.prepare(
-    `INSERT INTO quran_ayas (sura, aya, text_ar, text_ar_simple, text_ug) VALUES (?,?,?,?,?)`
-  );
+  const insertAya = groups
+    ? db.prepare(`INSERT INTO quran_ayas (sura, aya, text_ar, text_ar_simple, text_ug, ug_from, ug_to) VALUES (?,?,?,?,?,?,?)`)
+    : db.prepare(`INSERT INTO quran_ayas (sura, aya, text_ar, text_ar_simple, text_ug) VALUES (?,?,?,?,?)`);
 
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM quran_ayas').run();
@@ -979,12 +1470,74 @@ function quranSeedBulk(suras, ayas) {
       insertSura.run(s.number, s.name_ar, s.name_ug, s.name_translit || '', s.revelation || 'meccan', s.aya_count);
     }
     for (const a of ayas) {
-      insertAya.run(a.sura, a.aya, a.text_ar, a.text_ar_simple, a.text_ug || '');
+      if (groups) {
+        insertAya.run(a.sura, a.aya, a.text_ar, a.text_ar_simple, a.text_ug || '', a.ug_from || a.aya, a.ug_to || a.aya);
+      } else {
+        insertAya.run(a.sura, a.aya, a.text_ar, a.text_ar_simple, a.text_ug || '');
+      }
     }
   });
 
   tx();
   return { suras: suras.length, ayas: ayas.length };
+}
+
+// ========== QURAN TRANSLATION GROUPS (3.6) ==========
+// Verses the translator rendered as one sentence share one translation;
+// ug_from / ug_to (migration step 6) name the group each verse belongs to —
+// a verse on its own has ug_from = ug_to = aya. A library whose step 6 could
+// not run reads every verse as its own group.
+
+function hasQuranGroups() {
+  return hasColumn('quran_ayas', 'ug_from') && hasColumn('quran_ayas', 'ug_to');
+}
+
+/** The two group columns, for a SELECT over quran_ayas aliased `alias`. */
+function quranGroupSql(alias) {
+  const p = alias ? alias + '.' : '';
+  return hasQuranGroups()
+    ? `COALESCE(${p}ug_from, ${p}aya) AS ug_from, COALESCE(${p}ug_to, ${p}aya) AS ug_to`
+    : `${p}aya AS ug_from, ${p}aya AS ug_to`;
+}
+
+/**
+ * The translation a group shows: the longest of its verses' texts. They are
+ * identical but for 53:13–14, where 53:14's is a shortened copy of 53:13's.
+ */
+function quranGroupText(sura, from, to) {
+  const row = db.prepare(`
+    SELECT text_ug FROM quran_ayas WHERE sura=? AND aya BETWEEN ? AND ?
+    ORDER BY length(text_ug) DESC, aya LIMIT 1
+  `).get(sura, from, to);
+  return row ? row.text_ug : '';
+}
+
+/**
+ * One search result per translation group: the verses of a group share one
+ * translation, which would otherwise come back once per verse. A card keeps
+ * the place of its best-ranked hit and lists, in order, every verse of the
+ * group that was found, each with its own Arabic.
+ */
+function collapseQuranGroups(rows) {
+  const cards = [];
+  const byGroup = new Map();
+  for (const r of rows) {
+    const from = r.ug_from || r.aya;
+    const to = r.ug_to || r.aya;
+    const key = r.sura + ':' + from;
+    let card = byGroup.get(key);
+    if (!card) {
+      card = Object.assign({}, r, { ug_from: from, ug_to: to, verses: [] });
+      byGroup.set(key, card);
+      cards.push(card);
+    }
+    card.verses.push({ aya: r.aya, text_ar: r.text_ar, snip_ar: r.snip_ar || '' });
+  }
+  for (const card of cards) {
+    card.verses.sort((a, b) => a.aya - b.aya);
+    card.group_text_ug = card.ug_to > card.ug_from ? quranGroupText(card.sura, card.ug_from, card.ug_to) : card.text_ug;
+  }
+  return cards;
 }
 
 function quranGetSuras() {
@@ -996,16 +1549,20 @@ function quranGetSuras() {
 
 function quranGetAyas(suraNumber) {
   return db.prepare(`
-    SELECT id, sura, aya, text_ar, text_ar_simple, text_ug
+    SELECT id, sura, aya, text_ar, text_ar_simple, text_ug, ${quranGroupSql('')}
     FROM quran_ayas WHERE sura=? ORDER BY aya
   `).all(suraNumber);
 }
 
+/** One verse, with its group and the group's translation (group_text_ug). */
 function quranGetAya(sura, aya) {
-  return db.prepare(`
-    SELECT id, sura, aya, text_ar, text_ar_simple, text_ug
+  const row = db.prepare(`
+    SELECT id, sura, aya, text_ar, text_ar_simple, text_ug, ${quranGroupSql('')}
     FROM quran_ayas WHERE sura=? AND aya=?
-  `).get(sura, aya) || null;
+  `).get(sura, aya);
+  if (!row) return null;
+  row.group_text_ug = row.ug_to > row.ug_from ? quranGroupText(row.sura, row.ug_from, row.ug_to) : row.text_ug;
+  return row;
 }
 
 // ========== QURAN BOOKMARKS (W17) ==========
@@ -1139,7 +1696,69 @@ function quranLookupSura(input) {
   return null;
 }
 
+/**
+ * Search the Qur'an: the Arabic with its normalisation, the Uyghur
+ * translation as typed — and, with `opts.forms` (3.6), the translation also
+ * through the Uyghur forms of the typed words (search-forms.js). One result
+ * per translation group (collapseQuranGroups).
+ */
 function quranSearch(query, opts) {
+  const o = opts || {};
+  let rows = quranSearchRows(query, o);
+  if (o.forms) rows = rows.concat(quranFormRows(query, o, rows));
+  return collapseQuranGroups(rows);
+}
+
+function escapeHtmlText(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** About 60 characters either side of a hit, the hit in <mark>, the rest escaped. */
+function markedSnippetHtml(text, span) {
+  const s = Math.max(0, span.start - 60);
+  const e = Math.min(text.length, span.end + 60);
+  return (s > 0 ? '...' : '') + escapeHtmlText(text.slice(s, span.start)) + '<mark>' +
+    escapeHtmlText(text.slice(span.start, span.end)) + '</mark>' + escapeHtmlText(text.slice(span.end, e)) +
+    (e < text.length ? '...' : '');
+}
+
+/**
+ * The verses whose translation holds a form of the typed words that the
+ * search as typed did not find (`have`). The full-text index names the
+ * candidates; an Arabic query has no forms and adds nothing.
+ */
+function quranFormRows(query, opts, have) {
+  if ((opts.lang || 'auto') === 'ar') return [];
+  const m = searchForms.compile(query);
+  const fts = m.ftsQuery();
+  if (!fts) return [];
+  const limit = Math.max(1, Math.min(500, opts.limit || 200));
+  const cols = `a.id, a.sura, a.aya, a.text_ar, a.text_ug, ${quranGroupSql('a')}`;
+  let candidates = null;
+  if (hasQuranFTS) {
+    try {
+      candidates = db.prepare(`SELECT ${cols} FROM quran_fts JOIN quran_ayas a ON a.id=quran_fts.rowid
+        WHERE quran_fts MATCH ? ORDER BY a.sura, a.aya`).all('text_ug : (' + fts + ')');
+    } catch (e) {
+      candidates = null;
+    }
+  }
+  if (candidates === null) candidates = db.prepare(`SELECT ${cols} FROM quran_ayas a ORDER BY a.sura, a.aya`).all();
+  const seen = new Set(have.map(r => r.id));
+  const out = [];
+  for (const r of candidates) {
+    if (out.length >= limit) break;
+    if (seen.has(r.id)) continue;
+    const text = r.text_ug || '';
+    const span = m.findAll(searchForms.lowered(text), 1)[0];
+    if (!span) continue;
+    out.push(Object.assign(r, { snip_ar: '', snip_ug: markedSnippetHtml(text, span) }));
+  }
+  return out;
+}
+
+/** The Qur'an search as typed, one row per verse. */
+function quranSearchRows(query, opts) {
   opts = opts || {};
   const lang = opts.lang || 'auto';
   const limit = Math.max(1, Math.min(500, opts.limit || 200));
@@ -1161,19 +1780,19 @@ function quranSearch(query, opts) {
 
       let sql;
       if (lang === 'ar') {
-        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug,
+        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug, ${quranGroupSql('a')},
                snippet(quran_fts, 0, '<mark>', '</mark>', '...', 10) AS snip_ar,
                '' AS snip_ug
                FROM quran_fts JOIN quran_ayas a ON a.id=quran_fts.rowid
                WHERE quran_fts.text_ar_simple MATCH ? ORDER BY rank LIMIT ?`;
       } else if (lang === 'ug') {
-        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug,
+        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug, ${quranGroupSql('a')},
                '' AS snip_ar,
                snippet(quran_fts, 1, '<mark>', '</mark>', '...', 10) AS snip_ug
                FROM quran_fts JOIN quran_ayas a ON a.id=quran_fts.rowid
                WHERE quran_fts.text_ug MATCH ? ORDER BY rank LIMIT ?`;
       } else {
-        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug,
+        sql = `SELECT a.id, a.sura, a.aya, a.text_ar, a.text_ug, ${quranGroupSql('a')},
                snippet(quran_fts, 0, '<mark>', '</mark>', '...', 10) AS snip_ar,
                snippet(quran_fts, 1, '<mark>', '</mark>', '...', 10) AS snip_ug
                FROM quran_fts JOIN quran_ayas a ON a.id=quran_fts.rowid
@@ -1195,15 +1814,15 @@ function quranSearchSimple(q, lang, limit) {
 
   let sql, params;
   if (lang === 'ar') {
-    sql = `SELECT id, sura, aya, text_ar, text_ug FROM quran_ayas
+    sql = `SELECT id, sura, aya, text_ar, text_ug, ${quranGroupSql('')} FROM quran_ayas
            WHERE text_ar_simple LIKE ? OR text_ar LIKE ? LIMIT ?`;
     params = ['%' + qAr + '%', '%' + qAr + '%', limit];
   } else if (lang === 'ug') {
-    sql = `SELECT id, sura, aya, text_ar, text_ug FROM quran_ayas
+    sql = `SELECT id, sura, aya, text_ar, text_ug, ${quranGroupSql('')} FROM quran_ayas
            WHERE text_ug LIKE ? LIMIT ?`;
     params = ['%' + qUg + '%', limit];
   } else {
-    sql = `SELECT id, sura, aya, text_ar, text_ug FROM quran_ayas
+    sql = `SELECT id, sura, aya, text_ar, text_ug, ${quranGroupSql('')} FROM quran_ayas
            WHERE text_ar_simple LIKE ? OR text_ar LIKE ? OR text_ug LIKE ? LIMIT ?`;
     params = ['%' + qAr + '%', '%' + qAr + '%', '%' + qUg + '%', limit];
   }
@@ -1317,9 +1936,10 @@ function notesSetPinned(id, pinned) {
  * characters), case-insensitive for the letters that have case, 2–100
  * characters, at most 50 results, pinned first, never the trash.
  */
-function notesSearch(query) {
+function notesSearch(query, opts) {
   const q = String(query == null ? '' : query).trim();
   if (q.length < 2 || q.length > 100) return { ok: false, reason: 'length', notes: [] };
+  if (opts) return notesSearchForLibrary(q, opts);
   const notes = db.prepare(`
     SELECT id, title, created_at, updated_at, pinned, length(content_text) AS size,
            ${NOTE_PREVIEW_SQL} AS preview
@@ -1328,6 +1948,48 @@ function notesSearch(query) {
     ORDER BY pinned DESC, updated_at DESC, id DESC
     LIMIT 50
   `).all(q, q);
+  return { ok: true, notes: notes };
+}
+
+/**
+ * The notebook as the library's search sees it (3.6): the same notes — title
+ * and text, never the trash, pinned first, newest first, at most 50 — and,
+ * with `opts.forms`, also through the Uyghur forms of the typed words. A
+ * note carries `snip` and `mark` (the word found), `titleMark`, and `words`,
+ * every word the forms found in it, which the notebook paints when the note
+ * is opened. Notes are few and short, so each is read through the matcher.
+ */
+function notesSearchForLibrary(q, opts) {
+  const m = searchForms.compile(q, { forms: !!opts.forms });
+  const rows = db.prepare(`
+    SELECT id, title, created_at, updated_at, pinned, length(content_text) AS size,
+           ${NOTE_PREVIEW_SQL} AS preview, content_text
+    FROM note_documents
+    WHERE deleted_at IS NULL
+    ORDER BY pinned DESC, updated_at DESC, id DESC
+  `).all();
+  const notes = [];
+  for (const row of rows) {
+    const text = row.content_text || '';
+    const lower = searchForms.lowered(text);
+    const inTitle = m.findAll(searchForms.lowered(row.title), 1)[0];
+    const first = m.findAll(lower, 1)[0];
+    if (!inTitle && !first) continue;
+    const note = Object.assign({}, row);
+    delete note.content_text;
+    note.titleMark = inTitle ? [inTitle.start, inTitle.end] : null;
+    note.snip = '';
+    note.mark = null;
+    if (first) {
+      const s = Math.max(0, first.start - 60);
+      const e = Math.min(text.length, first.end + 60);
+      note.snip = text.slice(s, e).replace(/\s/g, ' ');
+      note.mark = [first.start - s, first.end - s];
+    }
+    note.words = m.foundWords(lower, text);
+    notes.push(note);
+    if (notes.length >= 50) break;
+  }
   return { ok: true, notes: notes };
 }
 
@@ -1534,7 +2196,7 @@ function quranContentSnippet(needle, maxResults, ctx) {
         : tokens[0] + '*';
 
       const rows = db.prepare(`
-        SELECT a.sura, a.aya, a.text_ug, a.text_ar_simple,
+        SELECT a.sura, a.aya, a.text_ug, a.text_ar_simple, ${quranGroupSql('a')},
                snippet(quran_fts, 0, '§MARK_OPEN§', '§MARK_CLOSE§', '...', 12) AS snip_ar,
                snippet(quran_fts, 1, '§MARK_OPEN§', '§MARK_CLOSE§', '...', 12) AS snip_ug
         FROM quran_fts
@@ -1545,8 +2207,12 @@ function quranContentSnippet(needle, maxResults, ctx) {
       `).all(ftsQuery, MAX);
 
       const out = [];
+      const groupsSeen = new Set();   // a shared translation is listed once
       for (const row of rows) {
         if (row.snip_ug && row.snip_ug.indexOf('§MARK_OPEN§') !== -1) {
+          const key = row.sura + ':' + row.ug_from;
+          if (groupsSeen.has(key)) continue;
+          groupsSeen.add(key);
           out.push({
             snip: String(row.snip_ug).replace(/\s+/g, ' ').trim(),
             pos: 0, sura: row.sura, aya: row.aya, lang: 'ug'
@@ -1569,10 +2235,11 @@ function quranContentSnippet(needle, maxResults, ctx) {
     ? normalizeArabicQuery(cleanNeedle).toLowerCase()
     : lcNeedle;
   const snippets = [];
+  const groupsSeen = new Set();   // a shared translation is listed once
 
   function scanColumn(col, langTag) {
     if (snippets.length >= MAX) return;
-    const rows = db.prepare(`SELECT sura, aya, ${col} AS txt FROM quran_ayas ORDER BY sura, aya`).all();
+    const rows = db.prepare(`SELECT sura, aya, ${col} AS txt, ${quranGroupSql('')} FROM quran_ayas ORDER BY sura, aya`).all();
     for (const row of rows) {
       if (snippets.length >= MAX) break;
       const text = row.txt || '';
@@ -1582,6 +2249,10 @@ function quranContentSnippet(needle, maxResults, ctx) {
       const needle = (langTag === 'ar') ? lcArNeedle : lcNeedle;
       const hit = lcText.indexOf(needle);
       if (hit === -1) continue;
+      if (langTag === 'ug') {
+        if (groupsSeen.has(row.sura + ':' + row.ug_from)) continue;
+        groupsSeen.add(row.sura + ':' + row.ug_from);
+      }
 
       const start = Math.max(0, hit - CTX);
       const end = Math.min(text.length, hit + needle.length + CTX);
@@ -2064,9 +2735,14 @@ module.exports = {
   normalizeArabicQuery, isArabicScript,
   addBook, addBooksBatch, updateBook, deleteBook, getBook, getAllBooks, getBooksByCategory,
   getBookContent, saveBookContent, checkDuplicateHash,
+  // A PDF's pages in the text, and where the PDF is (3.6)
+  getPageMap, getBookOriginal, setBookOriginal,
+  pdfPageInfo, savePageEdit, undoPageEdit, placePages,
+  // Where a book came from (3.6)
+  setBookSource, findBookBySource, getBookSources, replaceBookText,
   // Books stored as glyph codepoints (W18, K15)
   presentationFormsScan, presentationFormsFix,
-  searchBooks, getAllSnippetsForBook,
+  searchBooks, getAllSnippetsForBook, searchWordsInBook,
   getCategories, getCategoryNames, addCategory, renameCategory, deleteCategory, ensureDefaultCategories,
   getBookmarks, addBookmark, deleteBookmark,
   getNotes, addNoteDB, deleteNoteDB,

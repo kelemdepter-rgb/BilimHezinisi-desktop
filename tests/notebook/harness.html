@@ -15,6 +15,8 @@
 <meta charset="UTF-8">
 <title>Bilim Hezinisi — notebook tests</title>
 <link rel="stylesheet" href="../../src/notes.css">
+<link rel="stylesheet" href="../../src/quran.css">
+<link rel="stylesheet" href="../../src/parallel.css">
 <style>
   /* The handful of index.html variables notes.css reads. Values do not matter
      to any assertion; having them keeps the layout realistic. */
@@ -44,13 +46,21 @@
 <script src="framework.js"></script>
 
 <!-- The app's own files, exactly as they ship. -->
+<script src="../../assets/pdfjs/pdf.min.js"></script>
+<script src="../lib/make-pdf.js"></script>
 <script src="../../assets/vendor/purify.min.js"></script>
 <script src="../../assets/vendor/turndown.js"></script>
 <script src="../../src/sanitize.js"></script>
 <script src="../../src/textmap.js"></script>
 <script src="../../src/spellcheck.js"></script>
+<script src="../../src/verse-label.js"></script>
+<script src="../../src/pdf-text.js"></script>
+<script src="../../src/quran.js"></script>
 <script src="../../src/notes-export.js"></script>
 <script src="../../src/note-units.js"></script>
+<script src="../../src/reader-places.js"></script>
+<script src="../../src/parallel.js"></script>
+<script src="../../src/pdf-compare.js"></script>
 <script src="../../src/notes.js"></script>
 
 <!-- The suites. -->
@@ -69,6 +79,11 @@
 <script src="suite-cite.js"></script>
 <script src="suite-source.js"></script>
 <script src="suite-ai-units.js"></script>
+<script src="suite-quran.js"></script>
+<script src="suite-pdf.js"></script>
+<script src="suite-parallel.js"></script>
+<script src="suite-pdf-compare.js"></script>
+<script src="suite-found.js"></script>
 
 <script>window.BH.boot();</script>
 </body>

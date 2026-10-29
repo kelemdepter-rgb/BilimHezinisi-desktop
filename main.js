@@ -8,6 +8,12 @@ const librarySync = require('./library-sync');
 const backup = require('./backup');
 const navigation = require('./navigation');
 const noteExport = require('./note-export');
+const pdfOriginal = require('./pdf-original');
+const PdfCompare = require('./src/pdf-compare');
+const textNormalize = require('./text-normalize');
+const searchForms = require('./search-forms');
+const webLibrary = require('./web-library');
+const ocrEngine = require('./ocr-engine');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
 // What counts as one word for the personal dictionary, and what an imported
@@ -383,17 +389,29 @@ ipcMain.handle('db-get-books-by-category', (event, category) => {
   }
 });
 
-// Add a book
-ipcMain.handle('db-add-book', (event, bookData) => {
+// Where a PDF book's file is (3.6): its path, size, time and SHA-256, read
+// HERE from the path the owner chose — never taken from the renderer. The
+// PDF itself is never copied. Anything that is not a readable .pdf: none.
+async function pdfFacts(format, file) {
+  if (String(format || '').toUpperCase() !== 'PDF' || !file || !/\.pdf$/i.test(String(file))) return null;
+  try { return await pdfOriginal.fileFacts(String(file)); } catch (e) { return null; }
+}
+
+// Add a book. A PDF also brings `pages` — each page's [start, end) in
+// `content` as extracted, mapped through the normalisation by database.js —
+// and `originalPath`.
+ipcMain.handle('db-add-book', async (event, bookData) => {
   try {
-    const { title, author, category, format, date, description, content, fileHash } = bookData;
+    const { title, author, category, format, date, description, content, fileHash, pages, originalPath } = bookData;
 
     // Check for duplicate
     if (fileHash && database.checkDuplicateHash(fileHash)) {
       return { success: false, error: 'duplicate', message: 'بۇ كىتاب مەۋجۇت' };
     }
 
-    const id = database.addBook(title, author, category, format, date, description, content, fileHash);
+    const original = await pdfFacts(format, originalPath);
+    const id = database.addBook(title, author, category, format, date, description, content, fileHash,
+      { pages: Array.isArray(pages) ? pages : null, original: original });
     if (content) {
       try {
         database.ngramIndexBook(id, content);
@@ -411,10 +429,15 @@ ipcMain.handle('db-add-book', (event, bookData) => {
 
 // Batch add — accepts an array of book objects, inserts all in one transaction.
 // Far faster than calling db-add-book in a loop for bulk imports.
-ipcMain.handle('db-add-books-batch', (event, booksArray) => {
+ipcMain.handle('db-add-books-batch', async (event, booksArray) => {
   try {
     if (!Array.isArray(booksArray) || booksArray.length === 0) {
       return { success: true, added: [], skipped: [] };
+    }
+    for (const b of booksArray) {
+      if (!b || typeof b !== 'object') continue;
+      b.original = await pdfFacts(b.format, b.originalPath);
+      if (!Array.isArray(b.pages)) b.pages = null;
     }
     const result = database.addBooksBatch(booksArray);
     return { success: true, added: result.added, skipped: result.skipped };
@@ -470,28 +493,42 @@ ipcMain.handle('db-save-content', (event, bookId, content) => {
 });
 
 // Search books with FTS5
+// opts.forms (3.6): the Uyghur forms of the typed words too (search-forms.js);
+// `forms` in the answer lists what they added, for «ئىزدەلگەن شەكىللەر».
 ipcMain.handle('db-search', (event, query, category, opts) => {
   try {
-    const results = database.searchBooks(query, category);
+    const withForms = !!(opts && opts.forms);
+    const results = database.searchBooks(query, category, { forms: withForms });
     // Save search history — the reader's. The notebook's «مەنبە» search
     // (src/notes.js, notesSourceSearch) asks to stay out of it.
     if (!(opts && opts.history === false)) {
       database.addSearchHistory(query, results.length);
       database.saveDB(DATA_DIR);
     }
-    return { success: true, results };
+    return { success: true, results, forms: withForms ? searchForms.compile(query).forms : [] };
   } catch(e) {
     return { success: false, error: e.message, results: [] };
   }
 });
 
-// Get ALL occurrences of a query inside ONE book (for the "+" expand feature)
-ipcMain.handle('db-get-all-snippets', (event, bookId, query) => {
+// Get ALL occurrences of a query inside ONE book (for the "+" expand feature);
+// opts.forms as in db-search.
+ipcMain.handle('db-get-all-snippets', (event, bookId, query, opts) => {
   try {
-    const snippets = database.getAllSnippetsForBook(bookId, query, 200, 70);
+    const snippets = database.getAllSnippetsForBook(bookId, query, 200, 70, { forms: !!(opts && opts.forms) });
     return { success: true, snippets };
   } catch(e) {
     return { success: false, error: e.message, snippets: [] };
+  }
+});
+
+// The words the Uyghur forms of a query found in one book (3.6) — what the
+// reader marks and counts besides the query as typed.
+ipcMain.handle('db-search-words', (event, bookId, query) => {
+  try {
+    return { success: true, words: database.searchWordsInBook(bookId, query) };
+  } catch(e) {
+    return { success: false, error: e.message, words: [] };
   }
 });
 
@@ -975,11 +1012,11 @@ ipcMain.handle('ocr-recognize', async (event, opts) => {
   let langs = (typeof opts.langs === 'string' && opts.langs.trim()) ? opts.langs.trim() : 'ukij';
   if (!images.length) return { success: false, error: 'رەسىم تېپىلمىدى' };
 
-  // Verify at least the first requested model exists, else fail clearly
-  // (offline-friendly: tells the user to fetch the models, never a stack trace).
-  const firstLang = langs.split('+')[0];
+  // Every requested model must be there, else fail clearly (offline-friendly:
+  // tells the user to fetch the models, never a stack trace) — a missing one
+  // would send tesseract to an address lookup that never answers.
   const tessdata = ocrTessdataDir();
-  if (!fs.existsSync(path.join(tessdata, firstLang + '.traineddata'))) {
+  if (ocrEngine.missingModels(tessdata, langs).length) {
     return { success: false, error: 'OCR مودېلى تېپىلمىدى. تەرەققىياتچى: «npm run fetch-ocr-models» نى ئىجرا قىلىڭ.' };
   }
 
@@ -988,15 +1025,9 @@ ipcMain.handle('ocr-recognize', async (event, opts) => {
   const pages = [];
   try {
     const { createWorker } = require('tesseract.js');
-    // LSTM-only (OEM 1). Local langPath + cacheMethod:'none' + gzip:false ⇒
-    // models are read straight from disk, never fetched or cached over network.
-    worker = await createWorker(langs, 1, {
-      workerPath: ocrWorkerPath(),
-      langPath: tessdata,
-      cacheMethod: 'none',
-      gzip: false,
-      logger: () => {}
-    });
+    // LSTM-only (OEM 1). The models are read straight from disk, never
+    // fetched, never written (ocr-engine.js says why it takes a cache).
+    worker = await createWorker(langs, 1, ocrEngine.workerOptions(tessdata, ocrWorkerPath()));
     // PSM 3 (auto) by default — matches UyghurOCR's "PSM Auto for full pages".
     // Overridable (e.g. '6' = uniform block) via opts.psm for experimentation.
     const psm = (opts.psm && /^\d+$/.test(String(opts.psm))) ? String(opts.psm) : '3';
@@ -1148,6 +1179,78 @@ ipcMain.handle('read-html', (event, filePath) => {
   } catch(e) {
     return { success: false, error: e.message };
   }
+});
+
+// ========== «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» (3.6) ==========
+// The website's published books (web-library.js). Only when the owner opens
+// the catalog or downloads a book does the app contact bilimhezinisi.com and
+// its Supabase project — through Electron's net.fetch, so the system's
+// certificates and proxy apply. The catalog is read once a session (the
+// dialog's «يېڭىلاش» reads it again); one download at a time; the renderer
+// sends a book's id only, and main takes the book from its own catalog.
+let webClient = null;
+let webCatalogCache = null;
+let webJob = null;   // the one download in progress: { controller }
+
+function webLib() {
+  if (!webClient) {
+    const { net } = require('electron');
+    webClient = webLibrary.createClient({
+      fetch: (url, init) => net.fetch(url, init),
+      userAgent: 'BilimHezinisi-Desktop/' + app.getVersion() + ' (+' + webLibrary.SITE_ORIGIN + ')'
+    });
+  }
+  return webClient;
+}
+
+function webSendProgress(sender, done, total) {
+  try { if (!sender.isDestroyed()) sender.send('web-progress', { done: done, total: total }); } catch (_) {}
+}
+
+async function webRun(event, work) {
+  if (webJob) return { success: false, busy: true, error: 'بىر كىتاب چۈشۈرۈلۈۋاتىدۇ — ئۇ تۈگىگەندىن كېيىن قايتا سىناڭ' };
+  const controller = new AbortController();
+  webJob = { controller: controller };
+  try {
+    const r = await work(controller.signal, (done, total) => webSendProgress(event.sender, done, total));
+    database.saveDB(DATA_DIR);
+    return Object.assign({ success: true }, r);
+  } catch (err) {
+    return { success: false, cancelled: !!(err && err.cancelled), error: (err && err.message) || 'تورغا ئۇلىنالمىدى' };
+  } finally {
+    webJob = null;
+  }
+}
+
+ipcMain.handle('web-catalog', async (event, refresh) => {
+  try {
+    if (!webCatalogCache || refresh) webCatalogCache = await webLib().catalog();
+    return {
+      success: true,
+      books: webCatalogCache.books,
+      categories: webCatalogCache.categories,
+      local: database.getBookSources(webLibrary.SOURCE)
+    };
+  } catch (err) {
+    return { success: false, error: (err && err.message) || 'تورغا ئۇلىنالمىدى' };
+  }
+});
+
+ipcMain.handle('web-import', (event, bookId, category) => webRun(event, (signal, onProgress) => {
+  const book = webCatalogCache && webCatalogCache.books.find(b => b.id === Number(bookId));
+  if (!book) throw new Error('بۇ كىتاب تور بېتىنىڭ تىزىملىكىدە يوق');
+  return webLibrary.importBook(database, webLib(), book, { category: String(category || 'باشقا'), signal, onProgress });
+}));
+
+ipcMain.handle('web-update', (event, localBookId) => webRun(event, (signal, onProgress) => {
+  const row = database.getBook(Number(localBookId));
+  const book = row && webCatalogCache && webCatalogCache.books.find(b => b.id === Number(row.source_id));
+  return webLibrary.updateBook(database, webLib(), Number(localBookId), { updatedAt: book ? book.updatedAt : null, signal, onProgress });
+}));
+
+ipcMain.handle('web-cancel', () => {
+  if (webJob) webJob.controller.abort();
+  return { success: true };
 });
 
 // Web-page fetch for "تور بەت قوشۇش" (import article by URL). Runs in the MAIN
@@ -1397,6 +1500,182 @@ ipcMain.handle('bulk-export', async (event, category) => {
   }
 });
 
+// ========== A PDF BOOK'S ORIGINAL FILE (3.6) ==========
+// found | moved | missing (pdf-original.js). A found file whose time changed
+// (a copy, the same bytes) has its time recorded again, so it is not hashed
+// on every look.
+ipcMain.handle('pdf-original-status', async (e, bookId) => {
+  try {
+    const original = database.getBookOriginal(bookId);
+    const status = await pdfOriginal.originalStatus(original);
+    if (status === 'found') {
+      const st = await fs.promises.stat(original.path);
+      if (Math.round(st.mtimeMs) !== original.mtime) {
+        database.setBookOriginal(bookId, Object.assign({}, original, { mtime: Math.round(st.mtimeMs) }));
+      }
+    }
+    return { success: true, status: status, path: original.path || '' };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// The owner points to the PDF. The same file (same SHA-256) is taken at
+// once; any other — or any file for a book that never had one recorded —
+// only after the owner says, in a native dialog, that it is the same book.
+ipcMain.handle('pdf-locate-original', async (e, bookId) => {
+  try {
+    const book = database.getBook(bookId);
+    if (!book) return { success: false, error: 'not found' };
+    const recorded = database.getBookOriginal(bookId);
+    const pick = await dialog.showOpenDialog(mainWindow, {
+      title: 'ئەسلى PDF نى كۆرسىتىڭ',
+      defaultPath: recorded.path ? path.dirname(recorded.path) : undefined,
+      properties: ['openFile'],
+      filters: [{ name: 'PDF ھۆججىتى', extensions: ['pdf'] }]
+    });
+    if (pick.canceled || !pick.filePaths.length) return { success: true, ok: false, cancelled: true };
+    const out = await pdfOriginal.locateOriginal(database, bookId, pick.filePaths[0], async () => {
+      const answer = await dialog.showMessageBox(mainWindow, {
+        type: 'question',
+        buttons: ['ھەئە، شۇ كىتاب', 'ياق'],
+        defaultId: 1,
+        cancelId: 1,
+        title: 'ئەسلى PDF',
+        message: recorded.sha256 ? 'بۇ ھۆججەت ئىلگىرى خاتىرىلەنگەن PDF بىلەن ئوخشاش ئەمەس.' : 'بۇ كىتابنىڭ PDF ى ئىلگىرى خاتىرىلەنمىگەن.',
+        detail: '«' + (book.title || '') + '» نىڭ PDF ى مۇشۇمۇ؟'
+      });
+      return answer.response === 0;
+    });
+    return { success: true, ok: !!out.ok, same: !!out.same, cancelled: !!out.cancelled };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// ========== THE PDF PAGE BESIDE ITS TEXT (3.6) ==========
+// «ئەسلى بەت بىلەن سېلىشتۇرۇش» (src/pdf-compare.js). The PDF is read once per
+// view, from where it was recorded — never from a path the renderer sends —
+// and only while it is still the book's. A correction, its undo and a page
+// found in the text each write in one transaction (database.js).
+
+// In pieces of 8 MB from `from`: a 100 MB PDF sent whole held the window for
+// 172 ms while it arrived (measured). The first piece checks the file is
+// still the book's; every piece reads the recorded path.
+const PDF_PIECE = 8 * 1024 * 1024;
+ipcMain.handle('pdf-original-bytes', async (e, bookId, from) => {
+  try {
+    const original = database.getBookOriginal(Number(bookId));
+    const start = Math.max(0, Math.round(Number(from) || 0));
+    if (start === 0 && (await pdfOriginal.originalStatus(original)) !== 'found') return { success: false, status: 'moved' };
+    if (!original.path) return { success: false, status: 'missing' };
+    const fh = await fs.promises.open(original.path, 'r');
+    try {
+      const size = (await fh.stat()).size;
+      const n = Math.max(0, Math.min(PDF_PIECE, size - start));
+      const data = Buffer.alloc(n);
+      if (n) await fh.read(data, 0, n, start);
+      return { success: true, total: size, data: data };
+    } finally {
+      await fh.close();
+    }
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('pdf-page-info', (e, bookId, pageNo, pageCount) => {
+  try {
+    return Object.assign({ success: true },
+      database.pdfPageInfo(Number(bookId), Number(pageNo), Number(pageCount), PdfCompare.estimateRange));
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// The PDF page that holds a place in the text: the placed page around it, or
+// its proportion of the book.
+ipcMain.handle('pdf-page-at', (e, bookId, offset, pageCount) => {
+  try {
+    const id = Number(bookId);
+    const off = Number(offset) || 0;
+    const n = Math.max(1, Number(pageCount) || 1);
+    const map = database.getPageMap(id);
+    const inside = map.find(r => r.start <= off && off < r.end);
+    if (inside) return { success: true, page: Math.min(n, inside.page_no) };
+    // Between the placed pages around it (or the ends of the book), by proportion.
+    let lo = 0, loPage = 0, hi = database.getBookContent(id).length, hiPage = n + 1;
+    for (const r of map) {
+      if (r.end <= off) { lo = r.end; loPage = r.page_no; }
+      else if (r.start > off) { hi = r.start; hiPage = r.page_no; break; }
+    }
+    const k = Math.max(1, hiPage - loPage - 1);
+    const page = loPage + 1 + (hi > lo ? Math.min(k - 1, Math.floor(((off - lo) / (hi - lo)) * k)) : 0);
+    return { success: true, page: Math.max(1, Math.min(n, page)) };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('pdf-page-save', (e, bookId, pageNo, text) => {
+  try {
+    const r = database.savePageEdit(Number(bookId), Number(pageNo), String(text == null ? '' : text));
+    if (r.ok && !r.unchanged) database.saveDB(DATA_DIR);
+    return Object.assign({ success: true }, r);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('pdf-page-undo', (e, bookId, pageNo) => {
+  try {
+    const r = database.undoPageEdit(Number(bookId), Number(pageNo));
+    if (r.ok) database.saveDB(DATA_DIR);
+    return Object.assign({ success: true }, r);
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// A book with no page map (imported before 3.6) and a text-layer PDF: every
+// page's text, folded into letters as the book's was, found in order.
+ipcMain.handle('pdf-align-pages', (e, bookId, pageTexts) => {
+  try {
+    const id = Number(bookId);
+    if (database.getPageMap(id).length) return { success: true, placed: 0, missing: [], skipped: true };
+    const pages = (Array.isArray(pageTexts) ? pageTexts : []).map(t => textNormalize.normalizeImportedText(String(t == null ? '' : t)));
+    const r = PdfCompare.alignPages(database.getBookContent(id), pages);
+    const written = database.placePages(id, r.placed);
+    if (written) database.saveDB(DATA_DIR);
+    return { success: true, placed: written, missing: r.missing, total: pages.length };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// A scanned book's page, read by OCR: found near its estimate, between the
+// placed pages around it, by its letter trigrams.
+ipcMain.handle('pdf-place-page', (e, bookId, pageNo, pageCount, ocrText) => {
+  try {
+    const id = Number(bookId);
+    const n = Number(pageNo);
+    const content = database.getBookContent(id);
+    const est = PdfCompare.estimateRange(content, n, Number(pageCount), database.getPageMap(id));
+    const ocr = textNormalize.normalizeImportedText(String(ocrText || ''));
+    const size = Math.max(1, est.end - est.start);
+    const lo = Math.max(est.lo, est.start - 3 * size - 2000);
+    const hi = Math.min(est.hi, est.end + 3 * size + 2000);
+    let found = PdfCompare.placeByTrigrams(content, ocr, lo, hi);
+    if (!found && (lo > est.lo || hi < est.hi)) found = PdfCompare.placeByTrigrams(content, ocr, est.lo, est.hi);
+    if (!found) return { success: true, ok: false };
+    if (!database.placePages(id, [{ page: n, start: found.start, end: found.end }])) return { success: true, ok: false, reason: 'order' };
+    database.saveDB(DATA_DIR);
+    return { success: true, ok: true, start: found.start, end: found.end, score: found.score };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 // ========== QURAN IPC ==========
 ipcMain.handle('quran-get-suras', () => {
   try { return { success: true, suras: database.quranGetSuras() }; }
@@ -1486,8 +1765,9 @@ ipcMain.handle('notes-set-pinned', (e, id, pinned) => {
   try { return { success: database.notesSetPinned(id, !!pinned) }; }
   catch(err) { return { success: false, error: err.message }; }
 });
-ipcMain.handle('notes-search', (e, query) => {
-  try { return Object.assign({ success: true }, database.notesSearch(query)); }
+// opts (3.6): the library's search — snippets, and the forms when opts.forms.
+ipcMain.handle('notes-search', (e, query, opts) => {
+  try { return Object.assign({ success: true }, database.notesSearch(query, opts && typeof opts === 'object' ? opts : undefined)); }
   catch(err) { return { success: false, ok: false, notes: [], error: err.message }; }
 });
 ipcMain.handle('notes-discard-empty', (e, id) => {

@@ -1738,7 +1738,7 @@
     preview.innerHTML = `
       <div class="notes-quran-preview">
         ${showAr ? `<div class="notes-quran-preview-ar">${escHtml(a.text_ar)}</div>` : ''}
-        ${showUg ? `<div class="notes-quran-preview-ug">${escHtml(a.text_ug)}</div>` : ''}
+        ${showUg ? `<div class="notes-quran-preview-ug">${escHtml(ayaTranslation(a))}</div>` : ''}
         <div class="notes-quran-preview-actions">
           <button data-action="insert" onclick="window.notesInsertAya(${sura}, ${aya}, '${mode}')">${icon('plus')} قىستۇرۇش</button>
           <button data-action="copy" onclick="window.notesCopyAya(${sura}, ${aya}, '${mode}')">${icon('copy')} كۆچۈرۈش</button>
@@ -1757,6 +1757,18 @@
     if (mode === true) return 'both';
     if (mode === false) return 'ar';
     return AYA_MODES.indexOf(mode) !== -1 ? mode : 'both';
+  }
+
+  /**
+   * A verse's translation with its label: «… [4]», or the group's «… [4 _ 6]»
+   * when the translator rendered several verses as one sentence (3.6).
+   */
+  function ayaLabel(a) {
+    const g = window.VerseLabel.range(a);
+    return window.VerseLabel.label(g.from, g.to);
+  }
+  function ayaTranslation(a) {
+    return window.VerseLabel.translation(a) + ' ' + ayaLabel(a);
   }
 
   window.notesInsertAya = async function(sura, aya, mode) {
@@ -1782,7 +1794,7 @@
       lines.push(`<span style="${AR_STYLE}">\uFD3F${escHtml(a.text_ar)}\uFD3E</span>`);
     }
     if (mode !== 'ar' && a.text_ug) {
-      lines.push(`<span data-ref-insert="1" style="${UG_STYLE}">\u00AB${escHtml(a.text_ug)}\u00BB</span>`);
+      lines.push(`<span data-ref-insert="1" style="${UG_STYLE}">\u00AB${escHtml(window.VerseLabel.translation(a))}\u00BB ${escHtml(ayaLabel(a))}</span>`);
     }
     lines.push(citeLinkHtml(quranHref(sura, aya), 'قۇرئان كەرىم، ' + Number(sura) + ':' + Number(aya)));
     const insertHtml = `<p dir="rtl">` + lines.join('<br>') + `</p><p><br></p>`;
@@ -1804,7 +1816,8 @@
     if (mode === 'ug' && r.aya.text_ug) {
       // The translation alone, with the verse it translates.
       try {
-        await navigator.clipboard.writeText('«' + r.aya.text_ug + '» (' + Number(sura) + ':' + Number(aya) + ')');
+        await navigator.clipboard.writeText('«' + window.VerseLabel.translation(r.aya) + '» ' + ayaLabel(r.aya) +
+          ' (' + Number(sura) + ':' + Number(aya) + ')');
         ok = true;
       } catch(e) { ok = false; }
     } else {
@@ -2662,9 +2675,10 @@
         // The column the words were found in — FTS5 snippets the other one too.
         const inUg = !!a.snip_ug && a.snip_ug.indexOf('<mark>') !== -1;
         const inAr = !!a.snip_ar && a.snip_ar.indexOf('<mark>') !== -1;
-        const snip = inUg ? a.snip_ug : inAr ? a.snip_ar : (a.text_ug || a.text_ar || '');
+        const snip = inUg ? a.snip_ug : inAr ? a.snip_ar : (a.text_ug ? window.VerseLabel.translation(a) : a.text_ar || '');
         const arabic = !inUg && (inAr || !a.text_ug);
-        return srcHitHtml({ kind: 'aya', sura: a.sura, aya: a.aya, snip: ftsMarks(snip), arabic: arabic });
+        // A translation carries its label; the Arabic is not the translation.
+        return srcHitHtml({ kind: 'aya', sura: a.sura, aya: a.aya, snip: ftsMarks(snip) + (arabic ? '' : ' ' + ayaLabel(a)), arabic: arabic });
       }).join('');
     }
 
@@ -2725,10 +2739,15 @@
 
   let findState = { hits: [], idx: -1, map: null, query: '' };
   let findUndo = null;        // { html, steps } — the note before a replace-all
+  // From the library's search (3.6): the query and the words its Uyghur forms
+  // found in this note. They are painted only while the find box holds that
+  // query and replace is not open — a replace touches only what was typed.
+  let findFound = null;
 
   function isFindOpen() { const b = document.getElementById('notes-find-bar'); return !!(b && b.style.display !== 'none'); }
 
   function openFindBar(withReplace) {
+    findFound = null;
     const bar = document.getElementById('notes-find-bar'); if (!bar) return;
     bar.style.display = 'flex';
     ['notes-replace-input', 'notes-replace-btn', 'notes-replace-all-btn'].forEach(id => {
@@ -2811,7 +2830,20 @@
     const map = TM.readTextMap(editorEl);
     const needle = q.toLowerCase();
     const hits = [];
+    const found = (findFound && findFound.query === q && findFound.words.length && window.ReaderPlaces) ? findFound.words : null;
     for (let i = 0; i < map.nodes.length; i++) {
+      if (found) {
+        // The words the search found, whole, and the query as typed — what
+        // the reader marks for the same search (ReaderPlaces.searchRe).
+        const re = window.ReaderPlaces.searchRe(q, found);
+        const data = map.nodes[i].data;
+        let m;
+        while ((m = re.exec(data)) !== null) {
+          if (!m[0]) { re.lastIndex++; continue; }
+          hits.push({ start: map.starts[i] + m.index, end: map.starts[i] + m.index + m[0].length });
+        }
+        continue;
+      }
       const lower = map.nodes[i].data.toLowerCase();
       let at = 0;
       while ((at = lower.indexOf(needle, at)) !== -1) {
@@ -2840,7 +2872,22 @@
     if (e.key === 'Enter') { e.preventDefault(); if (e.shiftKey) window.notesFindPrev(); else window.notesFindNext(); }
     else if (e.key === 'Escape') { e.preventDefault(); window.notesFindClose(); }
   };
+  /**
+   * A note opened from the library's search (3.6): the find bar, find only,
+   * with the search's query, and every word its forms found painted with the
+   * find highlight — nothing is written into the note.
+   */
+  window.notesShowFound = function (query, words) {
+    if (!editorEl) return;
+    openFindBar(false);
+    findFound = { query: String(query == null ? '' : query).trim(), words: Array.isArray(words) ? words.filter(Boolean) : [] };
+    const inp = document.getElementById('notes-find-input');
+    if (inp) inp.value = findFound.query;
+    window.notesFindRun();
+  };
+
   window.notesFindClose = function () {
+    findFound = null;
     clearFindHighlights();
     updateFindCount();
     const bar = document.getElementById('notes-find-bar'); if (bar) bar.style.display = 'none';

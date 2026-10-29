@@ -344,7 +344,7 @@
       h += `<div class="quran-aya${marked ? ' bookmarked' : ''}" data-sura="${a.sura}" data-aya="${a.aya}"
         onclick="window.quranOnAyaClick(event, ${a.sura}, ${a.aya})">${marked ? bmMarkHtml() : ''}
         <div class="quran-aya-ar">${escHtml(a.text_ar)}<span class="quran-aya-num">${numDisplay}</span></div>
-        ${a.text_ug ? `<div class="quran-aya-ug"><span class="quran-aya-ug-prefix">تەرجىمە</span>${escHtml(a.text_ug)}</div>` : ''}
+        ${translationHtml(a, r.ayas)}
       </div>`;
     }
 
@@ -360,7 +360,11 @@
 
     const targetAya = _s().curAya || 1;
     if (!opts || opts.remember !== false) rememberVerse(suraNumber, targetAya);
-    if (targetAya > 1) {
+    // A verse opened from the library's search is selected even when it is
+    // the first (3.6).
+    const select = targetAya > 1 || _s().selectAya;
+    _s().selectAya = false;
+    if (select) {
       ownScrollUntil = Date.now() + 2000;
       setTimeout(() => {
         const el = container.querySelector(`.quran-aya[data-aya="${targetAya}"]`);
@@ -374,6 +378,40 @@
       if (scroll) scroll.scrollTop = 0;
     }
   }
+
+  // A verse's translation, ending with its label «[4]». Verses the translator
+  // rendered as one sentence show it once, under the last of them, ending
+  // «[4 _ 6]» (the longest of their texts: 53:14's is a shortened copy of
+  // 53:13's); the earlier ones point to it. The label is plain text in the
+  // right-to-left paragraph — no isolation — so a reader meets 4 first.
+  function labelHtml(from, to) {
+    return `<span class="quran-aya-label">${escHtml(VerseLabel.label(from, to))}</span>`;
+  }
+
+  function translationHtml(a, ayas) {
+    const g = VerseLabel.range(a);
+    if (g.to > g.from && a.aya < g.to) {
+      return `<div class="quran-aya-ug quran-aya-ug-ref" title="تەرجىمىسىگە بېرىش"
+        onclick="window.quranGoToGroupTranslation(event, ${a.sura}, ${g.to})">تەرجىمىسى ${g.to}-ئايەتنىڭ ئاستىدا ${labelHtml(g.from, g.to)}</div>`;
+    }
+    const text = g.to > g.from ? VerseLabel.groupText(ayas, a.sura, g.from, g.to) : a.text_ug;
+    if (!text) return '';
+    return `<div class="quran-aya-ug"><span class="quran-aya-ug-prefix">تەرجىمە</span>${escHtml(text)} ${labelHtml(g.from, g.to)}</div>`;
+  }
+
+  // From the pointer line of a verse in a group: to the verse whose
+  // translation it is, without opening the verse menu.
+  window.quranGoToGroupTranslation = function(ev, sura, aya) {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    const target = document.querySelector(`.quran-aya[data-sura="${sura}"][data-aya="${aya}"]`);
+    if (!target) return;
+    document.querySelectorAll('.quran-aya.selected').forEach(el => el.classList.remove('selected'));
+    target.classList.add('selected');
+    _s().curAya = aya;
+    ownScrollUntil = Date.now() + 2000;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    rememberVerse(sura, aya);
+  };
 
   window.quranOpenSura = async function(suraNumber) {
     _s().curSura = suraNumber;
@@ -460,7 +498,7 @@
   window.quranRunSearchNow = function() {
     clearTimeout(searchDebounceTimer);
     if (!_s().searchQuery || !_s().searchQuery.trim()) return;
-    runSearch({ tryJump: true });
+    return runSearch({ tryJump: true });
   };
 
   window.quranClearSearch = function() {
@@ -495,12 +533,18 @@
     for (const r of results) {
       const sura = _s().suras.find(s => s.number === r.sura);
       const suraLabel = sura ? `${sura.name_ar} / ${sura.name_ug}` : `سۈرە ${r.sura}`;
-      const arHtml = r.snip_ar ? r.snip_ar : escHtml(r.text_ar);
-      const ugHtml = r.snip_ug ? r.snip_ug : escHtml(r.text_ug);
+      // One card per translation group (database.js): each verse found keeps
+      // its Arabic, and the translation is shown once, with its label.
+      const verses = (Array.isArray(r.verses) && r.verses.length) ? r.verses : [{ aya: r.aya, text_ar: r.text_ar, snip_ar: r.snip_ar }];
+      const arHtml = verses.map(v =>
+        `<div class="quran-search-result-ar">${v.snip_ar ? v.snip_ar : escHtml(v.text_ar)}<span class="quran-aya-num">${toArabicNumerals(v.aya)}</span></div>`
+      ).join('');
+      const g = VerseLabel.range(r);
+      const ugText = r.snip_ug ? r.snip_ug : escHtml(VerseLabel.translation(r));
       h += `<div class="quran-search-result" onclick="window.quranOpenAya(${r.sura}, ${r.aya})">
-        <div class="quran-search-meta">${icon('book-open')} ${escHtml(suraLabel)} — ئايەت ${r.aya}</div>
-        <div class="quran-search-result-ar">${arHtml}</div>
-        ${ugHtml ? `<div class="quran-search-result-ug">${ugHtml}</div>` : ''}
+        <div class="quran-search-meta">${icon('book-open')} ${escHtml(suraLabel)} — ئايەت ${verses.map(v => v.aya).join('، ')}</div>
+        ${arHtml}
+        ${ugText ? `<div class="quran-search-result-ug">${ugText} ${labelHtml(g.from, g.to)}</div>` : ''}
       </div>`;
     }
     container.innerHTML = h;
@@ -658,42 +702,51 @@
     );
   };
 
+  /**
+   * What a copy of these verses puts on the clipboard, as HTML and as text.
+   * With the translation, a run of verses sharing one (a group) is ONE
+   * paragraph: each verse's Arabic, then the translation once, with its
+   * label \u00AB[4 _ 6]\u00BB; a verse of a group copied alone carries the group's.
+   */
+  function buildCopy(ayas, withTranslation) {
+    const htmlParts = [];
+    const textParts = [];
+    const arHtml = a => `&#xFD3F;${escHtml(a.text_ar)}&#xFD3E;`;
+    const arText = a => `\uFD3F${a.text_ar}\uFD3E`;
+    const units = withTranslation
+      ? VerseLabel.units(ayas || [])
+      : (ayas || []).map(a => ({ ayas: [a], text: '' }));
+
+    for (const u of units) {
+      let html = `<p dir="rtl" style="text-align:right;margin:0 0 12pt 0;">` +
+        `<span style="font-family:${FONT_STACK_AR};font-size:20pt;line-height:1.9">` +
+          u.ayas.map(arHtml).join(' ') +
+        `</span>`;
+      let text = u.ayas.map(arText).join(' ');
+      if (u.text) {
+        const label = VerseLabel.label(u.from, u.to);
+        html += `<br>` +
+          `<span style="font-family:${FONT_STACK_UG};font-size:13pt;line-height:1.7;color:#333">` +
+            `&#x00AB;${escHtml(u.text)}&#x00BB; ${escHtml(label)}` +
+          `</span>`;
+        text += ` \u00AB${u.text}\u00BB ${label}`;
+      }
+      htmlParts.push(html + `</p>`);
+      textParts.push(text);
+    }
+
+    return {
+      html: `<html><head><meta charset="utf-8"></head><body>${htmlParts.join('\n')}</body></html>`,
+      text: textParts.join('\n\n')
+    };
+  }
+
   async function copyAyaToClipboard(ayas, withTranslation) {
     if (!ayas || !ayas.length) return false;
 
-    const htmlParts = [];
-    const textParts = [];
-
-    for (const a of ayas) {
-      const arSafe = escHtml(a.text_ar);
-      if (withTranslation && a.text_ug) {
-        const ugSafe = escHtml(a.text_ug);
-        htmlParts.push(
-          `<p dir="rtl" style="text-align:right;margin:0 0 12pt 0;">` +
-            `<span style="font-family:${FONT_STACK_AR};font-size:20pt;line-height:1.9">` +
-              `&#xFD3F;${arSafe}&#xFD3E;` +
-            `</span>` +
-            `<br>` +
-            `<span style="font-family:${FONT_STACK_UG};font-size:13pt;line-height:1.7;color:#333">` +
-              `&#x00AB;${ugSafe}&#x00BB;` +
-            `</span>` +
-          `</p>`
-        );
-        textParts.push(`\uFD3F${a.text_ar}\uFD3E \u00AB${a.text_ug}\u00BB`);
-      } else {
-        htmlParts.push(
-          `<p dir="rtl" style="text-align:right;margin:0 0 12pt 0;">` +
-            `<span style="font-family:${FONT_STACK_AR};font-size:20pt;line-height:1.9">` +
-              `&#xFD3F;${arSafe}&#xFD3E;` +
-            `</span>` +
-          `</p>`
-        );
-        textParts.push(`\uFD3F${a.text_ar}\uFD3E`);
-      }
-    }
-
-    const html = `<html><head><meta charset="utf-8"></head><body>${htmlParts.join('\n')}</body></html>`;
-    const text = textParts.join('\n\n');
+    const built = buildCopy(ayas, withTranslation);
+    const html = built.html;
+    const text = built.text;
 
     try {
       if (navigator.clipboard && typeof window.ClipboardItem === 'function') {
@@ -768,7 +821,7 @@
     );
   });
 
-  window.QuranCopy = { copyAyaToClipboard, FONT_STACK_AR, FONT_STACK_UG };
+  window.QuranCopy = { copyAyaToClipboard, build: buildCopy, FONT_STACK_AR, FONT_STACK_UG };
 
   window.QuranHelpers = { escHtml, escAttr, toArabicNumerals };
 })();

@@ -4,7 +4,7 @@ This application bundles third-party fonts, texts and software libraries.
 Each item below is redistributed under the licence stated for it. The MIT
 licence in `LICENSE` applies only to the original source code of this project.
 
-Last reviewed: 2026-08-16
+Last reviewed: 2026-10-29
 
 ---
 
@@ -176,6 +176,14 @@ The optional AI assistant calls the **Google Gemini API**
 (<https://generativelanguage.googleapis.com>) using an API key that the user
 supplies themselves. Google's terms apply to that use:
 <https://ai.google.dev/gemini-api/terms>. No API key is shipped with the app.
+
+From version 3.6.0, «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» reads the project's own
+website, <https://bilimhezinisi.com>, and its database provider **Supabase**
+(<https://jmnaqaeqolrtktvpbtci.supabase.co>), only when the user opens the
+catalog or downloads a book. The app carries the website's public (anon) key —
+the same key every visitor's browser receives, limited to published books by
+the website's own access rules; no secret key is shipped. Nothing new is
+bundled for it. Supabase's privacy page: <https://supabase.com/privacy>.
 
 ---
 
