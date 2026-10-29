@@ -99,7 +99,9 @@ Decisions:
 
 ## Phase 1 — implement
 
-Status: **done, waiting for the owner's tests** (commit below).
+Status: **done** — commit `143ffc5`. The owner's tests in `npm run dev` passed
+2026-10-29: each model answered «باغلىنىشنى سىناش» as itself, the one-time notice
+for `gemini-3.7-flash` appeared once, `npm test` all green.
 
 - Line-up in `ai.js` and `src/ai-client.js`: `gemini-3.8-flash` (default, «تەۋسىيە ·
   ئەڭ يېڭى»), `gemini-3.6-flash` (ھەقسىز), `gemini-3.1-pro-preview` (پۇللۇق,
@@ -117,5 +119,21 @@ Status: **done, waiting for the owner's tests** (commit below).
 - `tests/main/ai-models.js`: 8 tests; with the check disabled the four mismatch tests
   fail and the failover guard passes. `npm test` all green.
 - Docs: `CLAUDE.md` (AI line + the rule), `BUILD-GUIDE.md` (model notes).
-- `scripts/dev-set-ai-model.js` — TEMPORARY, uncommitted, for the owner's test 4
-  (DEV library only). Delete before the Phase 2 merge.
+- `scripts/dev-set-ai-model.js` — TEMPORARY, never committed, for the owner's test 4
+  (DEV library only). Deleted in Phase 2.
+
+## Phase 2 — texts and merge
+
+Status: **done.**
+
+- `prompts/3.6/STORE-WHATS-NEW-v3.6.0.md`: one AI line in each language, «six» →
+  «seven» features. Measured (a line break counted once / twice): Uyghur 1,202 /
+  1,219, English 1,119 / 1,136 — both ≤ 1,500. No other line shortened; the privacy
+  line is unchanged.
+- `RELEASE-NOTES-v3.6.0.md` (git-ignored by `RELEASE-NOTES-*.md`, so on disk only, for
+  the GitHub Release): an AI section in each language, «seven» features, 183 tests.
+- `PRIVACY.md` names no model ID — unchanged.
+- `gemini-3.1-pro-preview` stays paid-only, as the work order says; the owner has not
+  said whether the probe key has billing.
+- `npm test`: 183 tests, all green. Merged into `main` with `--no-ff`; not pushed, not
+  tagged.
