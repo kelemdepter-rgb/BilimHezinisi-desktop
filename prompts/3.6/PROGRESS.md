@@ -23,7 +23,7 @@ Read prompts/3.6/PROMPT-3.6.md in full, then prompts/3.6/PROGRESS.md, and contin
 | 5 | «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» | **done** — waiting for the owner's check | `cf634c5` feat(web): read the website's published books and download them through its gate · `9f6c9ed` feat(web): «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» — the catalog inside the app · docs(privacy) · docs(progress) | 158 in all (with the syntax gate), every one green |
 | 6 | Two books side by side | **done** — waiting for the owner's check | `293e060` feat(reader): two books side by side («يانمۇيان ئوقۇش») · docs(progress) | 164 in all (with the syntax gate), every one green |
 | 7 | The PDF page beside its text: compare and correct | **done** — waiting for the owner's check | `b77189b` feat(pdf): the PDF page beside its text — compare and correct · docs: «3.6» rules and progress | 175 in all (with the syntax gate), every one green |
-| 8 | Release 3.6.0 (no publishing) | not started | | |
+| 8 | Release 3.6.0 (no publishing) | **done** — merged into `main`; not tagged, not pushed, no Store package | `464dec2` chore(release): 3.6.0 · `68222ea` docs(release): 3.6.0 Store texts, notices, feature list · docs(progress) · merge: v3.6.0 | 175 in all (with the syntax gate), every one green |
 
 ## Phase 0 — done
 
@@ -367,6 +367,32 @@ PDF's text letter by letter, reversed. Listed under Deferred.
 8. PDF ھۆججىتىنى باشقا قىسقۇچقا يۆتكەپ قايتا ئېچىڭ ← «ئەسلى PDF تېپىلمىدى» ۋە «PDF نى كۆرسىتىپ بېرىش». يېڭى ئورنىنى كۆرسەتسىڭىز، ئوخشاش ھۆججەت بولغاچقا سورىماي قوبۇل قىلىدۇ.
 9. 3.6 دىن بۇرۇن ئەكىرىلگەن PDF كىتاب بولسا: «PDF نى كۆرسىتىپ بېرىش» ← «بۇ شۇ كىتابنىڭ PDF ىمۇ» دەپ سورايدۇ؛ «ھەئە» ← «… بەتنىڭ ئورنى تېپىلدى». تېپىلمىغان بەت «تەخمىنىي» دەپ يېزىلىدۇ، تۈزەتكىلى بولمايدۇ — «بۇ بەتنى تېكىستتىن تېپىش» نى بېسىڭ.
 10. بىلىپ قويۇڭ: ھەقىقىي كۇتۇپخانىدا تۇنجى قېتىم ئاچقاندا ساندان 9-قەدەمگە يېڭىلىنىدۇ، ئۇنىڭدىن بۇرۇن زاپاس ئېلىنىدۇ (`JamiyKutupxana\backups\`).
+
+## Phase 8 — done (no publishing)
+
+| Step | Result |
+|---|---|
+| 1. Tests | `npm test`: 175 in all, every one green. The syntax gate: 126 files parse, the inline scripts of `index.html` included. |
+| 2. Version | `npm version 3.6.0 --no-git-tag-version`: `package.json` and the lockfile's two version fields at 3.6.0, CRLF kept. The app shows «V3.6» (major.minor of `get-version`). Against `main`, `package.json` differs only in the version and the four main-process files added to `build.files` in 3.6; `build.appx` is untouched. |
+| 3. Release notes | `RELEASE-NOTES-v3.6.0.md` (about 11,000 characters): Uyghur first, then English; the PDF fixes first — every page read, the offline OCR answering again, OCR going on behind other windows, the 300-page OCR limit said — then the Qur'an and reader fixes, then the six features; how the website download respects the site's limits (one at a time, the list once a session, the website's own check — published books, 20 per address in 10 minutes —, pages 100 at a time, two retries with pauses); privacy; known limits. It stays **untracked**: `.gitignore` excludes `RELEASE-NOTES-*.md`, the release body lives on GitHub. |
+| 3. Store texts | `prompts/3.6/STORE-WHATS-NEW-v3.6.0.md` — Partner Center «What's new in this version». **Uyghur 1,045, English 989 characters** (a line break counted once; 1,061 and 1,005 if counted twice), both inside 1,500. |
+| 4. PRIVACY.md | Updated in Phase 5 (28 October 2026), both languages; checked again against the code as it ships: the app contacts bilimhezinisi.com and its Supabase project only when the catalog is opened or a book downloaded or updated; a request carries the IP address, the app's name and version and which book; nothing from the library or the notebook; the website's limit of 20 downloads per address in 10 minutes. §2 lists the downloaded books' source and the imported PDF's recorded location, size, time and fingerprint. |
+| 4. THIRD-PARTY-NOTICES.md | Nothing new is bundled: `assets/` and the dependencies are unchanged from `main`. §6 now names the website's database provider, Supabase, and says the app carries the website's public (anon) key only; reviewed 2026-10-29. |
+| 5. CLAUDE.md | The feature list as 3.6 ships it (every PDF page with its place, the 300-page OCR limit, one search with the Uyghur forms, the translation labels and medallions, side-by-side reading, the PDF page view, the website catalog). The 3.6 rules were written phase by phase. The roadmap drops what shipped and names what was deferred: PDFs whose text layer is in visual order, a page map for Gemini OCR imports, a way around a router that cannot find the website; the items left out on purpose, copying PDFs into the library among them. |
+| 6. Merge | `release/3.6` merged into `main` with a merge commit, as 3.5 was. **No tag, no push, no Store package.** |
+
+Not done here, on purpose:
+- **The owner's release step** (Cowork, `bilim-store-release`): `npm run fetch-ocr-models` on a networked machine, `npm run dist-win` and the Store package, the tag, the push, the GitHub release (its body from `RELEASE-NOTES-v3.6.0.md`) and Partner Center (from `STORE-WHATS-NEW-v3.6.0.md`).
+
+### Before publishing — once more with `npm start` on the real library
+
+The first start of 3.6.0 backs the library up to `JamiyKutupxana\backups\library-before-3.6.0.db`, then runs schema steps 6–9 (the Qur'an translation groups, the PDF page map and original file, a book's source, page corrections). Then:
+1. **What is already there.** The books, notes and bookmarks are all there; the reader opens where it was.
+2. **The Qur'an.** «فاتىھە»: the verse medallions, and «[1]» … «[7]» after the translations.
+3. **Search.** A common word with «قوشۇمچىلىرى بىلەن»: three sections — «كىتابلار»، «قۇرئان كەرىم»، «خاتىرە دەپتىرىم».
+4. **A long PDF imported before 3.6.** «ئەسلى بەت» → «PDF نى كۆرسىتىپ بېرىش» → «ھەئە»: how many pages were found. Pages not found after page 100 mean the old import lost them: re-import that book.
+5. **The website** (with the network): «بىلىم خەزىنىسى تور بېتىدىن چۈشۈرۈش» lists the published books.
+6. **The checklists.** Phases 1–7, as far as you want to go.
 
 ## Measurements
 
