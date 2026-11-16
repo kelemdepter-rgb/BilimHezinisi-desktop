@@ -99,4 +99,72 @@
     t.assert.ok(note.indexOf('512') !== -1 && note.indexOf('300') !== -1, 'the description line does not say how many pages: ' + note);
     t.assert.equal(P.ocrNote(40, 40), '', 'a book read whole needs no note');
   });
+
+  // 3.6.1 — an engine that fails ends the run with the pages read so far and
+  // its own words; it used to be toasted, followed by «OCR دىن تېكىست
+  // چىقمىدى», and the OCR box closed with no way to try again.
+  test('pdf-ocr-error-keeps-pages', async function (t) {
+    const O = window.PdfOcr;
+    t.assert.ok(O && typeof O.run === 'function', 'src/pdf-ocr.js is not loaded');
+    const sent = [];
+    const res = await O.run({
+      maxPages: 12,
+      batch: 5,
+      render: async function (p) { return 'page-' + p; },
+      recognize: async function (images) {
+        sent.push(images.slice());
+        if (sent.length === 2) return { success: false, error: 'OCR ماتورى قوزغالمىدى: «node-fetch» تېپىلمىدى.' };
+        return { success: true, pages: images.map(function (img, i) { return i === 1 ? '' : 'text of ' + img; }) };
+      }
+    });
+    t.assert.deepEqual(sent.map(function (b) { return b.length; }), [5, 5], 'the run went on after the engine failed');
+    t.assert.equal(res.pages.length, 5, 'the pages read before the failure were not kept');
+    t.assert.equal(res.pages[1], '', 'an empty page lost its entry');
+    t.assert.equal(res.pages[4], 'text of page-5');
+    t.assert.equal(res.error, 'OCR ماتورى قوزغالمىدى: «node-fetch» تېپىلمىدى.');
+
+    // A throw on the way (a page that cannot be drawn, the IPC itself) is a
+    // failure too, never an exception out of the run.
+    const thrown = await O.run({
+      maxPages: 3, batch: 5,
+      render: async function (p) { if (p === 2) throw new Error('render failed'); return 'p'; },
+      recognize: async function () { return { success: true, pages: [] }; }
+    });
+    t.assert.equal(thrown.error, 'render failed');
+    t.assert.deepEqual(thrown.pages, []);
+
+    // A run read whole has no error; a cancel keeps what was read.
+    let stop = false;
+    const whole = await O.run({
+      maxPages: 7, batch: 5,
+      render: async function (p) { return 'page-' + p; },
+      recognize: async function (images) { stop = true; return { success: true, pages: images }; },
+      cancelled: function () { return stop; }
+    });
+    t.assert.equal(whole.error, null);
+    t.assert.equal(whole.cancelled, true);
+    t.assert.equal(whole.pages.length, 5, 'a cancel lost the pages already read');
+  });
+
+  test('pdf-ocr-failure-offers-retry', async function (t) {
+    const O = window.PdfOcr;
+    t.assert.ok(O && typeof O.showFailure === 'function', 'src/pdf-ocr.js is not loaded');
+    const box = document.createElement('div');
+    box.innerHTML = '<div id="b" style="display:none"></div><div id="p" style="display:block"></div><div id="m" style="display:none"></div>';
+    document.body.appendChild(box);
+    try {
+      const els = { buttons: box.querySelector('#b'), progress: box.querySelector('#p'), message: box.querySelector('#m') };
+      const said = O.failureText('OCR ماتورى قوزغالمىدى: «node-fetch» تېپىلمىدى.', 10, 40);
+      O.showFailure(els, said);
+      t.assert.equal(els.buttons.style.display, 'flex', 'the engine buttons did not come back');
+      t.assert.equal(els.progress.style.display, 'none', 'the progress line stayed');
+      t.assert.equal(els.message.style.display, 'block', 'the error is not on screen');
+      t.assert.includes(els.message.textContent, '«node-fetch» تېپىلمىدى.', 'the engine\'s own words are not shown');
+      t.assert.includes(els.message.textContent, '10 / 40 بەت ئوقۇلدى', 'the pages kept are not said');
+      t.assert.includes(els.message.textContent, '«UKIJ OCR (تورسىز)»', 'how to try again is not said');
+      t.assert.equal(O.failureText('timeout', 0, 40), 'OCR خاتالىقى: timeout. قايتا سىناش ئۈچۈن «UKIJ OCR (تورسىز)» نى بېسىڭ.');
+    } finally {
+      box.remove();
+    }
+  });
 })();

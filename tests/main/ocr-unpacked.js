@@ -198,6 +198,30 @@ module.exports = function (suite, assert, ctx) {
     assert.equal(failed, 'OCR ماتورى قوزغالمىدى: initialization failed');
   });
 
+  // The import dialog's half (index.html is not loadable on its own): a
+  // failed offline OCR goes through src/pdf-ocr.js, which keeps the pages
+  // read and leaves the error on screen with the engine buttons back.
+  suite.test('pdf-import-ocr-error-offers-retry', function () {
+    const html = fs.readFileSync(path.join(ctx.root, 'src', 'index.html'), 'utf8');
+    assert.ok(/<script src="pdf-ocr\.js"><\/script>/.test(html), 'index.html does not load src/pdf-ocr.js');
+    const at = html.search(/async\s+function\s+startPdfOcr\s*\(/);
+    assert.ok(at >= 0, 'startPdfOcr() is gone');
+    const open = html.indexOf('{', at);
+    let depth = 0;
+    let body = '';
+    for (let i = open; i < html.length; i++) {
+      if (html[i] === '{') depth++;
+      else if (html[i] === '}' && --depth === 0) { body = html.slice(open, i + 1); break; }
+    }
+    assert.includes(body, 'PdfOcr.run(', 'the offline OCR does not run through PdfOcr.run');
+    const fail = body.indexOf('PdfOcr.showFailure(');
+    assert.ok(fail > 0, 'a failed offline OCR is not shown in the OCR box');
+    const after = body.slice(fail);
+    const ret = after.indexOf('return;');
+    assert.ok(ret > 0 && after.slice(0, ret).indexOf('hideOcrOffer(') === -1,
+      'the OCR box is closed after a failure — no way to try again');
+  });
+
   suite.test('ocr-start-wired', function () {
     const main = fs.readFileSync(path.join(ctx.root, 'main.js'), 'utf8');
     assert.ok(/ocrEngine\.startWorker\(createWorker,/.test(main), 'ocr-recognize does not start the engine through ocrEngine.startWorker');
