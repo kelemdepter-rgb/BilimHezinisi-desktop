@@ -1459,12 +1459,18 @@ function toggleDarkMode() {
   saveData();
 }
 
+// Opening a book is not a library change: the recent list gets its one row
+// through its own IPC (3.6.1). It used to send the whole library, and the
+// book's text waited behind that save — seconds in a large library.
 function addToRecent(bookId) {
   const now = new Date().toISOString();
   S.recent = S.recent.filter(r => r.id !== bookId);
   S.recent.unshift({ id: bookId, time: now });
   if (S.recent.length > 20) S.recent.pop();
-  saveData();
+  try {
+    const p = window.electron.dbAddRecent(bookId, now);
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) { /* S.recent holds it; the next whole-library save writes it */ }
 }
 
 function renderSide() {
@@ -2076,11 +2082,21 @@ function noteHitHtml(n, at, label) {
   </div>`;
 }
 
+// The book's saved place, or null — never a throw: the percentage still works.
+function askSavedPlace(id) {
+  try { return Promise.resolve(window.electron.dbGetProgress(id)).catch(() => null); }
+  catch (e) { return Promise.resolve(null); }
+}
+
 // `words` (3.6): the forms of the query the search found in this book, which
 // are marked and counted with it (ReaderPlaces.searchRe).
 async function openReader(id, hl='', targetPos=null, words=null) {
   const b = S.books.find(x=>x.id===id);
   if(!b) return;
+  // The text first (3.6.1): the content and the saved place are asked for
+  // together, before anything else that waits on main — the main process
+  // answers one request at a time. The recent list's row follows, unawaited.
+  const asked = Promise.all([window.electron.loadBookContent(b.id), hl ? null : askSavedPlace(b.id)]);
   addToRecent(id);
   S.curB=b; S.matches=[]; S.matchIdx=0;
   setReaderMarks(hl, words);
@@ -2101,8 +2117,7 @@ async function openReader(id, hl='', targetPos=null, words=null) {
   document.getElementById('matchcount').textContent='';
   document.getElementById('fontSelector').value = S.readerFont;
 
-  // Load content from file and cache it
-  const cr = await window.electron.loadBookContent(b.id);
+  const [cr, prog] = await asked;
   const content = (cr && cr.success) ? cr.content : '(مەزمۇن يوق)';
   S.readerContent = content;
 
@@ -2115,13 +2130,8 @@ async function openReader(id, hl='', targetPos=null, words=null) {
 
   // The exact paragraph when the position has one; the saved percentage otherwise.
   let restoreOff = null;
-  if (!hl) {
-    try {
-      const prog = await window.electron.dbGetProgress(b.id);
-      if (prog && prog.success && window.ReaderPlaces.isPlace(prog.char_offset) && prog.char_offset < content.length) {
-        restoreOff = prog.char_offset;
-      }
-    } catch (e) { /* the percentage below still works */ }
+  if (!hl && prog && prog.success && window.ReaderPlaces.isPlace(prog.char_offset) && prog.char_offset < content.length) {
+    restoreOff = prog.char_offset;
   }
   const savedPos = S.readPos[b.id] || 0;
   S.readerPage = restoreOff !== null

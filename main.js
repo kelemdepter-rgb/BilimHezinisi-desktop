@@ -666,10 +666,12 @@ ipcMain.handle('db-save-progress', (event, bookId, position, page, charOffset) =
   }
 });
 
-// Recent reads
-ipcMain.handle('db-add-recent', (event, bookId) => {
+// Recent reads. Opening a book writes this one row, with the renderer's own
+// ISO time (the format save-library's syncRecent writes), never the whole
+// library (3.6.1).
+ipcMain.handle('db-add-recent', (event, bookId, time) => {
   try {
-    database.addRecentRead(bookId);
+    database.addRecentRead(bookId, time);
     database.saveDB(DATA_DIR);
     return { success: true };
   } catch(e) {

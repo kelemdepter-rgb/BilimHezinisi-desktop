@@ -2379,13 +2379,22 @@ function saveReadingProgress(bookId, position, page, charOffset) {
   `).run(bookId, position, page || 1, placeOrNull(charOffset));
 }
 
-function addRecentRead(bookId) {
+/**
+ * Put one book at the top of the recent list — what opening a book writes,
+ * instead of the whole library (3.6.1). `time` is the renderer's ISO time
+ * («YYYY-MM-DDTHH:MM:SS.sssZ»), the format syncRecent writes, so the two sort
+ * together: datetime('now') gives «YYYY-MM-DD HH:MM:SS», and ' ' sorts before
+ * 'T' — a book just opened sorted below everything opened earlier that day.
+ */
+function addRecentRead(bookId, time) {
+  const at = (typeof time === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z$/.test(time))
+    ? time : new Date().toISOString();
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM recent_reads WHERE book_id=?').run(bookId);
-    db.prepare('INSERT INTO recent_reads (book_id) VALUES (?)').run(bookId);
+    db.prepare('INSERT INTO recent_reads (book_id, read_at) VALUES (?, ?)').run(bookId, at);
     db.prepare(`
       DELETE FROM recent_reads
-      WHERE id NOT IN (SELECT id FROM recent_reads ORDER BY read_at DESC LIMIT 20)
+      WHERE id NOT IN (SELECT id FROM recent_reads ORDER BY read_at DESC, id DESC LIMIT 20)
     `).run();
   });
   tx();

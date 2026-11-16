@@ -101,6 +101,21 @@ function ftsIds(r, match) {
 }
 
 const OLD_TIME = '2020-01-01 00:00:00';
+const ISO_TIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
+
+/** The body of a function in src/index.html (the renderer is not loadable on its own). */
+function rendererBody(ctx, assert, name) {
+  const html = fs.readFileSync(path.join(ctx.root, 'src', 'index.html'), 'utf8');
+  const at = html.search(new RegExp('(async\\s+)?function\\s+' + name + '\\s*\\('));
+  assert.ok(at >= 0, name + '() is gone');
+  const open = html.indexOf('{', at);
+  let depth = 0;
+  for (let i = open; i < html.length; i++) {
+    if (html[i] === '{') depth++;
+    else if (html[i] === '}' && --depth === 0) return html.slice(open, i + 1);
+  }
+  return html.slice(open);
+}
 
 module.exports = function (suite, assert, ctx) {
   const sync = function () { return require(path.join(ctx.root, 'library-sync.js')); };
@@ -211,5 +226,68 @@ module.exports = function (suite, assert, ctx) {
     assert.equal(times[a], OLD_TIME, 'the book that did not change was written');
     assert.equal(topAfter, top, 'a category change rewrote the search index');
     database.close();
+  });
+
+  // The recent list's one-row write, in the renderer's own time format, so it
+  // sorts with the rows syncRecent writes (datetime('now') gives
+  // «YYYY-MM-DD HH:MM:SS», and ' ' sorts before 'T').
+  suite.test('recent-one-row-in-order', async function () {
+    const at = await fresh(ctx, 'recent-one-row');
+    const database = at.database;
+    const ids = [];
+    for (let i = 1; i <= 25; i++) ids.push(Number(database.addBook('كىتاب ' + i, '', 'باشقا', 'TXT', '', '', 'تېكىست ' + i, 'h-' + i)));
+
+    const base = Date.now() - 3600 * 1000;
+    const time = function (k) { return new Date(base + k * 1000).toISOString(); };
+    database.syncRecent([{ id: ids[2], time: time(3) }, { id: ids[1], time: time(2) }, { id: ids[0], time: time(1) }]);
+
+    database.addRecentRead(ids[3], time(4));
+    let list = database.getRecentForFrontend();
+    assert.equal(list[0].id, ids[3], 'the book just opened is not first: ' + JSON.stringify(list.slice(0, 4)));
+    assert.ok(ISO_TIME.test(list[0].time), 'the time is not in syncRecent\'s format: ' + list[0].time);
+    assert.equal(list[0].time, time(4), 'the renderer\'s time was not kept');
+
+    // Opening one already on the list moves it to the top, once.
+    database.addRecentRead(ids[0], time(5));
+    list = database.getRecentForFrontend();
+    assert.deepEqual(list.map(function (x) { return x.id; }), [ids[0], ids[3], ids[2], ids[1]], 'the list is out of order');
+
+    // At most 20 rows; the oldest go.
+    for (let i = 4; i < 25; i++) database.addRecentRead(ids[i], time(10 + i));
+    list = database.getRecentForFrontend();
+    assert.equal(list.length, 20, 'the recent list is not cut at 20');
+    assert.equal(list[0].id, ids[24], 'the last book opened is not first');
+    let r = raw(ctx, at.file);
+    const rows = r.prepare('SELECT COUNT(*) AS n FROM recent_reads').get().n;
+    r.close();
+    assert.equal(rows, 20, 'recent_reads holds more than 20 rows');
+
+    // A later whole-library save writes the same list back in the same order.
+    const order = list.map(function (x) { return x.id; });
+    database.syncRecent(list);
+    assert.deepEqual(database.getRecentForFrontend().map(function (x) { return x.id; }), order,
+      'syncRecent changed the order the one-row writes made');
+    database.close();
+  });
+
+  // The renderer half: opening a book sends no library, and asks for the
+  // text before anything else that waits on main.
+  suite.test('open-book-sends-no-library', function () {
+    const recent = rendererBody(ctx, assert, 'addToRecent');
+    assert.excludes(recent, 'saveData(', 'opening a book still sends the whole library');
+    assert.includes(recent, 'dbAddRecent(', 'the recent list is not written through its own IPC');
+
+    const open = rendererBody(ctx, assert, 'openReader');
+    const all = open.indexOf('Promise.all(');
+    const text = open.indexOf('loadBookContent(');
+    const add = open.indexOf('addToRecent(');
+    assert.ok(all >= 0 && text > all, 'openReader() does not ask for the text and the position together');
+    assert.ok(add > text, 'openReader() writes the recent list before it asks for the text');
+
+    const preload = fs.readFileSync(path.join(ctx.root, 'preload.js'), 'utf8');
+    assert.ok(/dbAddRecent:\s*\(bookId,\s*time\)\s*=>\s*ipcRenderer\.invoke\('db-add-recent',\s*bookId,\s*time\)/.test(preload),
+      'preload does not pass the time to db-add-recent');
+    const main = fs.readFileSync(path.join(ctx.root, 'main.js'), 'utf8');
+    assert.ok(/database\.addRecentRead\(bookId,\s*time\)/.test(main), 'db-add-recent does not keep the renderer\'s time');
   });
 };
