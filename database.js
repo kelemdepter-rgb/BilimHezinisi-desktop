@@ -2537,34 +2537,64 @@ function migrateFromJSON(jsonData, contentDir) {
 
 // ========== UPSERT / SYNC (frontend compatibility) ==========
 
+/**
+ * Write one book's metadata from the renderer — only what changed (3.6.1).
+ *
+ * Every saveData() sends the whole book list, and this used to UPDATE every
+ * book and rewrite its search-index row, FTS5 tokenizing the full text of the
+ * whole library in the main process: 4.7–4.9 s for 100 books, on every book
+ * opened, theme change and bookmark (measured 2026-11-16). Now a book whose
+ * six fields are unchanged is not written at all; a changed one is updated,
+ * and its index row is rewritten only when the title or the author changed —
+ * the text is not part of this write (saveBookContent and the other text
+ * writers keep the index right for it).
+ *
+ * @returns {boolean} whether anything was written
+ */
 function upsertBook(id, title, author, category, format, date, description) {
   // The renderer sends the title it holds, which may be the one it imported
   // before the fold existed: it is stored as letters all the same.
-  title = letters(title);
-  author = letters(author);
-  description = letters(description);
-  const existing = getBook(id);
-  if (existing) {
-    db.prepare(`
-      UPDATE books SET title=?, author=?, category=?, format=?, date=?, description=?, updated_at=datetime('now')
-      WHERE id=?
-    `).run(title, author || '', category || '', format || 'TXT', date || '', description || '', id);
-  } else {
+  const row = {
+    title: letters(title),
+    author: letters(author) || '',
+    category: category || '',
+    format: format || 'TXT',
+    date: date || '',
+    description: letters(description) || ''
+  };
+  const stored = db.prepare(
+    'SELECT title, author, category, format, date, description FROM books WHERE id=?'
+  ).get(id);
+  if (!stored) {
     db.prepare(`
       INSERT INTO books (id, title, author, category, format, date, description)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, title, author || '', category || '', format || 'TXT', date || '', description || '');
+    `).run(id, row.title, row.author, row.category, row.format, row.date, row.description);
+    indexBookRow(id, row.title, row.author);
+    return true;
   }
-  if (hasFTS5) {
-    try {
-      db.prepare('DELETE FROM book_fts WHERE rowid=?').run(id);
-      const content = getBookContent(id);
-      if (content) {
-        db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
-          .run(id, title, author || '', content);
-      }
-    } catch (e) { /* ignore */ }
-  }
+  const same = (field) => (stored[field] === null ? '' : String(stored[field])) === row[field];
+  if (['title', 'author', 'category', 'format', 'date', 'description'].every(same)) return false;
+
+  db.prepare(`
+    UPDATE books SET title=?, author=?, category=?, format=?, date=?, description=?, updated_at=datetime('now')
+    WHERE id=?
+  `).run(row.title, row.author, row.category, row.format, row.date, row.description, id);
+  if (!same('title') || !same('author')) indexBookRow(id, row.title, row.author);
+  return true;
+}
+
+/** The book's row in the search index, written again with its stored text. */
+function indexBookRow(id, title, author) {
+  if (!hasFTS5) return;
+  try {
+    db.prepare('DELETE FROM book_fts WHERE rowid=?').run(id);
+    const content = getBookContent(id);
+    if (content) {
+      db.prepare('INSERT INTO book_fts (rowid, title, author, content) VALUES (?, ?, ?, ?)')
+        .run(id, title, author || '', content);
+    }
+  } catch (e) { /* ignore */ }
 }
 
 /**
@@ -2572,15 +2602,20 @@ function upsertBook(id, title, author, category, format, date, description) {
  * the list is left alone (K4). Deleting is db-delete-book's job and nobody
  * else's — this used to delete every book the list did not mention, and one
  * failed read at startup sent an empty list.
+ *
+ * A book whose fields are unchanged is not written (upsertBook, 3.6.1).
+ * @returns {number} how many books were written
  */
 function syncBooks(books) {
-  if (!Array.isArray(books)) return;
+  if (!Array.isArray(books)) return 0;
+  let written = 0;
   const tx = db.transaction(() => {
     for (const b of books) {
-      upsertBook(b.id, b.title, b.author, b.category, b.format, b.date, b.desc || b.description || '');
+      if (upsertBook(b.id, b.title, b.author, b.category, b.format, b.date, b.desc || b.description || '')) written++;
     }
   });
   tx();
+  return written;
 }
 
 function syncCategories(catNames) {
