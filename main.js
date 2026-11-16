@@ -989,17 +989,13 @@ ipcMain.handle('get-content-size', () => {
 // packaged, both modules (and assets/ocr) are asarUnpack'd so those real paths
 // resolve. Engine: LSTM-only (OEM 1), PSM Auto, models default 'ukij+uig'.
 
-// Rewrite an app.asar path to its app.asar.unpacked sibling (no-op in dev).
-function unpackedPath(p) {
-  return String(p).replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
-}
-// tessdata directory holding the *.traineddata models (see fetch-ocr-models).
+// The models and the worker script, from app.asar.unpacked once packed
+// (ocr-engine.js; scripts/check-package.js finds them the same way).
 function ocrTessdataDir() {
-  return unpackedPath(path.join(__dirname, 'assets', 'ocr', 'tessdata'));
+  return ocrEngine.tessdataDir();
 }
-// The Node worker script worker_threads must load from a real file.
 function ocrWorkerPath() {
-  return unpackedPath(require.resolve('tesseract.js/src/worker-script/node/index.js'));
+  return ocrEngine.workerScriptPath();
 }
 
 // Cancellation is cooperative: ocr-cancel sets this flag; the per-page loop
@@ -1028,8 +1024,11 @@ ipcMain.handle('ocr-recognize', async (event, opts) => {
   try {
     const { createWorker } = require('tesseract.js');
     // LSTM-only (OEM 1). The models are read straight from disk, never
-    // fetched, never written (ocr-engine.js says why it takes a cache).
-    worker = await createWorker(langs, 1, ocrEngine.workerOptions(tessdata, ocrWorkerPath()));
+    // fetched, never written (ocr-engine.js says why it takes a cache). The
+    // start checks that the worker can find every package it needs, and
+    // gives up after a minute: an engine that cannot start is said, never
+    // waited for (3.6.1).
+    worker = await ocrEngine.startWorker(createWorker, langs, ocrEngine.workerOptions(tessdata, ocrWorkerPath()));
     // PSM 3 (auto) by default — matches UyghurOCR's "PSM Auto for full pages".
     // Overridable (e.g. '6' = uniform block) via opts.psm for experimentation.
     const psm = (opts.psm && /^\d+$/.test(String(opts.psm))) ? String(opts.psm) : '3';
