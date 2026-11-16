@@ -17,7 +17,7 @@ Read prompts/3.6.1/PROMPT-3.6.1.md in full, then prompts/3.6.1/PROGRESS.md, and 
 |---|---|---|---|---|
 | 0 | Groundwork: branch, `npm test`, this file, the red tests of Phases 1 and 2 | **done** | `87f499e` docs: add the 3.6.1 work order · docs(progress): this file | 183 green + the syntax gate before anything changed |
 | 1 | A book opens at once; the add-book dialog closes at once | **done** — waiting for the owner's check | `7625fab` perf(library): save-library writes only the books that changed · `f0f3838` perf(reader): opening a book writes one recent-list row, never the library · docs(progress) | 188 in all (with the syntax gate), every one green |
-| 2 | The offline OCR answers in the installed app; an error is said, never waited for | not started | | |
+| 2 | The offline OCR answers in the installed app; an error is said, never waited for | **done** — waiting for the owner's check | `eeb5ab5` fix(ocr): the offline OCR starts in the installed app, or says why · `ba05206` fix(import): a failed offline OCR keeps its pages and offers a retry · `b4bdb93` chore(build): npm run check-package checks OCR in the built app · `2a7de76` docs(build) · docs(progress) | 196 in all (with the syntax gate), every one green |
 | 3 | OCR uses more than one core; the time left is shown | not started | | |
 | 4 | Release 3.6.1 (no publishing) | not started | | |
 
@@ -94,6 +94,51 @@ made here (another session's promo-video work). Left alone, not committed.
 5. «كىتاب قوشۇش» بىلەن كىچىك بىر TXT كىتاب قوشۇڭ ← «قوشۇش» نى باسقان ھامان دىئالوگ يېپىلىدۇ؛ ئىزدەش رامكىسىغا كىتابنىڭ نامىنى يازسىڭىز تېپىلىدۇ.
 6. دېتالنى يېپىپ قايتا ئېچىڭ ← «يېقىندا ئوقۇلغانلار» دا ئەڭ ئاخىرىدا ئاچقان كىتاب ئەڭ ئۈستىدە، قالغانلىرى ئاچقان تەرتىپىڭىز بويىچە. 3- ۋە 4-قەدەمدىكى خەتكۈچ ۋە تېما ساقلانغان.
 
+## Phase 2 — done
+
+| Item | What changed | Tests (red before → green after) |
+|---|---|---|
+| Unpacked | `build.asarUnpack` gets the worker's run-time dependency closure, from `npm ls` on this machine: `bmp-js`, `idb-keyval`, `is-electron`, `is-url`, `node-fetch` (+ `whatwg-url`, `tr46`, `webidl-conversions`), `opencollective-postinstall`, `regenerator-runtime`, `wasm-feature-detect`, `zlibjs`. `build.appx` byte-identical to `main`. | `ocr-worker-dependencies-unpacked` (walks tesseract.js's production `dependencies` through `node_modules/*/package.json`, matches each against the `asarUnpack` globs) — red: «bmp-js, idb-keyval, … are not unpacked … got 12» |
+| Never waits for ever | `ocr-engine.js`: `missingWorkerModules(workerPath)` resolves the closure with `Module.createRequire` from where the worker lies, each package from the one that requires it; `startWorker(createWorker, langs, options, { timeoutMs })` refuses to start when one is missing — «OCR ماتورى قوزغالمىدى: «bmp-js» تېپىلمىدى.» (the first one; the name is for a bug report) — gives up after 60 s («… 60 سېكۇنتتا جاۋاب بەرمىدى.»), ends an engine that arrives later, and words any other start failure the same way. No global `uncaughtException` handler. `tessdataDir()` / `workerScriptPath()` moved from main.js unchanged. `ocr-recognize` starts through `startWorker` (it still passes `ocrEngine.workerOptions(…)`, so `ocr-engine-wired` holds as it was). | `ocr-engine-unpacked-layout` (only `tesseract.js` copied into a temp `node_modules`, in the runner's Electron main process) — red: «no answer within 30 s (uncaught in the main process: Cannot find module 'node-fetch')»; now the named error in well under a second, no uncaught exception. `ocr-engine-start-answers` — red: «engine.missingWorkerModules is not a function»; `ocr-engine-start-timeout` — red: «the start timeout is not a minute»; `ocr-start-wired` — red. `ocr-engine-answers` green throughout. |
+| The dialog says it | `src/pdf-ocr.js` (`window.PdfOcr`, UMD, loaded by index.html and the harness): `run()` reads the pages as before (render, binarize, five a request, one entry per page in page order) and ends a failure or a throw with the pages read so far and the engine's words; `failureText()` / `showFailure()`. `startPdfOcr`: on a failure the error stays in the OCR box («… 10 / 40 بەت ئوقۇلدى؛ ئوقۇلغان بەتلەر ساقلاندى. قايتا سىناش ئۈچۈن «UKIJ OCR (تورسىز)» نى بېسىڭ.»), the progress line goes, the engine buttons come back, the partial text stays staged with its page ranges, `finfo` says «⚠ PDF (UKIJ OCR قىسمەن)», and the description gets its line. A retry reads from page 1 again. Gemini OCR's path is unchanged (split into its own branch, same code). | `pdf-ocr-error-keeps-pages`, `pdf-ocr-failure-offers-retry` — red: «src/pdf-ocr.js is not loaded»; `pdf-import-ocr-error-offers-retry` (static over `startPdfOcr`) — red: «index.html does not load src/pdf-ocr.js» |
+| The other callers | Checked, unchanged: the notebook's image OCR toasts «OCR خاتالىقى: <error>» (`src/notes.js`), the page view's re-OCR toasts «OCR مەغلۇپ بولدى: <error>» (`ocrThisPage` in `src/pdf-compare.js`, `ocrPage` throws the engine's error). With the start guard both now get an answer instead of waiting. | — |
+| `npm run check-package` | `scripts/check-package.js` (+ `check-package-probe.js`, both left out of the package): the four models, the worker and its packages unpacked, and one real page read by the BUILT exe with `ELECTRON_RUN_AS_NODE=1`, the engine started exactly as main.js does (ocr-engine.js and tesseract.js from `app.asar`; for a build from before 3.6.1, main.js's old start). Optional folder argument for the Store build. | On the 3.6.0 `dist/win-unpacked`: **FAIL** — «the worker cannot find: bmp-js, idb-keyval, is-electron, is-url, node-fetch, opencollective-postinstall, regenerator-runtime, wasm-feature-detect, zlibjs», «OCR in the built app: uncaught in the main process: Cannot find module 'node-fetch'». Rebuilt: **OK** — «one page read in 159 ms». |
+| Docs | `BUILD-GUIDE.md` (step 6 and «3.1»), `CLAUDE.md` (build workflow, packaging line, `pdf-ocr.js` in the renderer list). | — |
+
+**Measured — Electron keeps a packed app's module lookups inside
+`resources`.** The 3.6.0 exe with `ELECTRON_RUN_AS_NODE=1`, from inside the
+source folder (whose `node_modules` holds node-fetch): `Module._nodeModulePaths`
+from the worker's folder stops at `dist\win-unpacked\resources\node_modules`;
+`createRequire(worker).resolve('node-fetch')` fails; a `Worker` on the script
+dies with «Cannot find module 'node-fetch'». So the owner's check from
+`dist\win-unpacked` inside the source folder is a true test, and plain Node
+from the source tree is not (it would find the source `node_modules`) — which
+is why check-package asks the built exe.
+
+**The rebuild.** `npx electron-builder --win --x64 --dir` (7 s): it rewrote
+only `dist\win-unpacked`. `npm run dist-win` would also have overwritten
+`dist\Bilim Hezinisi Setup 3.6.0.exe` and the 3.6.0 portable with a build that
+is no longer 3.6.0; the version becomes 3.6.1 in Phase 4. The new
+`app.asar.unpacked\node_modules` holds the 15 packages; the scripts of
+check-package are not in `app.asar`.
+
+**Checked in the built app** (`dist\win-unpacked\Bilim Hezinisi.exe --dev`
+over the DevTools protocol, DEV library, nothing written): `ocr-recognize`
+through the real IPC on two lines of Uyghur drawn in the renderer answered
+in **523 ms** with Uyghur text (`[ocr] ukij page 1/1 chars=76` in the log).
+
+### Phase 2 checklist for the owner
+
+These run in a terminal in the app folder.
+
+1. `npm run dist-win` ← `dist` قىسقۇچىدا ياسىلىدۇ. (دىققەت: ئۇ `Bilim Hezinisi Setup 3.6.0.exe` ۋە `BilimHezinisi-Portable-3.6.0.exe` نىڭ ئۈستىگە يازىدۇ؛ ئۇلار لازىم بولسا ئالدى بىلەن باشقا يەرگە كۆچۈرۈۋېلىڭ. ياكى پەقەت `npx electron-builder --win --x64 --dir` نى ئىجرا قىلىڭ — ئۇ پەقەت `dist\win-unpacked` نى ياسايدۇ.)
+2. `npm run check-package` ← ئاخىرىدا `check-package OK` چىقىدۇ.
+3. `"dist\win-unpacked\Bilim Hezinisi.exe" --dev` ← دېتال سىناق كۇتۇپخانىسى بىلەن ئېچىلىدۇ.
+4. 2–3 بەتلىك سىكان PDF نى «كىتاب قوشۇش» بىلەن ئەكىرىپ «UKIJ OCR (تورسىز)» نى بېسىڭ ← «بەت 1 / 3»، «بەت 2 / 3» … ئىلگىرىلەيدۇ، ئاخىرىدا تېكىست چىقىدۇ («OCR تامام بولدى»). «قوشۇش» نى بېسىڭ، كىتابنى ئېچىپ تېكىستنى كۆرۈڭ.
+5. خاتىرە دەپتىرىدە كامېرا كۇنۇپكىسى «رەسىمدىن تېكىست (OCR، تورسىز)» بىلەن تېكىستلىك بىر رەسىم تاللاڭ ← تېكىست خاتىرىگە كىرىدۇ.
+6. 4-قەدەمدە قوشقان PDF كىتابنى ئېچىپ «ئەسلى بەت بىلەن سېلىشتۇرۇش» نى بېسىڭ، ئاندىن «بۇ بەتنى قايتا OCR قىلىش (تورسىز)» ← ئالدىن كۆرۈش رامكىسى تېكىست بىلەن تولىدۇ.
+7. ئىشىڭىز تۈگىگەندە 4-قەدەمدە قوشقان سىناق كىتابنى ئۆچۈرۈۋەتسىڭىز بولىدۇ (سىناق كۇتۇپخانىسى، ئەسلى كۇتۇپخانىڭىز ئەمەس).
+
 ## Measurements
 
 | What | Before | After | Where measured |
@@ -102,6 +147,9 @@ made here (another session's promo-video work). Left alone, not committed.
 | `saveLibrary` as `addToRecent` sent it, 100 books × 300,000 chars | (Cowork, Xeon 2.1 GHz: 4,680–4,920 ms, WAL grew to 83 MB) | **1.2–2.9 ms** over five saves; WAL 9.2 MB (all of it the 100 imports) | ELECTRON_RUN_AS_NODE script with the app's `database.js` + `library-sync.js`, this machine (16 logical cores), Phase 1 |
 | Opening a book (`openReader` until the page is drawn), DEV library of 101 books, 100 × 300,000 chars, ten books | 7,658–9,497 ms (median ≈ 8,470 ms) | **11–21 ms** (median 15 ms) | `npm run dev` over the DevTools protocol, Phase 1 |
 | Adding a small TXT book («قوشۇش» until the dialog closes), same library, three books | 8,077–8,664 ms | **10–38 ms** | the same, Phase 1 |
+| `npm run check-package` | 3.6.0 build: FAIL (worker cannot find 9 packages directly — 12 with node-fetch's own; uncaught «Cannot find module 'node-fetch'») | rebuilt: OK, one page read by the built exe in 159 ms | Phase 2 |
+| Offline OCR through the built app's IPC (two lines of Uyghur, 1400 × 360) | never answered (3.6.0) | **523 ms**, Uyghur text | built exe `--dev` over the DevTools protocol, Phase 2 |
+| This machine | 13th Gen Intel Core i5-13400F, 16 logical cores, 31.9 GB | | for Phase 3's worker count |
 
 ## Deferred
 
