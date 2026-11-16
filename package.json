@@ -18,6 +18,7 @@
     "dist-store": "electron-builder --win appx --x64",
     "test": "electron tests/run.js",
     "check-syntax": "node tests/syntax-gate.js",
+    "check-package": "node scripts/check-package.js",
     "test-spelldict": "node scripts/test-spelldict.mjs"
   },
   "build": {
@@ -106,6 +107,8 @@
       "scripts/**/*",
       "!scripts/build-spelldict.mjs",
       "!scripts/test-spelldict.mjs",
+      "!scripts/check-package.js",
+      "!scripts/check-package-probe.js",
       "!scripts/lib/**/*",
       "!assets/spellcheck/raw/**/*",
       "!build/**/*",
