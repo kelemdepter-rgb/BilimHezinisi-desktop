@@ -179,6 +179,27 @@ module.exports = function (suite, assert, ctx) {
     assert.ok(fake.made.length >= 1 && fake.made.every(function (w) { return w.terminated === 1; }), 'the idle workers were not ended');
   });
 
+  // The import dialog's half (index.html is not loadable on its own).
+  suite.test('pdf-import-ocr-pipeline-wired', function () {
+    const html = fs.readFileSync(path.join(ctx.root, 'src', 'index.html'), 'utf8');
+    const body = function (name) {
+      const at = html.search(new RegExp('(async\\s+)?function\\s+' + name + '\\s*\\('));
+      assert.ok(at >= 0, name + '() is gone');
+      const open = html.indexOf('{', at);
+      let depth = 0;
+      for (let i = open; i < html.length; i++) {
+        if (html[i] === '{') depth++;
+        else if (html[i] === '}' && --depth === 0) return html.slice(open, i + 1);
+      }
+      return html.slice(open);
+    };
+    const run = body('startPdfOcr');
+    assert.includes(run, 'ocrWorkerCount(', 'the import does not ask how many pages the engine reads at once');
+    assert.includes(run, 'PdfOcr.progressText(', 'the progress line does not say the time left');
+    assert.includes(run, 'ocrEnd(', 'the run does not end its engine');
+    assert.includes(body('hideAdd'), 'cancelPdfOcr(', 'closing the dialog does not stop its OCR run');
+  });
+
   suite.test('ocr-one-engine-per-run-wired', function () {
     const main = fs.readFileSync(path.join(ctx.root, 'main.js'), 'utf8');
     assert.ok(/ocrEngine\.createEngine\(/.test(main), 'ocr-recognize does not use one engine per run');
