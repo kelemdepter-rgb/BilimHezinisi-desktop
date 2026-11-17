@@ -19,7 +19,7 @@ Read prompts/3.6.1/PROMPT-3.6.1.md in full, then prompts/3.6.1/PROGRESS.md, and 
 | 1 | A book opens at once; the add-book dialog closes at once | **done** — waiting for the owner's check | `7625fab` perf(library): save-library writes only the books that changed · `f0f3838` perf(reader): opening a book writes one recent-list row, never the library · docs(progress) | 188 in all (with the syntax gate), every one green |
 | 2 | The offline OCR answers in the installed app; an error is said, never waited for | **done** — waiting for the owner's check | `eeb5ab5` fix(ocr): the offline OCR starts in the installed app, or says why · `ba05206` fix(import): a failed offline OCR keeps its pages and offers a retry · `b4bdb93` chore(build): npm run check-package checks OCR in the built app · `2a7de76` docs(build) · docs(progress) | 196 in all (with the syntax gate), every one green |
 | 3 | OCR uses more than one core; the time left is shown | **done** — waiting for the owner's check | `f642fb1` feat(ocr): one engine per OCR run, K workers reading at once · `df2d3bc` feat(import): OCR keeps every worker busy and says the time left · docs(progress) | 204 in all (with the syntax gate), every one green |
-| 4 | Release 3.6.1 (no publishing) | not started | | |
+| 4 | Release 3.6.1 (no publishing) | **done** — merged into `main`; not tagged, not pushed, no Store package | `80b8b86` chore(release): 3.6.1 · `32c7322` docs(release): 3.6.1 rules in CLAUDE.md; Store texts · docs(progress) · merge: v3.6.1 | 204 in all (with the syntax gate), every one green |
 
 ## Phase 0 — done
 
@@ -182,6 +182,37 @@ with `ukij+uig` (the notebook's models) in the rebuilt app: one worker, 536 ms.
 3. يەنە بىر قېتىم باشلاپ، 4–5 بەت ئوقۇلغاندا «توختىتىش» نى بېسىڭ ← «توختىتىلىۋاتىدۇ...» دەيدۇ، ئوقۇلۇۋاتقان بەتلەر تۈگىگەندە توختايدۇ (بىرنەچچە سېكۇنت)؛ «OCR توختىتىلدى — قىسمەن تېكىست ساقلاندى» چىقىدۇ، ئوقۇلغان بەتلەر ساقلانغان.
 4. ئاندىن تولۇق بىر قېتىم ئوقۇتۇپ «قوشۇش» نى بېسىڭ، كىتابنى ئېچىپ تېكىستنى ئوقۇپ بېقىڭ ← بۇرۇنقىدەك ياخشى ئوقۇلغان (تېكىست بىر ئىشچى بىلەن ئوقۇغاندىكى بىلەن ھەرپمۇھەرپ ئوخشاش چىقتى).
 5. ئىش تۈگىگەندە سىناق كىتابنى ئۆچۈرۈۋەتسىڭىز بولىدۇ (سىناق كۇتۇپخانىسى).
+
+## Phase 4 — done (no publishing)
+
+| Step | Result |
+|---|---|
+| 1. Tests | `npm test`: **204** green (the syntax gate: 136 files parse), 2026-11-17. |
+| 2. Version | `npm version 3.6.1 --no-git-tag-version`: `package.json` and `package-lock.json` (root and `packages[""]`) at 3.6.1. `build.appx` byte-identical to `main` (compared as JSON). |
+| 3. Release notes | `RELEASE-NOTES-v3.6.1.md` (untracked — `.gitignore` keeps `RELEASE-NOTES-*.md` out, like 3.6.0's): Uyghur first, then English. They say plainly that 3.6.0's notes called the offline OCR fixed when it had been checked in the development build only. |
+| 3. Store texts | `prompts/3.6.1/STORE-WHATS-NEW-v3.6.1.md` — Partner Center «What's new in this version». **Uyghur 904, English 895 characters** (a line break counted once; 916 and 907 if counted twice), both inside 1,500. |
+| 4. CLAUDE.md | A «3.6.1» section: saving the library (only changed books, the index only for title/author/text, opening sends one recent row), the OCR in the installed app (the unpacked closure, the start check and timeout, `check-package`, a failure said), OCR on several cores (K, one engine per run, cancel, the import's pipeline and progress). The OCR line of the feature list says «on up to four cores, with the time left». |
+| 5. Build | `npm run dist-win` (models already in `assets\ocr\tessdata`): `dist\Bilim Hezinisi Setup 3.6.1.exe` (129.8 MB) and `dist\BilimHezinisi-Portable-3.6.1.exe` (129.4 MB); then `npm run check-package` → **OK** (models; worker and its 15 unpacked packages; one page read by the built exe in 156 ms). The same code's `--dir` build read the 10-page scanned PDF in 22.1 s (Phase 3). `dist\Bilim Hezinisi Setup 3.6.0.exe` and the 3.6.0 portable now carry today's time (11:44) — rebuilt from the Phase 2 code when the Phase 2 checklist was run, so they are no longer the files of the 3.6.0 release; `dist\BilimHezinisi-Store-3.6.0.appx` (2026-10-29) is untouched. |
+| 6. Merge | `release/3.6.1` merged into `main` (`--no-ff`). Not tagged, not pushed, no Store package. |
+
+`BUILD-GUIDE.md` still carries «v2.7.0» in its title and file names (stale
+since long before 3.6); only its build steps were brought up to date in Phase 2.
+Bringing the rest up to date is the owner's call.
+
+### The owner's final check
+
+In a terminal in the app folder:
+
+1. `npm run fetch-ocr-models` — only if `assets\ocr\tessdata` has no `ukij.traineddata` (it has them on this machine).
+2. `npm run dist-win` ← `dist` قىسقۇچىدا `Bilim Hezinisi Setup 3.6.1.exe` ۋە `BilimHezinisi-Portable-3.6.1.exe` ياسىلىدۇ (3.6.0 ھۆججەتلىرىگە تەگمەيدۇ).
+3. `npm run check-package` ← ئاخىرىدا `check-package OK`.
+4. `"dist\win-unpacked\Bilim Hezinisi.exe" --dev` (سىناق كۇتۇپخانىسى) ← بىرقانچە كىتابنى ئېچىڭ (دەرھال ئېچىلىدۇ)؛ كىچىك بىر TXT كىتاب قوشۇڭ (دىئالوگ دەرھال يېپىلىدۇ)؛ سىكان PDF ئەكىرىپ «UKIJ OCR (تورسىز)» نى بېسىڭ (بەتلەر 4 تىن ئوقۇلىدۇ، قالغان ۋاقىت كۆرۈنىدۇ، تېكىست چىقىدۇ).
+5. ئاندىن بىر قېتىم `npm start` (ئەسلى كۇتۇپخانىڭىز) ← پەقەت بىرقانچە كىتابنى ئېچىپ بېقىڭ، باشقا ھېچنېمە قىلماڭ.
+
+**The release step is the owner's** (Cowork, `bilim-store-release`): the tag,
+the push, the GitHub release (its body from `RELEASE-NOTES-v3.6.1.md`), the
+Store package — and `npm run check-package -- <the Store build's unpacked
+folder>` before it goes to Partner Center (from `STORE-WHATS-NEW-v3.6.1.md`).
 
 ## Measurements
 
