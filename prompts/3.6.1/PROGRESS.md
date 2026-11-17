@@ -18,7 +18,7 @@ Read prompts/3.6.1/PROMPT-3.6.1.md in full, then prompts/3.6.1/PROGRESS.md, and 
 | 0 | Groundwork: branch, `npm test`, this file, the red tests of Phases 1 and 2 | **done** | `87f499e` docs: add the 3.6.1 work order · docs(progress): this file | 183 green + the syntax gate before anything changed |
 | 1 | A book opens at once; the add-book dialog closes at once | **done** — waiting for the owner's check | `7625fab` perf(library): save-library writes only the books that changed · `f0f3838` perf(reader): opening a book writes one recent-list row, never the library · docs(progress) | 188 in all (with the syntax gate), every one green |
 | 2 | The offline OCR answers in the installed app; an error is said, never waited for | **done** — waiting for the owner's check | `eeb5ab5` fix(ocr): the offline OCR starts in the installed app, or says why · `ba05206` fix(import): a failed offline OCR keeps its pages and offers a retry · `b4bdb93` chore(build): npm run check-package checks OCR in the built app · `2a7de76` docs(build) · docs(progress) | 196 in all (with the syntax gate), every one green |
-| 3 | OCR uses more than one core; the time left is shown | not started | | |
+| 3 | OCR uses more than one core; the time left is shown | **done** — waiting for the owner's check | `f642fb1` feat(ocr): one engine per OCR run, K workers reading at once · `df2d3bc` feat(import): OCR keeps every worker busy and says the time left · docs(progress) | 204 in all (with the syntax gate), every one green |
 | 4 | Release 3.6.1 (no publishing) | not started | | |
 
 ## Phase 0 — done
@@ -139,6 +139,50 @@ These run in a terminal in the app folder.
 6. 4-قەدەمدە قوشقان PDF كىتابنى ئېچىپ «ئەسلى بەت بىلەن سېلىشتۇرۇش» نى بېسىڭ، ئاندىن «بۇ بەتنى قايتا OCR قىلىش (تورسىز)» ← ئالدىن كۆرۈش رامكىسى تېكىست بىلەن تولىدۇ.
 7. ئىشىڭىز تۈگىگەندە 4-قەدەمدە قوشقان سىناق كىتابنى ئۆچۈرۈۋەتسىڭىز بولىدۇ (سىناق كۇتۇپخانىسى، ئەسلى كۇتۇپخانىڭىز ئەمەس).
 
+## Phase 3 — done
+
+| Item | What changed | Tests (red before → green after) |
+|---|---|---|
+| K | `ocrEngine.workerCount(cores, totalmem)`: K = min(4, max(1, cores − 1)), at most 2 under 8 GB. main.js asks it with `os.cpus().length`, `os.totalmem()`. This machine: 16 logical cores, 31.9 GB → **K = 4**. | `ocr-worker-count` (twelve cases) — red: «ocr-engine.js has no workerCount» |
+| One engine per run | `ocrEngine.createEngine()`: up to K workers behind tesseract.js's `createScheduler`, each started through `startWorker` (package check and start timeout per worker), started as pages wait for them — one picture starts one worker. Pages go to the scheduler only while a worker is free, so the queue is the engine's: `cancel()` drops the pages not started at once, the ones being read finish and are kept. (The scheduler's own `terminate()` empties its queue without settling those jobs — read in `createScheduler.js` — so it is never relied on to cancel.) `recognize()` answers in input order; `end()` answers every request in flight (cancelled); an idle minute (`IDLE_END_MS`) ends the engine. main.js: one engine per model set (`ukij`, `ukij+uig`, …; the notebook's does not end an import's), kept across a run's requests; `ocr-recognize` keeps its shape for every caller, one progress event a page; `ocr-cancel` drops the queued pages of every engine; new `ocr-end(langs)` and `ocr-worker-count`; `before-quit` ends every engine. | `ocr-scheduler-keeps-page-order` (real engine, three workers, three Latin texts of 7, 1 and 3 lines drawn by Chromium — `tests/lib/text-png.js` — answered in order; a second request starts no worker; ended afterwards), `ocr-cancel-keeps-finished-pages` (fake workers, real scheduler: cancel after the first page → the first pages in order, nothing queued read, the engine answers the next request; ended while reading → the request answers), `ocr-engine-fails-and-idles` (start error for every request; idle end), `ocr-one-engine-per-run-wired` — red: «createEngine is not a function» / «ocr-recognize does not use one engine per run» |
+| Workers kept busy | `PdfOcr.run` sends requests of K pages, two out at once, and draws the next pages while the ones sent are read (≤ about 2×K page images); answers are taken in the order sent, so the pages come out in page order, an empty page keeping its entry. Before drawing more it lets answers that have come back be seen (a `MessageChannel` turn — a timer is held back in a window behind others), so nothing more is sent once a failure is in (`pdf-ocr-error-keeps-pages` holds as written in Phase 2). An answer that comes back short (a cancel) is the last one used. | `pdf-ocr-pipeline-order` (fake engine answering out of order with delays: every page sent once, in order, drawn pages = sent pages, page 4 empty and kept, at most 2×K held, more than K held) — red: «the next pages were not drawn while the others were read: 3» |
+| Progress | «UKIJ OCR: ماتور قوزغىلىۋاتىدۇ…» until the first page; then «UKIJ OCR: بەت 7 / 40»; from the second page «— تەخمىنەن 3 مىنۇت قالدى» (minutes, rounded; «— 1 مىنۇتتىن ئاز قالدى» under a minute), recomputed at every page from the time since the run began (`PdfOcr.estimateLeft`, `progressText`). After «توختىتىش» the line keeps «— توختىتىلىۋاتىدۇ...». Gemini's line is unchanged. | `pdf-ocr-progress-text` — red: «src/pdf-ocr.js has no progressText» |
+| Ends | The run calls `ocr-end` when it finishes, is cancelled or fails; `hideAdd()` cancels a running OCR (the pages read stay staged, as with «توختىتىش»); a run whose dialog was opened afresh meanwhile (`S.ocrPdf` changed) stages nothing. | `pdf-import-ocr-pipeline-wired` (static) — red: «ocrWorkerCount( not found» |
+| Unchanged | Render scale 3.2 and `binarizeCanvas`; `ukij` by default and the language boxes; `PdfText.OCR_MAX_PAGES` (300) and its lines; `PdfText.joinPages` and the page ranges; Gemini OCR. | `pdf-ocr-join-and-cap`, `pdf-ocr-error-keeps-pages`, `pdf-ocr-failure-offers-retry` green |
+
+`ocr-start-wired` (Phase 2) followed the engine start from main.js into
+`createEngine`: it now requires main.js to start workers through
+`ocrEngine.createEngine` and createEngine through `startWorker`, and also
+starts an engine on the 3.6.0 layout and requires the named start error and
+no uncaught exception — a behaviour check it did not have before.
+
+**Measured** — a 10-page scanned PDF made for this (A4, Uyghur prose from the
+bundled translation of Al-Baqara in «UKIJ Tuz Tom», 150 DPI JPEG pages, no
+text layer: `prompts/3.6.1/test-scan-10.pdf`, untracked, 3.8 MB), imported
+through `startPdfOcr` over the DevTools protocol, DEV library, nothing added:
+
+| Build | Workers | Wall time | Text |
+|---|---|---|---|
+| Phase 2 (`dist\win-unpacked`, one worker, five pages a request) | 1 | **102.2 s** (pages at 8.1, 14.8, 21.8, 27.6, 34.1, 48.9, 62.9, 75.9, 89.9 s) | 32,824 characters |
+| Phase 3, `npm run dev` | 4 | **22.2 s** | identical to one worker, byte for byte |
+| Phase 3, rebuilt `dist\win-unpacked` (`check-package` OK) | 4 | **22.1 s** (pages 1–4 at 8.7–9.3 s, 5–8 at 15.5–16.7 s, 9–10 at 22 s) | identical |
+
+4.6× faster. Cancel at page 5 (dev): the queued page 10 was dropped at once,
+the pages being read (6–9) finished and were kept — 9 / 10 pages, a prefix of
+the full text; the run ended at 21.6 s, when the page that had just started
+(9) finished, as the old loop also waited for its current page. One picture
+with `ukij+uig` (the notebook's models) in the rebuilt app: one worker, 536 ms.
+
+### Phase 3 checklist for the owner (`npm run dev`)
+
+`prompts\3.6.1\test-scan-10.pdf` is a 10-page scanned PDF made for this test; one of your own is just as good.
+
+1. `npm run dev` ← دېتال سىناق كۇتۇپخانىسى بىلەن ئېچىلىدۇ.
+2. «كىتاب قوشۇش» بىلەن 10 بەتلىك سىكان PDF نى تاللاپ «UKIJ OCR (تورسىز)» نى بېسىڭ، سائەت بىلەن ۋاقىت ئۆلچەڭ ← ئالدى بىلەن «ماتور قوزغىلىۋاتىدۇ…»، ئاندىن «بەت 4 / 10» دەك بىرقانچە بەت بىراقلا كۆپىيىدۇ؛ ئىككىنچى بەتتىن كېيىن «تەخمىنەن … مىنۇت قالدى» ياكى «1 مىنۇتتىن ئاز قالدى» كۆرۈنىدۇ. بۇ كومپيۇتېردا 10 بەت تەخمىنەن 22 سېكۇنت (بۇرۇن 102 سېكۇنت).
+3. يەنە بىر قېتىم باشلاپ، 4–5 بەت ئوقۇلغاندا «توختىتىش» نى بېسىڭ ← «توختىتىلىۋاتىدۇ...» دەيدۇ، ئوقۇلۇۋاتقان بەتلەر تۈگىگەندە توختايدۇ (بىرنەچچە سېكۇنت)؛ «OCR توختىتىلدى — قىسمەن تېكىست ساقلاندى» چىقىدۇ، ئوقۇلغان بەتلەر ساقلانغان.
+4. ئاندىن تولۇق بىر قېتىم ئوقۇتۇپ «قوشۇش» نى بېسىڭ، كىتابنى ئېچىپ تېكىستنى ئوقۇپ بېقىڭ ← بۇرۇنقىدەك ياخشى ئوقۇلغان (تېكىست بىر ئىشچى بىلەن ئوقۇغاندىكى بىلەن ھەرپمۇھەرپ ئوخشاش چىقتى).
+5. ئىش تۈگىگەندە سىناق كىتابنى ئۆچۈرۈۋەتسىڭىز بولىدۇ (سىناق كۇتۇپخانىسى).
+
 ## Measurements
 
 | What | Before | After | Where measured |
@@ -150,6 +194,8 @@ These run in a terminal in the app folder.
 | `npm run check-package` | 3.6.0 build: FAIL (worker cannot find 9 packages directly — 12 with node-fetch's own; uncaught «Cannot find module 'node-fetch'») | rebuilt: OK, one page read by the built exe in 159 ms | Phase 2 |
 | Offline OCR through the built app's IPC (two lines of Uyghur, 1400 × 360) | never answered (3.6.0) | **523 ms**, Uyghur text | built exe `--dev` over the DevTools protocol, Phase 2 |
 | This machine | 13th Gen Intel Core i5-13400F, 16 logical cores, 31.9 GB | | for Phase 3's worker count |
+| 10-page scanned PDF through the import's offline OCR | 102.2 s (Phase 2 build, 1 worker) | **22.1 s** (Phase 3 build, K = 4), text identical | built exe `--dev` over the DevTools protocol, Phase 3 |
+| One picture, `ukij+uig`, through `ocr-recognize` | 523 ms (`ukij`, Phase 2) | 536 ms, one worker started | built exe, Phase 3 |
 
 ## Deferred
 
