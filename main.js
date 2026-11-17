@@ -360,6 +360,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  // The offline OCR's workers end with the app (3.6.1).
+  try { endOcrEngines(); } catch (e) { /* worker threads end with the process */ }
   try {
     if (database && typeof database.close === 'function') {
       database.close();
@@ -998,9 +1000,44 @@ function ocrWorkerPath() {
   return ocrEngine.workerScriptPath();
 }
 
-// Cancellation is cooperative: ocr-cancel sets this flag; the per-page loop
-// checks it between pages and stops, keeping whatever pages already finished.
-let ocrCancelRequested = false;
+// One engine per OCR run (3.6.1 Phase 3): K workers behind tesseract.js's
+// scheduler (ocr-engine.js), started by a run's first request and kept for its
+// later ones, so the pages of one request are read in parallel and the next
+// request finds the engine warm. Ended by ocr-end (the run finished, was
+// cancelled, failed, or the import dialog closed), when the app quits, and
+// after an idle minute. One engine per model set: the notebook's «ukij+uig»
+// does not end an import's «ukij».
+const ocrEngines = new Map();   // 'langs|psm' -> engine
+
+function ocrEngineFor(langs, psm, tessdata) {
+  const key = langs + '|' + psm;
+  const held = ocrEngines.get(key);
+  if (held && !held.ended) return held;
+  const { createWorker, createScheduler } = require('tesseract.js');
+  // LSTM-only (OEM 1). The models are read straight from disk, never fetched,
+  // never written (ocr-engine.js says why it takes a cache). Every worker is
+  // started through ocrEngine.startWorker: the packages it needs are checked
+  // first, and a start that does not answer in a minute is given up (3.6.1).
+  const engine = ocrEngine.createEngine({
+    createWorker, createScheduler, langs, psm,
+    count: ocrEngine.workerCount(os.cpus().length, os.totalmem()),
+    options: ocrEngine.workerOptions(tessdata, ocrWorkerPath()),
+    onEnd: () => { if (ocrEngines.get(key) === engine) ocrEngines.delete(key); }
+  });
+  ocrEngines.set(key, engine);
+  return engine;
+}
+
+/** End the engines of `langs` (every engine when it is not given). */
+function endOcrEngines(langs) {
+  const ending = [];
+  for (const [key, engine] of Array.from(ocrEngines.entries())) {
+    if (langs && key.indexOf(langs + '|') !== 0) continue;
+    ocrEngines.delete(key);
+    ending.push(engine.end().catch(() => {}));
+  }
+  return Promise.all(ending);
+}
 
 ipcMain.handle('ocr-recognize', async (event, opts) => {
   opts = opts || {};
@@ -1018,50 +1055,54 @@ ipcMain.handle('ocr-recognize', async (event, opts) => {
     return { success: false, error: 'OCR مودېلى تېپىلمىدى. تەرەققىياتچى: «npm run fetch-ocr-models» نى ئىجرا قىلىڭ.' };
   }
 
-  ocrCancelRequested = false;
-  let worker = null;
-  const pages = [];
+  // PSM 3 (auto) by default — matches UyghurOCR's "PSM Auto for full pages".
+  // Overridable (e.g. '6' = uniform block) via opts.psm for experimentation.
+  const psm = (opts.psm && /^\d+$/.test(String(opts.psm))) ? String(opts.psm) : '3';
+  const engine = ocrEngineFor(langs, psm, tessdata);
+  const total = images.length;
+  let done = 0;
   try {
-    const { createWorker } = require('tesseract.js');
-    // LSTM-only (OEM 1). The models are read straight from disk, never
-    // fetched, never written (ocr-engine.js says why it takes a cache). The
-    // start checks that the worker can find every package it needs, and
-    // gives up after a minute: an engine that cannot start is said, never
-    // waited for (3.6.1).
-    worker = await ocrEngine.startWorker(createWorker, langs, ocrEngine.workerOptions(tessdata, ocrWorkerPath()));
-    // PSM 3 (auto) by default — matches UyghurOCR's "PSM Auto for full pages".
-    // Overridable (e.g. '6' = uniform block) via opts.psm for experimentation.
-    const psm = (opts.psm && /^\d+$/.test(String(opts.psm))) ? String(opts.psm) : '3';
-    await worker.setParameters({ tessedit_pageseg_mode: psm });
-
-    const total = images.length;
-    for (let i = 0; i < total; i++) {
-      if (ocrCancelRequested) break;
-      const raw = String(images[i] || '').replace(/^data:image\/[a-zA-Z]+;base64,/, '');
-      const buf = Buffer.from(raw, 'base64');
-      const { data } = await worker.recognize(buf);
-      const rawText = (data && data.text) || '';
+    const buffers = images.map(img => Buffer.from(String(img || '').replace(/^data:image\/[a-zA-Z]+;base64,/, ''), 'base64'));
+    // Read in parallel, answered in their order; one progress event a page.
+    const res = await engine.recognize(buffers, {
+      onPage: () => {
+        done++;
+        try {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('ocr-progress', { page: done, total, progress: done / total });
+          }
+        } catch (_) {}
+      }
+    });
+    const pages = res.pages.map((rawText, i) => {
       // Per-page length — the key diagnostic for "blank book" (empty OCR).
       console.log('[ocr] ' + langs + ' page ' + (i + 1) + '/' + total + ' chars=' + rawText.length);
-      pages.push(cleanOcrPage(rawText));
-      try {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send('ocr-progress', { page: i + 1, total, progress: (i + 1) / total });
-        }
-      } catch (_) {}
-    }
-    return { success: true, pages, cancelled: ocrCancelRequested };
+      return cleanOcrPage(rawText);
+    });
+    return { success: true, pages, cancelled: res.cancelled, workers: engine.stats().workers };
   } catch (e) {
+    // The engine could not start, or a page could not be read: this engine
+    // is ended, and the next request starts afresh.
+    endOcrEngines(langs);
     return { success: false, error: (e && e.message) || String(e) };
-  } finally {
-    if (worker) { try { await worker.terminate(); } catch (_) {} }
   }
 });
 
+// Cancel drops every page not started yet, at once; the pages being read
+// finish and are kept (ocr-engine.js).
 ipcMain.handle('ocr-cancel', () => {
-  ocrCancelRequested = true;
+  for (const engine of ocrEngines.values()) engine.cancel();
   return { success: true };
 });
+
+// The run is over (finished, cancelled, failed) or its dialog closed.
+ipcMain.handle('ocr-end', async (event, langs) => {
+  await endOcrEngines(typeof langs === 'string' && langs ? langs : undefined);
+  return { success: true };
+});
+
+// K, so the renderer can keep every worker busy.
+ipcMain.handle('ocr-worker-count', () => ocrEngine.workerCount(os.cpus().length, os.totalmem()));
 
 // Gemini (online) OCR engine (Phase 7B). Gated on AI enabled + key — never
 // blocks the offline UKIJ engine. Emits ocr-progress like ocr-recognize.

@@ -68,6 +68,10 @@ contextBridge.exposeInMainWorld('electron', {
   // Online Gemini OCR (main process only; gated on AI enabled + key).
   ocrGemini: (images, opts) => ipcRenderer.invoke('ocr-gemini', images, opts),
   ocrCancel: () => ipcRenderer.invoke('ocr-cancel'),
+  // One engine per OCR run (3.6.1): ended when the run is over, and K, the
+  // number of pages the engine reads at once.
+  ocrEnd: (langs) => ipcRenderer.invoke('ocr-end', langs),
+  ocrWorkerCount: () => ipcRenderer.invoke('ocr-worker-count'),
   onOcrProgress: (callback) => {
     const handler = (event, data) => callback(data);
     ipcRenderer.on('ocr-progress', handler);

@@ -163,9 +163,197 @@ async function startWorker(createWorker, langs, options, opts) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 3.6.1 Phase 3 — one engine per OCR run, K workers.
+//
+// One worker read every page, one core of the machine, about 9 s a page; two
+// workers read 4 pages in 16.9 s instead of 31.9 s (measured 2026-11-16), at
+// about 100 MB of memory per extra worker. An engine is started once for a
+// run and ended when the run finishes or is cancelled, when the import dialog
+// or the window closes, and after one idle minute.
+// ---------------------------------------------------------------------------
+
+/** An engine nobody has used for this long is ended. */
+const IDLE_END_MS = 60000;
+
+/**
+ * Workers for one OCR run: every core but one, at most four, and at most two
+ * when the machine has under 8 GB of memory.
+ */
+function workerCount(cores, totalMemBytes) {
+  let k = Math.min(4, Math.max(1, (Number(cores) || 1) - 1));
+  if (totalMemBytes && totalMemBytes < 8 * 1024 * 1024 * 1024) k = Math.min(k, 2);
+  return k;
+}
+
+/**
+ * One offline engine: up to `count` workers behind tesseract.js's scheduler.
+ *
+ * Workers are started as pages wait for them, each through startWorker (the
+ * package check and the start timeout apply to every one), up to `count`.
+ * Pages are handed to the scheduler only while a worker is free, so the queue
+ * stays here: cancel() drops the pages not yet started at once, and the
+ * scheduler never holds a job it would have to be terminated to let go of
+ * (its terminate() empties its queue without settling those jobs).
+ *
+ * @param {object} o
+ * @param {Function} o.createWorker, o.createScheduler   from tesseract.js
+ * @param {string} o.langs
+ * @param {object} o.options        workerOptions(tessdata, workerPath)
+ * @param {number} o.count          K
+ * @param {string} [o.psm]          tessedit_pageseg_mode for every worker
+ * @param {number} [o.timeoutMs]    start timeout per worker
+ * @param {number} [o.idleMs]       IDLE_END_MS
+ * @param {Function} [o.onEnd]
+ */
+function createEngine(o) {
+  const count = Math.max(1, o.count || 1);
+  const idleMs = o.idleMs || IDLE_END_MS;
+  const scheduler = o.createScheduler();
+  const workers = [];
+  const queue = [];          // jobs not started: { image, call, index }
+  const running = new Set(); // jobs a worker is reading
+  let starting = 0;
+  let ended = false;
+  let idleTimer = null;
+
+  function settle(job, text, failed) {
+    if (job.settled) return;
+    job.settled = true;
+    const call = job.call;
+    if (failed) call.error = call.error || failed;
+    else if (text !== undefined) {
+      call.pages[job.index] = text;
+      call.done[job.index] = true;
+      if (call.onPage) { try { call.onPage(job.index); } catch (e) { /* the caller's progress */ } }
+    } else {
+      call.cancelled = true;
+    }
+    call.pending--;
+    if (call.pending === 0) call.finish();
+  }
+
+  function clearIdle() {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+  }
+
+  function idleCheck() {
+    if (ended || queue.length || running.size || starting || idleTimer) return;
+    idleTimer = setTimeout(() => { idleTimer = null; end(); }, idleMs);
+    if (idleTimer.unref) idleTimer.unref();
+  }
+
+  // Nothing could start: every waiting page fails with the start error.
+  function failQueued(err) {
+    const waiting = queue.splice(0, queue.length);
+    for (const job of waiting) settle(job, undefined, err);
+  }
+
+  function grow() {
+    while (!ended && workers.length + starting < count &&
+           workers.length + starting < queue.length + running.size) {
+      starting++;
+      startWorker(o.createWorker, o.langs, o.options, { timeoutMs: o.timeoutMs }).then(async (w) => {
+        try {
+          if (o.psm) await w.setParameters({ tessedit_pageseg_mode: String(o.psm) });
+        } catch (e) {
+          starting--;
+          try { await w.terminate(); } catch (_) { /* gone */ }
+          if (!workers.length && !starting) failQueued(startError((e && e.message) || String(e)));
+          idleCheck();
+          return;
+        }
+        starting--;
+        if (ended) { w.terminate().catch(() => {}); return; }
+        workers.push(w);
+        scheduler.addWorker(w);
+        pump();
+      }, (err) => {
+        starting--;
+        if (!workers.length && !starting) failQueued(err);
+        else if (workers.length && !ended) console.warn('[ocr] a worker did not start, going on with ' + workers.length + ':', err && err.message);
+        idleCheck();
+      });
+    }
+  }
+
+  function pump() {
+    while (!ended && queue.length && running.size < workers.length) {
+      const job = queue.shift();
+      running.add(job);
+      scheduler.addJob('recognize', job.image).then(
+        (r) => settle(job, (r && r.data && r.data.text) || ''),
+        (e) => settle(job, undefined, e instanceof Error ? e : new Error(String(e)))
+      ).finally(() => {
+        running.delete(job);
+        pump();
+        idleCheck();
+      });
+    }
+    idleCheck();
+  }
+
+  /**
+   * Read `images` in parallel. Resolves with one text per image, in their
+   * order — after a cancel, the ones read before it (always the first ones:
+   * pages start in order), with `cancelled`. Rejects when the engine could
+   * not start or a page could not be read.
+   */
+  function recognize(images, opts) {
+    const list = Array.isArray(images) ? images : [];
+    return new Promise((resolve, reject) => {
+      if (ended) { resolve({ pages: [], cancelled: true }); return; }
+      const call = {
+        pages: new Array(list.length), done: new Array(list.length).fill(false),
+        pending: list.length, cancelled: false, error: null,
+        onPage: opts && opts.onPage,
+        finish: () => {
+          if (call.error) { reject(call.error); return; }
+          const pages = [];
+          for (let i = 0; i < list.length && call.done[i]; i++) pages.push(call.pages[i]);
+          resolve({ pages: pages, cancelled: call.cancelled || pages.length < list.length });
+        }
+      };
+      if (!list.length) { resolve({ pages: [], cancelled: false }); return; }
+      clearIdle();
+      list.forEach((image, index) => queue.push({ image: image, call: call, index: index }));
+      grow();
+      pump();
+    });
+  }
+
+  /** Drop every page not started yet; the ones being read finish and are kept. */
+  function cancel() {
+    const waiting = queue.splice(0, queue.length);
+    for (const job of waiting) settle(job);
+    idleCheck();
+  }
+
+  /** End the engine: nothing more is read, every request in flight answers. */
+  async function end() {
+    if (ended) return;
+    ended = true;
+    clearIdle();
+    const waiting = queue.splice(0, queue.length);
+    for (const job of waiting) settle(job);
+    for (const job of Array.from(running)) settle(job);
+    running.clear();
+    const all = workers.splice(0, workers.length);
+    await Promise.all(all.map((w) => Promise.resolve().then(() => w.terminate()).catch(() => {})));
+    if (o.onEnd) { try { o.onEnd(); } catch (e) { /* the owner's hook */ } }
+  }
+
+  function stats() {
+    return { workers: workers.length, target: count, starting: starting, queued: queue.length, running: running.size, ended: ended };
+  }
+
+  return { recognize: recognize, cancel: cancel, end: end, stats: stats, get ended() { return ended; } };
+}
+
 module.exports = {
-  START_TIMEOUT_MS,
+  START_TIMEOUT_MS, IDLE_END_MS,
   workerOptions, missingModels,
   unpackedPath, tessdataDir, workerScriptPath,
-  missingWorkerModules, startWorker
+  missingWorkerModules, startWorker,
+  workerCount, createEngine
 };

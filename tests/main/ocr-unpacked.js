@@ -222,9 +222,33 @@ module.exports = function (suite, assert, ctx) {
       'the OCR box is closed after a failure — no way to try again');
   });
 
-  suite.test('ocr-start-wired', function () {
+  // Every worker main.js starts goes through startWorker. Since 3.6.1 Phase 3
+  // main.js starts them through ocrEngine.createEngine (one engine per run,
+  // K workers), which starts each one with startWorker — checked here in the
+  // code and, on the 3.6.0 layout, in what the engine answers.
+  suite.test('ocr-start-wired', async function () {
     const main = fs.readFileSync(path.join(ctx.root, 'main.js'), 'utf8');
-    assert.ok(/ocrEngine\.startWorker\(createWorker,/.test(main), 'ocr-recognize does not start the engine through ocrEngine.startWorker');
-    assert.excludes(main, 'await createWorker(', 'main.js still starts an engine without the check and the timeout');
+    assert.ok(/ocrEngine\.createEngine\(\{\s*createWorker,/.test(main), 'ocr-recognize does not start its workers through ocrEngine.createEngine');
+    assert.excludes(main, 'createWorker(langs', 'main.js still starts an engine without the check and the timeout');
+    const source = fs.readFileSync(path.join(ctx.root, 'ocr-engine.js'), 'utf8');
+    const body = source.slice(source.indexOf('function createEngine('));
+    assert.ok(/startWorker\(o\.createWorker, o\.langs, o\.options/.test(body), 'createEngine does not start its workers through startWorker');
+
+    const engine = require(path.join(ctx.root, 'ocr-engine.js'));
+    const tesseract = require(path.join(ctx.root, 'node_modules', 'tesseract.js'));
+    const layout = path.join(ctx.tmpDir, 'ocr-start-wired-layout');
+    fs.cpSync(path.join(ctx.root, 'node_modules', 'tesseract.js'), path.join(layout, 'node_modules', 'tesseract.js'), { recursive: true });
+    const workerPath = path.join(layout, 'node_modules', 'tesseract.js', 'src', 'worker-script', 'node', 'index.js');
+    const run = await catchingUncaught(async function () {
+      const e = engine.createEngine({
+        createWorker: tesseract.createWorker, createScheduler: tesseract.createScheduler,
+        langs: 'eng', count: 2, options: engine.workerOptions(modelsHere(ctx), workerPath)
+      });
+      try { await e.recognize([barPng(240, 80), barPng(240, 80)]); return 'answered'; }
+      catch (err) { return err.message; }
+      finally { await e.end(); }
+    });
+    assert.ok(/^OCR ماتورى قوزغالمىدى: «[^»]+» تېپىلمىدى\.$/.test(run.value), 'the engine on the 3.6.0 layout did not answer with the start error: ' + run.value);
+    assert.equal(run.uncaught.length, 0, 'an uncaught exception reached the main process: ' + run.uncaught.join(' | '));
   });
 };
