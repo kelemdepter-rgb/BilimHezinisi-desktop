@@ -209,10 +209,26 @@ In a terminal in the app folder:
 4. `"dist\win-unpacked\Bilim Hezinisi.exe" --dev` (سىناق كۇتۇپخانىسى) ← بىرقانچە كىتابنى ئېچىڭ (دەرھال ئېچىلىدۇ)؛ كىچىك بىر TXT كىتاب قوشۇڭ (دىئالوگ دەرھال يېپىلىدۇ)؛ سىكان PDF ئەكىرىپ «UKIJ OCR (تورسىز)» نى بېسىڭ (بەتلەر 4 تىن ئوقۇلىدۇ، قالغان ۋاقىت كۆرۈنىدۇ، تېكىست چىقىدۇ).
 5. ئاندىن بىر قېتىم `npm start` (ئەسلى كۇتۇپخانىڭىز) ← پەقەت بىرقانچە كىتابنى ئېچىپ بېقىڭ، باشقا ھېچنېمە قىلماڭ.
 
-**The release step is the owner's** (Cowork, `bilim-store-release`): the tag,
-the push, the GitHub release (its body from `RELEASE-NOTES-v3.6.1.md`), the
-Store package — and `npm run check-package -- <the Store build's unpacked
-folder>` before it goes to Partner Center (from `STORE-WHATS-NEW-v3.6.1.md`).
+### Released (2026-11-17, at the owner's request)
+
+- `BUILD-GUIDE.md` brought to 3.6.1 (`5358942`): the real steps, file names,
+  the Store package and how to check it, «v3.6.1 يېڭىلىقلار».
+- `npm run dist-store` → `dist\BilimHezinisi-Store-3.6.1.appx` (170 MB, not
+  signed — the Store signs it). Its `AppxManifest.xml`: Identity
+  `BilimHezinisi.BilimHezinisi`, Publisher `CN=92DA40C5-…`, Version
+  `3.6.1.0`, `DisplayName` «بىلىم خەزىنىسى» byte-identical (no U+FFFD),
+  `ug-arab` and `en-US`. `npm run check-package` on the appx's own `app`
+  folder (unzipped): **OK**, one page read in 181 ms.
+- The old 3.6.0 files in `dist` (Setup, its blockmap, Portable, Store appx)
+  moved to the Recycle Bin.
+- Tag `v3.6.1` on `5358942`; `main` and the tag pushed.
+- GitHub release <https://github.com/kelemdepter-rgb/BilimHezinisi-desktop/releases/tag/v3.6.1>
+  (latest; body from `RELEASE-NOTES-v3.6.1.md`) with `Bilim Hezinisi Setup
+  3.6.1.exe` and `BilimHezinisi-Portable-3.6.1.exe`, both uploaded whole. The
+  last GitHub release before it was v3.2.0; 3.5.0 and 3.6.0 have tags only.
+- **Left for the owner:** Partner Center — upload the `.appx` as an update to
+  the existing product and paste the «What's new» texts from
+  `STORE-WHATS-NEW-v3.6.1.md`, then submit for certification.
 
 ## Measurements
 
