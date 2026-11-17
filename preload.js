@@ -89,6 +89,14 @@ contextBridge.exposeInMainWorld('electron', {
     return () => ipcRenderer.removeListener('web-progress', handler);
   },
   getVersion: () => ipcRenderer.invoke('get-version'),
+  // «نەشرىنى يېڭىلاش» (3.6.2): main checks and installs; the renderer asks.
+  updateCheck: (opts) => ipcRenderer.invoke('update-check', opts || {}),
+  updateInstall: () => ipcRenderer.invoke('update-install'),
+  onUpdateProgress: (callback) => {
+    const handler = (event, data) => callback(data);
+    ipcRenderer.on('update-progress', handler);
+    return () => ipcRenderer.removeListener('update-progress', handler);
+  },
   openDataFolder: () => ipcRenderer.invoke('open-data-folder'),
   getContentSize: () => ipcRenderer.invoke('get-content-size'),
   cleanupOrphans: () => ipcRenderer.invoke('cleanup-orphans'),

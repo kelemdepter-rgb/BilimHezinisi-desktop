@@ -150,6 +150,10 @@ button, .hbtn, .vb, .ci, .mt, input, select, textarea { transition: background-c
 .hbtn .ic { width: 15px; height: 15px; stroke-width: 1.7; }
 .hbtn.icob { padding: 7px; }
 .hbtn.icob .ic { width: 16px; height: 16px; }
+/* «نەشرىنى يېڭىلاش» (3.6.2): a dot while a newer version waits. */
+.upd-btn { position: relative; }
+.upd-btn .upd-dot { display: none; position: absolute; top: 4px; inset-inline-end: 4px; width: 8px; height: 8px; border-radius: 50%; background: #D85A30; pointer-events: none; }
+.upd-btn.has-update .upd-dot { display: block; }
 #layout { display: flex; flex: 1; overflow: hidden; }
 #side { width: 210px; background-color: var(--bg2); background-image: var(--grain); border-left: 0.5px solid var(--border); overflow-y: auto; flex-shrink: 0; padding: 6px 8px 12px; }
 #main { flex: 1; overflow-y: auto; padding: 16px 18px; }
@@ -609,6 +613,7 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
     </div>
   </div>
   <div style="flex:1"></div>
+  <button class="hbtn icob upd-btn" id="updBtn" onclick="if (UPDUI) UPDUI.click()" style="-webkit-app-region:no-drag" title="نەشرىنى يېڭىلاش"><svg class="ic"><use href="#i-download"></use></svg><span class="upd-dot"></span></button>
   <button class="hbtn icob" onclick="showSettings()" style="-webkit-app-region:no-drag" title="تەڭشەكلەر"><svg class="ic"><use href="#i-settings"></use></svg></button>
   <button class="hbtn icob" onclick="toggleDarkMode()" style="-webkit-app-region:no-drag" id="darkToggle" title="قاراڭغۇ / يورۇق ھالەت"><svg class="ic"><use href="#i-moon"></use></svg></button>
 </div>
@@ -819,6 +824,23 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
   </div>
 </div>
 
+<!-- «نەشرىنى يېڭىلاش» (3.6.2, src/update-ui.js): what the update is doing. -->
+<div class="ov" id="updov">
+  <div class="mbox" style="max-width: 440px;">
+    <div class="mh">
+      <h2><svg class="ic"><use href="#i-download"></use></svg>نەشرىنى يېڭىلاش</h2>
+    </div>
+    <div class="mc">
+      <div id="updMsg" style="font-size:14px;font-weight:600;color:var(--text);line-height:1.8"></div>
+      <div id="updDetail" style="font-size:12px;color:var(--text2);margin-top:6px;min-height:18px;line-height:1.7"></div>
+      <div class="pb" style="display:block;margin-top:10px"><div class="pf" id="updBar" style="width:0"></div></div>
+      <div class="fa">
+        <button class="hbtn" id="updClose" style="display:none">تاقاش</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Settings Modal -->
 <div class="ov" id="setov">
   <div class="mbox" style="max-width: 520px;">
@@ -897,6 +919,17 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
         <button onclick="formsScan()" class="hbtn" id="formsScanBtn">تەكشۈرۈش</button>
         <button onclick="formsFix(this)" class="hbtn p" id="formsFixBtn" style="display:none">ئوڭشاش</button>
       </div>
+
+      <!-- «نەشرىنى يېڭىلاش» (3.6.2): the automatic check can be turned off;
+           the header button always checks. -->
+      <div style="border-top:1px solid rgba(128,128,128,.25);margin:6px 0 12px"></div>
+      <h3 style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:6px">يېڭى نەشر</h3>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:4px">
+        <input type="checkbox" id="updAuto" onchange="updAutoChanged()" style="cursor:pointer">
+        <span style="font-size:13px;color:var(--text)">يېڭى نەشرنى ئۆزلۈكىدىن تەكشۈرۈش (تور)</span>
+      </label>
+      <p style="font-size:11px;color:var(--text3);margin:0 0 6px">دېتال ئېچىلغاندا ۋە تورغا ئۇلانغاندا يېڭى نەشر بارمۇ-يوق تەكشۈرىدۇ. Microsoft Store دىن قاچىلانغان نۇسخا Store ئارقىلىق، باشقىلىرى GitHub تىكى نەشردىن يېڭىلىنىدۇ. كۇتۇپخانىڭىزدىن ھېچنېمە ئەۋەتىلمەيدۇ.</p>
+      <div id="updVersion" style="font-size:11px;color:var(--text3);margin-bottom:12px"></div>
 
       <div class="fa">
         <button onclick="hideSettings()" class="hbtn">تاقاش</button>
@@ -3339,8 +3372,27 @@ async function importWebPage() {
 // real API key never enters the renderer; the field shows a masked
 // placeholder after save.
 
+// «نەشرىنى يېڭىلاش» in Settings (3.6.2): the automatic check's switch and the
+// version this copy is.
+async function updSettingsRefresh() {
+  try {
+    const r = await window.electron.dbGetSetting('update_auto_check', true);
+    document.getElementById('updAuto').checked = !(r && r.value === false);
+    const v = await window.electron.getVersion();
+    document.getElementById('updVersion').textContent = 'نۆۋەتتىكى نەشرى: ' + v;
+  } catch (e) { /* the defaults stay */ }
+}
+function updAutoChanged() {
+  const on = document.getElementById('updAuto').checked;
+  try {
+    const p = window.electron.dbSetSetting('update_auto_check', on);
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) { /* the next start asks again */ }
+}
+
 async function showSettings() {
   bkRefreshInfo();
+  updSettingsRefresh();
   try {
     document.getElementById('aiEnabled').checked = await window.AI.isEnabled();
     const ki = document.getElementById('aiKey');
@@ -6485,6 +6537,32 @@ function toast(msg,type='i',opts){
 }
 
 init();
+
+// «نەشرىنى يېڭىلاش» (3.6.2, src/update-ui.js): the header button, the notice
+// when a newer version is found, the update window.
+// update-ui.js loads after this script, so the button starts once the page has.
+let UPDUI = null;
+window.addEventListener('DOMContentLoaded', () => { try {
+  UPDUI = window.UpdateUi.create({
+    api: {
+      check: (opts) => window.electron.updateCheck(opts),
+      install: () => window.electron.updateInstall(),
+      onProgress: (cb) => window.electron.onUpdateProgress(cb)
+    },
+    toast: toast,
+    els: {
+      button: document.getElementById('updBtn'),
+      overlay: document.getElementById('updov'),
+      message: document.getElementById('updMsg'),
+      detail: document.getElementById('updDetail'),
+      bar: document.getElementById('updBar'),
+      close: document.getElementById('updClose')
+    },
+    online: () => navigator.onLine,
+    win: window
+  });
+  UPDUI.init();
+} catch (e) { console.error('[update] the update button could not start:', e); } });
 </script>
 <link rel="stylesheet" href="quran.css">
 <link rel="stylesheet" href="notes.css">
@@ -6509,6 +6587,8 @@ init();
 <script src="pdf-text.js"></script>
 <!-- A scanned PDF read by the offline OCR, page by page; a failure is said (3.6.1). -->
 <script src="pdf-ocr.js"></script>
+<!-- «نەشرىنى يېڭىلاش» (3.6.2): the header button, the notice, the update window. -->
+<script src="update-ui.js"></script>
 <!-- Markdown source as plain prose (3.6: the one converter). -->
 <script src="markdown-text.js"></script>
 <!-- The notebook's export: the document model, Markdown and text (W6). -->

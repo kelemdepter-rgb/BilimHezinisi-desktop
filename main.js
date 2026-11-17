@@ -14,6 +14,7 @@ const textNormalize = require('./text-normalize');
 const searchForms = require('./search-forms');
 const webLibrary = require('./web-library');
 const ocrEngine = require('./ocr-engine');
+const appUpdate = require('./app-update');
 const ai = require('./ai');
 const spellEngine = require('./src/spellcheck/engine');
 // What counts as one word for the personal dictionary, and what an imported
@@ -1460,6 +1461,76 @@ ipcMain.handle('read-folder', (event, folderPath) => {
 });
 
 ipcMain.handle('get-version', () => app.getVersion());
+
+// ========== «نەشرىنى يېڭىلاش» (3.6.2) ==========
+// app-update.js says how each copy is updated: the Microsoft Store copy
+// (process.windowsStore) through the Store only; the Setup and portable
+// copies from the latest GitHub release, a file started only after its
+// SHA-256 matches; `npm run dev` downloads and checks, never installs. The
+// automatic check (at start, when the computer comes online, every six hours,
+// at most every half hour) can be turned off in Settings (update_auto_check);
+// the header button always checks. PRIVACY.md (3.4) lists the hosts.
+let updater = null;
+
+function getUpdater() {
+  if (updater) return updater;
+  const { net } = require('electron');
+  const { spawn } = require('child_process');
+  const channel = appUpdate.channelOf({
+    isPackaged: app.isPackaged,
+    windowsStore: !!process.windowsStore,
+    portableFile: process.env.PORTABLE_EXECUTABLE_FILE
+  });
+  // `npm run dev` only: pretend to be an older version, to see the notice.
+  const pretend = !app.isPackaged && process.env.BILIM_UPDATE_PRETEND_VERSION;
+  updater = appUpdate.createUpdater({
+    fetch: (url, init) => net.fetch(url, init),
+    userAgent: 'BilimHezinisi-Desktop/' + app.getVersion() + ' (+' + webLibrary.SITE_ORIGIN + ')',
+    currentVersion: pretend || app.getVersion(),
+    channel: channel,
+    tmpDir: path.join(app.getPath('temp'), 'bilim-hezinisi-update'),
+    portableDir: process.env.PORTABLE_EXECUTABLE_DIR,
+    downloadsDir: app.getPath('downloads'),
+    store: appUpdate.createStoreRunner({ spawn: spawn, tmpDir: path.join(app.getPath('temp'), 'bilim-hezinisi-update') }),
+    spawn: (file, args) => {
+      const child = spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: false });
+      child.unref();
+    },
+    // The notebook is saved before anything is installed (the K3d flush).
+    beforeQuit: () => (mainWindow && !mainWindow.isDestroyed()) ? askRendererToFlush(mainWindow) : Promise.resolve(true),
+    quit: () => { forceClose = true; app.quit(); },
+    openExternal: (url) => shell.openExternal(url)
+  });
+  return updater;
+}
+
+ipcMain.handle('update-check', async (event, opts) => {
+  const manual = !!(opts && opts.manual);
+  try {
+    if (!manual && database.getSetting('update_auto_check', true) === false) return { success: true, skipped: true };
+  } catch (e) { /* the setting could not be read: check as by default */ }
+  try {
+    return Object.assign({ success: true }, await getUpdater().check({ manual: manual }));
+  } catch (e) {
+    return { success: false, error: (e && e.message) || String(e), code: (e && e.code) || null };
+  }
+});
+
+// What is installed is what main's own last check found — never an address
+// from the renderer.
+ipcMain.handle('update-install', async (event) => {
+  const sender = event.sender;
+  try {
+    const r = await getUpdater().install(null, {
+      onProgress: (p) => {
+        try { if (!sender.isDestroyed()) sender.send('update-progress', p); } catch (_) {}
+      }
+    });
+    return Object.assign({ success: true }, r);
+  } catch (e) {
+    return { success: false, error: (e && e.message) || String(e), code: (e && e.code) || null };
+  }
+});
 
 ipcMain.handle('open-data-folder', () => {
   shell.openPath(DATA_DIR);
