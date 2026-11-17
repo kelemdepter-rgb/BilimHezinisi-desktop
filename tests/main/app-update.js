@@ -6,10 +6,13 @@
 //     only — the check and the install go through Windows' own Store API
 //     (a PowerShell child, which runs inside the app's package), and when a
 //     silent install is not possible the Store's page for the app is opened;
-//   - the installed copy (NSIS «Setup») and the portable copy read the latest
-//     GitHub release; the file is downloaded, checked against the SHA-256
-//     GitHub publishes for it, and only then started: the installer silently
-//     over the old one, the new portable beside the old one;
+//   - the installed copy (NSIS «Setup») and the portable copy follow what the
+//     Store has PUBLISHED (the owner's rule): Microsoft's product catalog says
+//     which version the Store serves; only if it is newer is the GitHub
+//     release of that same version read, its file downloaded, checked against
+//     the SHA-256 GitHub publishes for it, and only then started: the
+//     installer silently over the old one, the new portable beside the old
+//     one. The latest version on the computer downloads nothing;
 //   - `npm run dev` downloads and checks, and never installs.
 // Nothing is ever started that did not pass its checksum.
 // ============================================================================
@@ -66,7 +69,15 @@ function fileResponse(bytes) {
   return new Response(stream, { status: 200, headers: { 'content-length': String(bytes.length) } });
 }
 
-const LATEST = 'https://api.github.com/repos/kelemdepter-rgb/BilimHezinisi-desktop/releases/latest';
+const CATALOG = 'https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds=9N2T15L4DX86&market=US&languages=en-US';
+const TAG = (v) => 'https://api.github.com/repos/kelemdepter-rgb/BilimHezinisi-desktop/releases/tags/v' + v;
+
+/** Microsoft's catalog answer for the app, in its own shape (trimmed). */
+function catalog(version) {
+  const pkg = { PackageFullName: 'BilimHezinisi.BilimHezinisi_' + version + '.0_x64__mmvytst8m9mqm', PackageFormat: 'Appx' };
+  return { Products: [{ ProductId: '9N2T15L4DX86', LocalizedProperties: [{ ProductTitle: 'بىلىم خەزىنىسى' }],
+    DisplaySkuAvailabilities: [{ Sku: { Properties: { Packages: [pkg] } } }, { Sku: { Properties: { Packages: [pkg] } } }] }] };
+}
 
 module.exports = function (suite, assert, ctx) {
   const mod = function () { return require(path.join(ctx.root, 'app-update.js')); };
@@ -83,7 +94,8 @@ module.exports = function (suite, assert, ctx) {
     const rel = release('v3.6.2', files);
     const log = [];
     const routes = {};
-    routes[LATEST] = () => jsonResponse(rel);
+    routes[CATALOG] = () => jsonResponse(catalog((extra && extra.storeVersion) || '3.6.2'));
+    routes[TAG('3.6.2')] = () => jsonResponse(rel);
     rel.assets.forEach(function (a, i) { routes[a.browser_download_url] = () => fileResponse(files[i].bytes); });
     const calls = { spawn: [], quit: 0, open: [], beforeQuit: 0, order: [] };
     const o = Object.assign({
@@ -101,6 +113,7 @@ module.exports = function (suite, assert, ctx) {
       quit: () => { calls.order.push('quit'); calls.quit++; },
       openExternal: (url) => { calls.open.push(url); return Promise.resolve(); }
     }, extra || {});
+    delete o.storeVersion;
     fs.mkdirSync(o.portableDir, { recursive: true });
     return { dir: dir, files: files, rel: rel, routes: routes, log: log, calls: calls, o: o };
   }
@@ -130,33 +143,64 @@ module.exports = function (suite, assert, ctx) {
     assert.equal(m.assetFor({ assets: [{ name: 'Bilim.Hezinisi.Setup.3.6.2.exe.blockmap' }] }, 'installer'), null, 'a blockmap is not the installer');
   });
 
-  suite.test('update-check-github', async function () {
+  suite.test('update-store-catalog-version', function () {
     const m = mod();
+    assert.equal(m.storeVersionFromCatalog(catalog('3.6.0')), '3.6.0');
+    const two = catalog('3.6.0');
+    two.Products[0].DisplaySkuAvailabilities[1].Sku.Properties.Packages[0].PackageFullName = 'BilimHezinisi.BilimHezinisi_3.6.10.0_x64__mmvytst8m9mqm';
+    assert.equal(m.storeVersionFromCatalog(two), '3.6.10', 'not the highest package');
+    assert.equal(m.storeVersionFromCatalog({ Products: [] }), null);
+    assert.equal(m.storeVersionFromCatalog({ Products: [{ DisplaySkuAvailabilities: [{ Sku: { Properties: { Packages: [{ PackageFullName: 'Other.App_9.9.9.0_x64__abc' }] } } }] }] }), null, 'another app\'s package was taken');
+  });
+
+  suite.test('update-check-follows-the-store', async function () {
+    const m = mod();
+    // The Store publishes 3.6.2; this copy is 3.6.1: the 3.6.2 release's file.
     let s = setup('check');
     let u = m.createUpdater(s.o);
     const r = await u.check({ manual: true });
-    assert.equal(r.available, true, 'a newer release was not seen: ' + JSON.stringify(r));
+    assert.equal(r.available, true, 'a version the Store publishes was not seen: ' + JSON.stringify(r));
     assert.equal(r.version, '3.6.2');
     assert.equal(r.current, '3.6.1');
     assert.equal(r.channel, 'installer');
     assert.equal(r.asset.name, 'Bilim.Hezinisi.Setup.3.6.2.exe');
+    assert.deepEqual(s.log, [CATALOG, TAG('3.6.2')], 'the Store was not asked first, or the release asked was not the Store\'s version');
 
-    // The same version: nothing to do.
+    // The latest version on this computer: nothing to download, GitHub not asked.
     s = setup('check-same', { currentVersion: '3.6.2' });
     u = m.createUpdater(s.o);
-    assert.equal((await u.check({ manual: true })).available, false);
+    const same = await u.check({ manual: true });
+    assert.equal(same.available, false, 'the latest version was offered again');
+    assert.deepEqual(s.log, [CATALOG], 'GitHub was asked although the Store has nothing newer');
+
+    // GitHub already has a newer release, the Store not yet: nothing.
+    s = setup('check-github-ahead', { currentVersion: '3.6.2', storeVersion: '3.6.2' });
+    s.routes[TAG('3.6.3')] = () => jsonResponse(release('v3.6.3', s.files));
+    u = m.createUpdater(s.o);
+    assert.equal((await u.check({ manual: true })).available, false, 'a version the Store has not published was offered');
+    assert.ok(s.log.indexOf(TAG('3.6.3')) === -1, 'GitHub\'s newer release was even looked at');
+
+    // Published in the Store, its release not on GitHub (yet): nothing to install.
+    s = setup('check-no-release', { storeVersion: '3.6.3' });
+    s.routes[TAG('3.6.3')] = () => jsonResponse({ message: 'Not Found' }, 404);
+    u = m.createUpdater(s.o);
+    const waiting = await u.check({ manual: true });
+    assert.equal(waiting.available, false);
+    assert.equal(waiting.waiting, true);
+    assert.equal(waiting.version, '3.6.3');
 
     // Automatic checks are spaced (half an hour); one asked for is not.
-    const before = s.log.length;
+    s = setup('check-throttle', { currentVersion: '3.6.2' });
+    u = m.createUpdater(s.o);
     await u.check({ manual: false });
     await u.check({ manual: false });
-    assert.equal(s.log.length - before, 1, 'a second automatic check within half an hour went online');
+    assert.equal(s.log.length, 1, 'a second automatic check within half an hour went online');
     await u.check({ manual: true });
-    assert.equal(s.log.length - before, 2, 'a check the owner asked for did not go online');
+    assert.equal(s.log.length, 2, 'a check the owner asked for did not go online');
 
     // Offline: tried three times, then said in Uyghur.
     s = setup('check-offline');
-    delete s.routes[LATEST];
+    delete s.routes[CATALOG];
     u = m.createUpdater(s.o);
     let err = null;
     try { await u.check({ manual: true }); } catch (e) { err = e; }
@@ -165,14 +209,22 @@ module.exports = function (suite, assert, ctx) {
     assert.includes(err.message, 'تور', 'the offline message is not the Uyghur one: ' + err.message);
     assert.equal(s.log.length, 3, 'the check was not tried three times');
 
+    // The catalog without the app's package: said, nothing offered.
+    s = setup('check-catalog-empty');
+    s.routes[CATALOG] = () => jsonResponse({ Products: [] });
+    u = m.createUpdater(s.o);
+    err = null;
+    try { await u.check({ manual: true }); } catch (e) { err = e; }
+    assert.ok(err && err.code === 'catalog', 'an empty catalog answer was not said');
+
     // GitHub's hourly limit: said, not retried.
     s = setup('check-limit');
-    s.routes[LATEST] = () => jsonResponse({ message: 'API rate limit exceeded' }, 403, { 'x-ratelimit-remaining': '0' });
+    s.routes[TAG('3.6.2')] = () => jsonResponse({ message: 'API rate limit exceeded' }, 403, { 'x-ratelimit-remaining': '0' });
     u = m.createUpdater(s.o);
     err = null;
     try { await u.check({ manual: true }); } catch (e) { err = e; }
     assert.ok(err && err.code === 'refused', 'a 403 was not refused: ' + (err && err.code));
-    assert.equal(s.log.length, 1, 'a 403 was retried');
+    assert.equal(s.log.filter(function (x) { return x === TAG('3.6.2'); }).length, 1, 'a 403 was retried');
   });
 
   suite.test('update-install-checks-before-it-starts', async function () {
@@ -320,7 +372,9 @@ module.exports = function (suite, assert, ctx) {
     const upd = html.indexOf('id="updBtn"');
     const settings = html.indexOf('onclick="showSettings()" style="-webkit-app-region:no-drag" title="تەڭشەكلەر"');
     assert.ok(upd > 0 && settings > upd && settings - upd < 600, 'the update button is not beside the settings button');
-    assert.includes(html, 'title="نەشرىنى يېڭىلاش"');
+    const button = html.slice(upd, html.indexOf('</button>', upd) + '</button>'.length);
+    assert.includes(button, '>نەشرىنى يېڭىلاش<', 'the button does not say «نەشرىنى يېڭىلاش» in words');
+    assert.excludes(button, '<svg', 'the button is still a picture');
     assert.includes(html, '<script src="update-ui.js"></script>');
   });
 };

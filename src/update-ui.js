@@ -26,7 +26,10 @@
     title: 'نەشرىنى يېڭىلاش',
     titleAvailable: (v) => 'يېڭى نەشرى بار (' + v + ') — نەشرىنى يېڭىلاش',
     checking: 'يېڭى نەشر تەكشۈرۈلۈۋاتىدۇ…',
-    latest: (v) => 'سىزدە ئەڭ يېڭى نەشرى بار (' + v + ')',
+    // The owner's words (2026-11-17); nothing is downloaded then.
+    latest: () => 'سىز ئىشلىتىۋاتقىنى ئەڭ يېڭى نەشرى',
+    // Published in the Store, but this copy's file is not on GitHub yet.
+    waiting: (v) => 'Microsoft Store دا يېڭى نەشرى (' + v + ') بار، ئەمما بۇ نۇسخا ئۈچۈن ھۆججىتى تېخى تەييار ئەمەس — كېيىن قايتا سىناڭ.',
     offline: 'تورغا ئۇلانمىغان — تورغا ئۇلىنىپ قايتا سىناڭ.',
     failed: 'يېڭى نەشرنى تەكشۈرگىلى بولمىدى.',
     updating: 'نەشرى يېڭىلىنىۋاتىدۇ، توردىن ئۈزۈۋەتمەڭ...',
@@ -113,7 +116,7 @@
       } else if (r.done) {
         els.detail.textContent = SAY.storeDone;            // Windows closes the app
       } else {
-        els.message.textContent = r.openedStore ? SAY.openedStore : (r.message || SAY.latest(''));
+        els.message.textContent = r.openedStore ? SAY.openedStore : (r.message || SAY.latest());
         st.busy = false;
         canClose(true);
       }
@@ -132,7 +135,8 @@
         st.notified = r.version;
         return start();
       }
-      o.toast(SAY.latest(r.current || r.version || ''), 's');
+      if (r.waiting) o.toast(SAY.waiting(r.version), 'i', { ms: 8000 });
+      else o.toast(SAY.latest(), 's');
       return r;
     }
 

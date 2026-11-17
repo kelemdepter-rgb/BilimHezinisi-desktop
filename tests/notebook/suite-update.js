@@ -112,7 +112,7 @@
       t.assert.deepEqual(f.calls.check, [true], 'a click did not check at once');
       t.assert.equal(f.calls.install, 0, 'a click installed with nothing newer');
       const last = f.calls.toasts[f.calls.toasts.length - 1];
-      t.assert.equal(last.msg, 'سىزدە ئەڭ يېڭى نەشرى بار (3.6.2)');
+      t.assert.equal(last.msg, 'سىز ئىشلىتىۋاتقىنى ئەڭ يېڭى نەشرى', 'the latest version is not said in the owner\'s words');
 
       // A click that finds a newer version goes straight on to install it.
       const g = fixture({ check: function () { return AVAILABLE; }, install: function () { return { success: true, installing: true }; } });
@@ -120,6 +120,16 @@
         await g.ui.click();
         t.assert.equal(g.calls.install, 1, 'a click that found a newer version did not install it');
       } finally { g.box.remove(); }
+
+      // Published in the Store, its file not ready for this copy: said, not "latest".
+      const w = fixture({ check: function () { return { success: true, available: false, waiting: true, version: '3.6.3', current: '3.6.2', channel: 'installer' }; }, install: function () { return { success: true }; } });
+      try {
+        await w.ui.click();
+        t.assert.equal(w.calls.install, 0);
+        const said = w.calls.toasts[w.calls.toasts.length - 1].msg;
+        t.assert.includes(said, '3.6.3', 'the Store\'s version is not named');
+        t.assert.excludes(said, 'ئەڭ يېڭى نەشرى', 'an older copy was told it is the latest');
+      } finally { w.box.remove(); }
 
       // Offline: said at once.
       f.win.online = false;

@@ -14,20 +14,29 @@
 //   installer  The copy installed by «Bilim Hezinisi Setup» (NSIS, per user).
 //   portable   The portable .exe (electron-builder sets
 //              PORTABLE_EXECUTABLE_FILE / _DIR).
-//              Both read the latest GitHub release of the desktop repository,
-//              download the matching file, and start it ONLY after its size and
-//              its SHA-256 match what GitHub publishes for it: the installer
-//              silently over the old copy («/S --updated --force-run», the
-//              arguments electron-builder's own updater uses), the new portable
-//              beside the old one. The notebook is saved first, then the app
-//              quits.
+//              The owner's rule (2026-11-17): a new version is one the
+//              Microsoft Store has PUBLISHED — so these copies, too, ask the
+//              Store first, through Microsoft's public product catalog
+//              (displaycatalog.mp.microsoft.com, the package the Store serves
+//              for 9N2T15L4DX86, «…_3.6.0.0_x64__…»). Only when that version
+//              is newer than this copy is the GitHub release of the SAME
+//              version read, its file downloaded, and started ONLY after its
+//              size and its SHA-256 match what GitHub publishes for it: the
+//              installer silently over the old copy («/S --updated
+//              --force-run», the arguments electron-builder's own updater
+//              uses), the new portable beside the old one. The notebook is
+//              saved first, then the app quits.
 //   dev        `npm run dev`: checks and downloads like the installer, and
 //              never installs anything.
 //
-// The network: api.github.com (the check) and github.com, which redirects a
-// download to GitHub's file host — through Electron's net.fetch (main.js), so
-// the system's certificates and proxy apply. The Store copy never asks GitHub;
-// Windows talks to the Store. PRIVACY.md (3.4) says this.
+// The latest version on this computer: «سىز ئىشلىتىۋاتقىنى ئەڭ يېڭى نەشرى»,
+// and nothing is downloaded.
+//
+// The network: displaycatalog.mp.microsoft.com (what the Store publishes),
+// api.github.com (the release of that version) and github.com, which
+// redirects a download to GitHub's file host — through Electron's net.fetch
+// (main.js), so the system's certificates and proxy apply. The Store copy
+// asks only the Store, through Windows. PRIVACY.md (3.4) says this.
 // ============================================================================
 
 'use strict';
@@ -37,11 +46,14 @@ const path = require('path');
 const crypto = require('crypto');
 
 const REPO = 'kelemdepter-rgb/BilimHezinisi-desktop';
-const LATEST_URL = 'https://api.github.com/repos/' + REPO + '/releases/latest';
 const RELEASES_PAGE = 'https://github.com/' + REPO + '/releases/latest';
 const DOWNLOAD_PREFIX = 'https://github.com/' + REPO + '/releases/download/';
 const STORE_PRODUCT_ID = '9N2T15L4DX86';
 const STORE_PAGE = 'ms-windows-store://pdp/?ProductId=' + STORE_PRODUCT_ID;
+/** What the Store publishes for the app (Microsoft's public product catalog). */
+const STORE_CATALOG_URL = 'https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds=' + STORE_PRODUCT_ID + '&market=US&languages=en-US';
+/** The GitHub release of one version. */
+const releaseUrl = (version) => 'https://api.github.com/repos/' + REPO + '/releases/tags/v' + version;
 
 /** Automatic checks at most this often; a check the owner asks for, always. */
 const AUTO_CHECK_EVERY_MS = 30 * 60 * 1000;
@@ -59,15 +71,36 @@ const SAY = {
   download: 'چۈشۈرۈش ئۈزۈلۈپ قالدى — تورنى تەكشۈرۈپ قايتا سىناڭ.',
   flush: 'خاتىرە ساقلانمىدى — يېڭىلاش توختىتىلدى. خاتىرىنى ساقلاپ قايتا سىناڭ.',
   store: 'Microsoft Store جاۋاب بەرمىدى',
+  catalog: 'Microsoft Store دىكى نەشرنى بىلگىلى بولمىدى — سەل تۇرۇپ قايتا سىناڭ.',
   dev: 'سىناق نۇسخىسى (npm run dev): يېڭى نەشر چۈشۈرۈلدى ۋە تەكشۈرۈلدى، قاچىلانمىدى.'
 };
 
 class UpdateError extends Error {
-  constructor(message, code) {
+  constructor(message, code, status) {
     super(message);
     this.name = 'UpdateError';
     this.code = code;
+    this.status = status || 0;
   }
+}
+
+/**
+ * The version the Store publishes, from the product catalog's answer: the
+ * highest «BilimHezinisi.BilimHezinisi_<version>.0_…» package. null if none.
+ */
+function storeVersionFromCatalog(json) {
+  let best = null;
+  const products = (json && Array.isArray(json.Products)) ? json.Products : [];
+  for (const p of products) {
+    for (const a of (p && p.DisplaySkuAvailabilities) || []) {
+      const packages = (a && a.Sku && a.Sku.Properties && a.Sku.Properties.Packages) || [];
+      for (const k of packages) {
+        const m = /^BilimHezinisi\.BilimHezinisi_(\d+\.\d+\.\d+)(?:\.\d+)?_/.exec(String((k && k.PackageFullName) || ''));
+        if (m && (!best || compareVersions(m[1], best) > 0)) best = m[1];
+      }
+    }
+  }
+  return best;
 }
 
 /** -1, 0, 1 — numeric parts, a leading «v» ignored, a missing part is 0. */
@@ -123,14 +156,18 @@ function createUpdater(opts) {
   let lastAutoResult = null;
   let lastFound = null;     // what the last check found: install() takes it from here
 
-  async function getJson(url) {
+  /**
+   * GET `url` as JSON: 20 s each try, a network error or a 5xx retried twice,
+   * a 4xx never. `refused` is the message for a 4xx.
+   */
+  async function getJson(url, accept, refused) {
     for (let attempt = 0; ; attempt++) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), o.timeoutMs || TIMEOUT_MS);
       let res = null;
       try {
         res = await o.fetch(url, {
-          headers: { 'Accept': 'application/vnd.github+json', 'User-Agent': o.userAgent || 'BilimHezinisi-Desktop' },
+          headers: { 'Accept': accept || 'application/json', 'User-Agent': o.userAgent || 'BilimHezinisi-Desktop' },
           signal: controller.signal,
           cache: 'no-store'
         });
@@ -139,7 +176,7 @@ function createUpdater(opts) {
       } finally {
         clearTimeout(timer);
       }
-      if (res && res.status >= 400 && res.status < 500) throw new UpdateError(SAY.refused, 'refused');
+      if (res && res.status >= 400 && res.status < 500) throw new UpdateError(refused || SAY.refused, 'refused', res.status);
       if (res && res.ok) {
         try { return await res.json(); } catch (e) { res = null; }
       }
@@ -149,22 +186,29 @@ function createUpdater(opts) {
   }
 
   async function checkNow() {
+    const current = o.currentVersion;
     if (o.channel === 'store') {
       const r = await o.store('check');
       if (!r || !r.ok) throw new UpdateError(SAY.store + ((r && r.error) ? ': ' + r.error : '.'), 'store');
-      return { available: Number(r.count) > 0, version: r.version || null, current: o.currentVersion, channel: 'store', asset: null, page: STORE_PAGE };
+      return { available: Number(r.count) > 0, version: r.version || current, current: current, channel: 'store', asset: null, page: STORE_PAGE };
     }
-    const rel = await getJson(LATEST_URL);
-    const version = String((rel && rel.tag_name) || '').replace(/^v/i, '');
-    const available = !!version && compareVersions(version, o.currentVersion) > 0;
-    return {
-      available: available,
-      version: version || null,
-      current: o.currentVersion,
-      channel: o.channel,
-      asset: available ? assetFor(rel, o.channel) : null,
-      page: (rel && rel.html_url) || RELEASES_PAGE
-    };
+    // What the Store has published decides, for every copy (the owner's rule).
+    const catalog = await getJson(STORE_CATALOG_URL, 'application/json', SAY.catalog);
+    const storeVersion = storeVersionFromCatalog(catalog);
+    if (!storeVersion) throw new UpdateError(SAY.catalog, 'catalog');
+    const base = { available: false, version: storeVersion, storeVersion: storeVersion, current: current, channel: o.channel, asset: null, page: RELEASES_PAGE };
+    if (compareVersions(storeVersion, current) <= 0) return base;
+    // Published in the Store: the GitHub release of that same version carries the file.
+    let rel;
+    try {
+      rel = await getJson(releaseUrl(storeVersion), 'application/vnd.github+json');
+    } catch (e) {
+      if (e && e.code === 'refused' && e.status === 404) return Object.assign(base, { waiting: true });
+      throw e;
+    }
+    const asset = assetFor(rel, o.channel);
+    if (!asset) return Object.assign(base, { waiting: true });
+    return Object.assign(base, { available: true, asset: asset, page: (rel && rel.html_url) || RELEASES_PAGE });
   }
 
   /** Is there a newer version? Automatic checks are spaced; a manual one always goes. */
@@ -367,7 +411,7 @@ function createStoreRunner(opts) {
 }
 
 module.exports = {
-  REPO, LATEST_URL, RELEASES_PAGE, STORE_PRODUCT_ID, STORE_PAGE, AUTO_CHECK_EVERY_MS,
-  UpdateError, compareVersions, channelOf, assetFor, createUpdater,
+  REPO, RELEASES_PAGE, STORE_PRODUCT_ID, STORE_PAGE, STORE_CATALOG_URL, AUTO_CHECK_EVERY_MS,
+  UpdateError, compareVersions, channelOf, assetFor, storeVersionFromCatalog, releaseUrl, createUpdater,
   STORE_SCRIPT, createStoreRunner
 };

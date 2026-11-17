@@ -150,9 +150,9 @@ button, .hbtn, .vb, .ci, .mt, input, select, textarea { transition: background-c
 .hbtn .ic { width: 15px; height: 15px; stroke-width: 1.7; }
 .hbtn.icob { padding: 7px; }
 .hbtn.icob .ic { width: 16px; height: 16px; }
-/* «نەشرىنى يېڭىلاش» (3.6.2): a dot while a newer version waits. */
-.upd-btn { position: relative; }
-.upd-btn .upd-dot { display: none; position: absolute; top: 4px; inset-inline-end: 4px; width: 8px; height: 8px; border-radius: 50%; background: #D85A30; pointer-events: none; }
+/* «نەشرىنى يېڭىلاش» (3.6.2): the words, and a dot while a newer version waits. */
+.upd-btn { position: relative; white-space: nowrap; font-size: 12.5px; }
+.upd-btn .upd-dot { display: none; position: absolute; top: -3px; inset-inline-end: -3px; width: 9px; height: 9px; border-radius: 50%; background: #D85A30; pointer-events: none; }
 .upd-btn.has-update .upd-dot { display: block; }
 #layout { display: flex; flex: 1; overflow: hidden; }
 #side { width: 210px; background-color: var(--bg2); background-image: var(--grain); border-left: 0.5px solid var(--border); overflow-y: auto; flex-shrink: 0; padding: 6px 8px 12px; }
@@ -613,7 +613,7 @@ input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin
     </div>
   </div>
   <div style="flex:1"></div>
-  <button class="hbtn icob upd-btn" id="updBtn" onclick="if (UPDUI) UPDUI.click()" style="-webkit-app-region:no-drag" title="نەشرىنى يېڭىلاش"><svg class="ic"><use href="#i-download"></use></svg><span class="upd-dot"></span></button>
+  <button class="hbtn upd-btn" id="updBtn" onclick="if (UPDUI) UPDUI.click()" style="-webkit-app-region:no-drag" title="نەشرىنى يېڭىلاش"><span class="upd-dot"></span>نەشرىنى يېڭىلاش</button>
   <button class="hbtn icob" onclick="showSettings()" style="-webkit-app-region:no-drag" title="تەڭشەكلەر"><svg class="ic"><use href="#i-settings"></use></svg></button>
   <button class="hbtn icob" onclick="toggleDarkMode()" style="-webkit-app-region:no-drag" id="darkToggle" title="قاراڭغۇ / يورۇق ھالەت"><svg class="ic"><use href="#i-moon"></use></svg></button>
 </div>
