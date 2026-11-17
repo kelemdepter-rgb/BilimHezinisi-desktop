@@ -132,12 +132,15 @@ button. You can turn the automatic check off in Settings («يېڭى نەشرن�
 
 - The copy installed from the **Microsoft Store** asks the Store, through
   Windows' own Store service; the Store downloads and installs the update.
-- The copies installed with **Setup**, and the **portable** copy, ask
-  **api.github.com** for the latest release of the app's public repository
-  (`github.com/kelemdepter-rgb/BilimHezinisi-desktop`). Only when you click
-  «نەشرىنى يېڭىلاش» is the new file downloaded from **github.com**, which hands
-  the download to GitHub's file host; it is installed only after its SHA-256
-  matches the one GitHub publishes for it.
+- The copies installed with **Setup**, and the **portable** copy, also follow
+  the Store: they ask Microsoft's public Store catalog
+  (**displaycatalog.mp.microsoft.com**) which version the Store publishes for
+  the app. Only if that version is newer than yours do they ask
+  **api.github.com** for the release of that same version in the app's public
+  repository (`github.com/kelemdepter-rgb/BilimHezinisi-desktop`). Only when you
+  click «نەشرىنى يېڭىلاش» is the new file downloaded from **github.com**, which
+  hands the download to GitHub's file host; it is installed only after its
+  SHA-256 matches the one GitHub publishes for it.
 
 These requests carry your IP address (as every internet connection does) and
 the app's name and version. **Nothing from your library or your notebook is
@@ -309,9 +312,12 @@ Google نىڭ Gemini API قوشۇمچە شەرتلىرى (2026-يىلى 8-ئاي
 
 - **Microsoft Store** دىن قاچىلانغان نۇسخا Windows نىڭ ئۆز Store مۇلازىمىتى
   ئارقىلىق Store دىن سورايدۇ؛ يېڭى نەشرنى Store چۈشۈرۈپ قاچىلايدۇ.
-- **Setup** بىلەن قاچىلانغان ۋە **Portable** نۇسخىلار دېتالنىڭ ئاممىۋى
-  ئامبىرىنىڭ (`github.com/kelemdepter-rgb/BilimHezinisi-desktop`) ئەڭ يېڭى
-  نەشرىنى **api.github.com** دىن سورايدۇ. پەقەت سىز «نەشرىنى يېڭىلاش» نى
+- **Setup** بىلەن قاچىلانغان ۋە **Portable** نۇسخىلارمۇ Store غا ئەگىشىدۇ:
+  ئالدى بىلەن Microsoft نىڭ ئاممىۋى Store مۇندەرىجىسىدىن
+  (**displaycatalog.mp.microsoft.com**) Store دا قايسى نەشر ئېلان قىلىنغانلىقىنى
+  سورايدۇ. ئۇ نەشر سىزنىڭكىدىن يېڭى بولسىلا، دېتالنىڭ ئاممىۋى ئامبىرىدىن
+  (`github.com/kelemdepter-rgb/BilimHezinisi-desktop`) شۇ نەشرنى
+  **api.github.com** دىن سورايدۇ. پەقەت سىز «نەشرىنى يېڭىلاش» نى
   باسقاندىلا يېڭى ھۆججەت **github.com** دىن (ئۇ GitHub نىڭ ھۆججەت
   مۇلازىمىتىرىغا يوللايدۇ) چۈشۈرۈلىدۇ؛ ئۇنىڭ SHA-256 ى GitHub ئېلان قىلغىنى
   بىلەن ئوخشاش بولغاندىلا قاچىلىنىدۇ.
