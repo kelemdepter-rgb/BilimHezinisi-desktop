@@ -1,6 +1,6 @@
 # Privacy Policy — بىلىم خەزىنىسى (Bilim Hezinisi)
 
-**Last updated: 28 October 2026**
+**Last updated: 17 November 2026**
 **Applies to: Bilim Hezinisi for Windows, version 3.2.0 and later**
 
 ## Short version
@@ -9,7 +9,8 @@ Bilim Hezinisi is an **offline-first personal library**. It has no user
 accounts, no analytics, no telemetry, no advertising and no tracking of any
 kind. Your books, notes and settings never leave your computer. The app goes
 online only when *you* turn on the optional AI assistant, paste a web address
-to import, or open the Bilim Hezinisi website's catalog to download a book
+to import, or open the Bilim Hezinisi website's catalog to download a book;
+and it checks whether a newer version of itself exists, which you can turn off
 (section 3).
 
 ---
@@ -42,8 +43,9 @@ app does not delete your library, so that a reinstall keeps your books.
 
 ## 3. When the app uses the internet
 
-The app works fully offline. It contacts the network in only three
-situations, each started by you:
+The app works fully offline. It contacts the network in only these
+situations: the three in 3.1–3.3, each started by you, and the check for a
+new version in 3.4, which you can turn off:
 
 ### 3.1 The optional AI assistant (Google Gemini)
 
@@ -120,6 +122,29 @@ runs, unless you refresh it; a book is downloaded only when you click
 <https://bilimhezinisi.com/privacy>; Supabase's is
 <https://supabase.com/privacy>.
 
+### 3.4 Checking for a new version (version 3.6.2 and later)
+
+The app checks whether a newer version of itself exists: when it starts, when
+your computer comes online, and every six hours while it runs (at most once
+every half hour), and whenever you click «نەشرىنى يېڭىلاش» beside the settings
+button. You can turn the automatic check off in Settings («يېڭى نەشرنى
+ئۆزلۈكىدىن تەكشۈرۈش»); the button still checks when you click it.
+
+- The copy installed from the **Microsoft Store** asks the Store, through
+  Windows' own Store service; the Store downloads and installs the update.
+- The copies installed with **Setup**, and the **portable** copy, ask
+  **api.github.com** for the latest release of the app's public repository
+  (`github.com/kelemdepter-rgb/BilimHezinisi-desktop`). Only when you click
+  «نەشرىنى يېڭىلاش» is the new file downloaded from **github.com**, which hands
+  the download to GitHub's file host; it is installed only after its SHA-256
+  matches the one GitHub publishes for it.
+
+These requests carry your IP address (as every internet connection does) and
+the app's name and version. **Nothing from your library or your notebook is
+sent.** GitHub's privacy statement:
+<https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement>;
+Microsoft's: <https://privacy.microsoft.com>.
+
 Everything else — reading, full-text search, OCR (text recognition from
 images and scanned PDFs), spell-checking, the Qur'an module and export to
 PDF/DOCX — runs **entirely offline** on your own machine.
@@ -153,7 +178,7 @@ Questions, corrections or a request to remove material:
 
 # مەخپىيەتلىك سىياسىتى — بىلىم خەزىنىسى
 
-**ئاخىرقى يېڭىلانغان ۋاقتى: 2026-يىلى 10-ئاينىڭ 28-كۈنى**
+**ئاخىرقى يېڭىلانغان ۋاقتى: 2026-يىلى 11-ئاينىڭ 17-كۈنى**
 **قوللىنىش دائىرىسى: Windows ئۈچۈن بىلىم خەزىنىسى، 3.2.0 ۋە ئۇنىڭدىن كېيىنكى نەشرى**
 
 ## قىسقىچە
@@ -163,7 +188,8 @@ Questions, corrections or a request to remove material:
 كىتابلىرىڭىز، خاتىرىلىرىڭىز ۋە تەڭشەكلىرىڭىز كومپيۇتېرىڭىزدىن ھەرگىز
 چىقمايدۇ. دېتال پەقەت سىز ئۆزىڭىز سۈنئىي ئىدراك ئىقتىدارىنى قوزغاتقاندا، تور
 ئادرېسى چاپلاپ كىتاب ئەكىرگەندە ياكى بىلىم خەزىنىسى تور بېتىنىڭ تىزىملىكىنى
-ئېچىپ كىتاب چۈشۈرگەندىلا تورغا ئۇلىنىدۇ (3-بۆلەك).
+ئېچىپ كىتاب چۈشۈرگەندىلا تورغا ئۇلىنىدۇ؛ يەنە ئۆزىنىڭ يېڭى نەشرى بارمۇ-يوق
+تەكشۈرىدۇ، بۇنى تاقىۋەتكىلى بولىدۇ (3-بۆلەك).
 
 ## 1. بىز توپلايدىغان ئۇچۇر
 
@@ -193,8 +219,8 @@ Questions, corrections or a request to remove material:
 
 ## 3. دېتال قايسى ۋاقىتتا توردىن پايدىلىنىدۇ
 
-دېتال تولۇق تورسىز ئىشلەيدۇ. پەقەت سىز ئۆزىڭىز باشلىغان تۆۋەندىكى ئۈچ
-ئەھۋالدىلا تورغا باغلىنىدۇ:
+دېتال تولۇق تورسىز ئىشلەيدۇ. پەقەت سىز ئۆزىڭىز باشلىغان 3.1–3.3 دىكى ئۈچ
+ئەھۋالدا ۋە 3.4 دىكى يېڭى نەشر تەكشۈرۈشتە (تاقىۋەتكىلى بولىدۇ) تورغا باغلىنىدۇ:
 
 ### 3.1 ئىختىيارىي سۈنئىي ئىدراك ياردەمچىسى (Google Gemini)
 
@@ -272,6 +298,29 @@ Google نىڭ Gemini API قوشۇمچە شەرتلىرى (2026-يىلى 8-ئاي
 باسقاندىلا چۈشۈرۈلىدۇ. تور بېتىنىڭ ئۆز مەخپىيەتلىك بېتى:
 <https://bilimhezinisi.com/privacy>؛ Supabase نىڭكى:
 <https://supabase.com/privacy>.
+
+### 3.4 يېڭى نەشرنى تەكشۈرۈش (3.6.2 ۋە ئۇنىڭدىن كېيىنكى نەشرى)
+
+دېتال ئۆزىنىڭ يېڭى نەشرى بارمۇ-يوق تەكشۈرىدۇ: ئېچىلغاندا، كومپيۇتېر تورغا
+ئۇلانغاندا، ئىشلەۋاتقاندا ھەر ئالتە سائەتتە (يېرىم سائەتتە ئەڭ كۆپ بىر قېتىم)،
+ۋە سىز تەڭشەك كۇنۇپكىسىنىڭ يېنىدىكى «نەشرىنى يېڭىلاش» نى باسقاندا. ئاپتوماتىك
+تەكشۈرۈشنى تەڭشەكلەردىن («يېڭى نەشرنى ئۆزلۈكىدىن تەكشۈرۈش») تاقىۋەتكىلى
+بولىدۇ؛ كۇنۇپكىنى باسسىڭىز يەنىلا تەكشۈرىدۇ.
+
+- **Microsoft Store** دىن قاچىلانغان نۇسخا Windows نىڭ ئۆز Store مۇلازىمىتى
+  ئارقىلىق Store دىن سورايدۇ؛ يېڭى نەشرنى Store چۈشۈرۈپ قاچىلايدۇ.
+- **Setup** بىلەن قاچىلانغان ۋە **Portable** نۇسخىلار دېتالنىڭ ئاممىۋى
+  ئامبىرىنىڭ (`github.com/kelemdepter-rgb/BilimHezinisi-desktop`) ئەڭ يېڭى
+  نەشرىنى **api.github.com** دىن سورايدۇ. پەقەت سىز «نەشرىنى يېڭىلاش» نى
+  باسقاندىلا يېڭى ھۆججەت **github.com** دىن (ئۇ GitHub نىڭ ھۆججەت
+  مۇلازىمىتىرىغا يوللايدۇ) چۈشۈرۈلىدۇ؛ ئۇنىڭ SHA-256 ى GitHub ئېلان قىلغىنى
+  بىلەن ئوخشاش بولغاندىلا قاچىلىنىدۇ.
+
+بۇ ئىلتىماسلاردا IP ئادرېسىڭىز (ھەرقانداق تور ئۇلىنىشىدىكىدەك)، دېتالنىڭ نامى
+ۋە نەشرى بولىدۇ. **كۇتۇپخانىڭىز ياكى خاتىرە دەپتىرىڭىزدىن ھېچنېمە
+ئەۋەتىلمەيدۇ.** GitHub نىڭ مەخپىيەتلىك بايانى:
+<https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement>؛
+Microsoft نىڭكى: <https://privacy.microsoft.com>.
 
 قالغان ھەممە ئىقتىدار ــ ئوقۇش، تولۇق تېكىست ئىزدەش، OCR (رەسىم ۋە
 سىكانېرلانغان PDF تىن خەت تونۇش)، ئىملا تەكشۈرۈش، قۇرئان بۆلۈمى، PDF/DOCX
