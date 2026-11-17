@@ -1459,12 +1459,18 @@ function toggleDarkMode() {
   saveData();
 }
 
+// Opening a book is not a library change: the recent list gets its one row
+// through its own IPC (3.6.1). It used to send the whole library, and the
+// book's text waited behind that save — seconds in a large library.
 function addToRecent(bookId) {
   const now = new Date().toISOString();
   S.recent = S.recent.filter(r => r.id !== bookId);
   S.recent.unshift({ id: bookId, time: now });
   if (S.recent.length > 20) S.recent.pop();
-  saveData();
+  try {
+    const p = window.electron.dbAddRecent(bookId, now);
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) { /* S.recent holds it; the next whole-library save writes it */ }
 }
 
 function renderSide() {
@@ -2076,11 +2082,21 @@ function noteHitHtml(n, at, label) {
   </div>`;
 }
 
+// The book's saved place, or null — never a throw: the percentage still works.
+function askSavedPlace(id) {
+  try { return Promise.resolve(window.electron.dbGetProgress(id)).catch(() => null); }
+  catch (e) { return Promise.resolve(null); }
+}
+
 // `words` (3.6): the forms of the query the search found in this book, which
 // are marked and counted with it (ReaderPlaces.searchRe).
 async function openReader(id, hl='', targetPos=null, words=null) {
   const b = S.books.find(x=>x.id===id);
   if(!b) return;
+  // The text first (3.6.1): the content and the saved place are asked for
+  // together, before anything else that waits on main — the main process
+  // answers one request at a time. The recent list's row follows, unawaited.
+  const asked = Promise.all([window.electron.loadBookContent(b.id), hl ? null : askSavedPlace(b.id)]);
   addToRecent(id);
   S.curB=b; S.matches=[]; S.matchIdx=0;
   setReaderMarks(hl, words);
@@ -2101,8 +2117,7 @@ async function openReader(id, hl='', targetPos=null, words=null) {
   document.getElementById('matchcount').textContent='';
   document.getElementById('fontSelector').value = S.readerFont;
 
-  // Load content from file and cache it
-  const cr = await window.electron.loadBookContent(b.id);
+  const [cr, prog] = await asked;
   const content = (cr && cr.success) ? cr.content : '(مەزمۇن يوق)';
   S.readerContent = content;
 
@@ -2115,13 +2130,8 @@ async function openReader(id, hl='', targetPos=null, words=null) {
 
   // The exact paragraph when the position has one; the saved percentage otherwise.
   let restoreOff = null;
-  if (!hl) {
-    try {
-      const prog = await window.electron.dbGetProgress(b.id);
-      if (prog && prog.success && window.ReaderPlaces.isPlace(prog.char_offset) && prog.char_offset < content.length) {
-        restoreOff = prog.char_offset;
-      }
-    } catch (e) { /* the percentage below still works */ }
+  if (!hl && prog && prog.success && window.ReaderPlaces.isPlace(prog.char_offset) && prog.char_offset < content.length) {
+    restoreOff = prog.char_offset;
   }
   const savedPos = S.readPos[b.id] || 0;
   S.readerPage = restoreOff !== null
@@ -5359,6 +5369,7 @@ async function handleFileResult(result) {
 
 let _ocrCancel = false;
 let _ocrUnsub = null;
+let _ocrRunning = false;   // an offline OCR run is reading pages (3.6.1)
 
 function showOcrOffer() {
   const o = document.getElementById('ocrOffer');
@@ -5452,6 +5463,7 @@ function binarizeCanvas(canvas) {
 async function startPdfOcr(engine) {
   engine = engine || 'ukij';
   if (!S.ocrPdf || !window.pdfjsLib) { toast('PDF تېپىلمىدى', 'e'); return; }
+  const ocrPdf = S.ocrPdf;
 
   let langStr = '';
   if (engine === 'ukij') {
@@ -5480,7 +5492,10 @@ async function startPdfOcr(engine) {
   const totalPages = S.ocrPdf.numPages;
   const maxPages = Math.min(totalPages, PdfText.OCR_MAX_PAGES);
   const capNote = maxPages < totalPages ? ' (PDF دا ' + totalPages + ' بەت؛ ئالدىنقى ' + maxPages + ' بېتى ئوقۇلىدۇ)' : '';
-  ptext.textContent = engLabel + ' OCR: بەت 0 / ' + maxPages + capNote;
+  // The offline engine: «ماتور قوزغىلىۋاتىدۇ…» until its first page (3.6.1).
+  ptext.textContent = engine === 'gemini'
+    ? engLabel + ' OCR: بەت 0 / ' + maxPages + capNote
+    : PdfOcr.progressText(engLabel, 0, maxPages, null, capNote);
   pbar.style.width = '0';
 
   let pdf;
@@ -5493,43 +5508,60 @@ async function startPdfOcr(engine) {
     return;
   }
 
-  // Fine-grained progress: both engines emit per-page events (page index within
-  // the current batch); add the batch base for a global page number.
+  // Fine-grained progress. Gemini: per-page events within the current batch,
+  // plus the batch base. The offline engine (3.6.1): K pages are read at once
+  // and two requests are out, so every event is one more page read — counted
+  // here — and once two pages are read the line says the time left.
   let basePage = 0;
+  let pagesDone = 0;
+  const startedAt = Date.now();
   if (_ocrUnsub) { try { _ocrUnsub(); } catch (_) {} }
   _ocrUnsub = window.electron.onOcrProgress((d) => {
-    const done = basePage + (d.page || 0);
-    ptext.textContent = engLabel + ' OCR: بەت ' + done + ' / ' + maxPages + capNote;
-    pbar.style.width = Math.round((done / maxPages) * 100) + '%';
+    if (engine === 'gemini') {
+      const done = basePage + (d.page || 0);
+      ptext.textContent = engLabel + ' OCR: بەت ' + done + ' / ' + maxPages + capNote;
+      pbar.style.width = Math.round((done / maxPages) * 100) + '%';
+      return;
+    }
+    pagesDone = Math.min(maxPages, pagesDone + 1);
+    // After «توختىتىش» the pages being read still finish (and are kept):
+    // the line keeps saying it is stopping, with no time left.
+    ptext.textContent = _ocrCancel
+      ? PdfOcr.progressText(engLabel, pagesDone, maxPages, null, capNote) + ' — توختىتىلىۋاتىدۇ...'
+      : PdfOcr.progressText(engLabel, pagesDone, maxPages, PdfOcr.estimateLeft(startedAt, Date.now(), pagesDone, maxPages), capNote);
+    pbar.style.width = Math.round((pagesDone / maxPages) * 100) + '%';
   });
 
   // Higher render resolution (~300+ DPI) sharply improves OCR; Gemini stays at
   // a smaller batch to respect free-tier payloads. UKIJ pages are binarized
-  // below for Tesseract; Gemini keeps the colour render.
+  // below for Tesseract; Gemini keeps the colour render. The offline engine
+  // reads K pages at once (one worker per core but one, at most four —
+  // main.js): a request carries K pages, and two are out at once.
   const SCALE = (engine === 'gemini') ? 3.0 : 3.2;
-  const BATCH = (engine === 'gemini') ? 2 : 5;
+  let BATCH = 2;
+  if (engine !== 'gemini') {
+    try { BATCH = Math.max(1, Number(await window.electron.ocrWorkerCount()) || 1); } catch (e) { BATCH = 1; }
+  }
   // UKIJ: one entry per page, in page order (an empty page too). Gemini: one
   // per request of two pages, so where a page ends is not known.
   const allText = [];
   let pagesRead = 0;
   let geminiFailed = false, geminiMsg = '';
-  try {
-    for (let start = 1; start <= maxPages && !_ocrCancel; start += BATCH) {
-      const end = Math.min(start + BATCH - 1, maxPages);
-      const imgs = [];
-      for (let p = start; p <= end && !_ocrCancel; p++) {
-        // White under the page, and drawn even while the window is behind
-        // another one (PdfText.renderPage).
-        const canvas = await PdfText.renderPage(pdf, p, SCALE);
-        // UKIJ (Tesseract): grayscale + Otsu binarize — the biggest accuracy
-        // lever. Gemini vision keeps the colour render.
-        if (engine !== 'gemini') binarizeCanvas(canvas);
-        imgs.push(canvas.toDataURL('image/png'));
-        canvas.width = canvas.height = 0;   // free the bitmap promptly
-      }
-      if (_ocrCancel || !imgs.length) break;
-      basePage = start - 1;
-      if (engine === 'gemini') {
+  let ukijError = null;
+  if (engine === 'gemini') {
+    try {
+      for (let start = 1; start <= maxPages && !_ocrCancel; start += BATCH) {
+        const end = Math.min(start + BATCH - 1, maxPages);
+        const imgs = [];
+        for (let p = start; p <= end && !_ocrCancel; p++) {
+          // White under the page, and drawn even while the window is behind
+          // another one (PdfText.renderPage). Gemini vision keeps the colour render.
+          const canvas = await PdfText.renderPage(pdf, p, SCALE);
+          imgs.push(canvas.toDataURL('image/png'));
+          canvas.width = canvas.height = 0;   // free the bitmap promptly
+        }
+        if (_ocrCancel || !imgs.length) break;
+        basePage = start - 1;
         const r = await window.electron.ocrGemini(imgs, {});
         if (r && Array.isArray(r.pages)) for (const t of r.pages) { if (t) allText.push(t); }
         if (!r || !r.success) {
@@ -5544,20 +5576,45 @@ async function startPdfOcr(engine) {
         if (r.text) allText.push(r.text);
         pagesRead = end;
         pbar.style.width = Math.round((end / maxPages) * 100) + '%';
-      } else {
-        const r = await window.electron.ocrRecognize(imgs, langStr);
-        if (!r || !r.success) { toast('OCR خاتالىقى: ' + ((r && r.error) || ''), 'e'); break; }
-        for (const t of r.pages) allText.push(t);
-        pagesRead = allText.length;
-        pbar.style.width = Math.round((end / maxPages) * 100) + '%';
-        if (r.cancelled) break;
       }
+    } catch (e) {
+      toast('OCR مەغلۇپ بولدى: ' + ((e && e.message) || ''), 'e');
     }
-  } catch (e) {
-    toast('OCR مەغلۇپ بولدى: ' + ((e && e.message) || ''), 'e');
+  } else {
+    // The offline engine (src/pdf-ocr.js): one text per page, in page order;
+    // a failure ends the run with the pages read so far and the error. The
+    // next pages are drawn while the ones sent are read (3.6.1).
+    _ocrRunning = true;
+    const res = await PdfOcr.run({
+      maxPages: maxPages,
+      batch: BATCH,
+      inFlight: 2,
+      render: async (p) => {
+        // White under the page, and drawn even while the window is behind
+        // another one (PdfText.renderPage); then grayscale + Otsu binarize —
+        // the biggest accuracy lever for Tesseract.
+        const canvas = await PdfText.renderPage(pdf, p, SCALE);
+        binarizeCanvas(canvas);
+        const png = canvas.toDataURL('image/png');
+        canvas.width = canvas.height = 0;   // free the bitmap promptly
+        return png;
+      },
+      recognize: (imgs) => window.electron.ocrRecognize(imgs, langStr),
+      cancelled: () => _ocrCancel,
+      abort: () => { try { window.electron.ocrCancel(); } catch (_) {} }
+    });
+    _ocrRunning = false;
+    // The run is over: its engine ends now, not after its idle minute.
+    try { const p = window.electron.ocrEnd(langStr); if (p && p.catch) p.catch(() => {}); } catch (_) {}
+    for (const t of res.pages) allText.push(t);
+    pagesRead = allText.length;
+    ukijError = res.error;
   }
 
   if (_ocrUnsub) { try { _ocrUnsub(); } catch (_) {} _ocrUnsub = null; }
+  // The dialog was opened afresh, or another file chosen, while this ran:
+  // what it read belongs to nothing on screen.
+  if (S.ocrPdf !== ocrPdf) return;
 
   // Keep whatever was produced as the fallback content, regardless of outcome.
   // The join is the one OCR always used; the offline engine's pages also
@@ -5578,6 +5635,22 @@ async function startPdfOcr(engine) {
     if (fbMsg) { fbMsg.textContent = geminiMsg; fbMsg.style.display = 'block'; }
     if (ukBtn) { ukBtn.classList.add('hbtn-glow'); try { ukBtn.focus(); } catch (_) {} }
     if (joined) document.getElementById('finfo').textContent = '⚠ PDF (Gemini OCR قىسمەن): ' + S.ocrPdf.fileName + ' — ' + readLine;
+    return;
+  }
+
+  if (ukijError) {
+    // The offline engine failed (3.6.1): its words stay in the OCR box, the
+    // engine buttons come back to try again, and the pages read so far stay
+    // staged. It used to toast, say «OCR دىن تېكىست چىقمىدى» and close the box.
+    PdfOcr.showFailure({
+      buttons: document.getElementById('ocrButtons'),
+      progress: document.getElementById('ocrProgress'),
+      message: fbMsg
+    }, PdfOcr.failureText(ukijError, pagesRead, totalPages));
+    if (joined) {
+      document.getElementById('finfo').textContent = '⚠ PDF (UKIJ OCR قىسمەن): ' + S.ocrPdf.fileName + ' — ' + readLine;
+      noteOcrPagesInDescription(pagesRead, totalPages);
+    }
     return;
   }
 
@@ -5751,7 +5824,12 @@ function showAdd(){
   const _mb=document.getElementById('aiMetaBtn'); if(_mb) _mb.style.display='none';
   document.getElementById('addov').classList.add('on');
 }
-function hideAdd(){document.getElementById('addov').classList.remove('on');}
+// Closing the dialog stops its offline OCR run (3.6.1): the pages not read
+// yet are dropped at once, and the run ends its engine.
+function hideAdd(){
+  document.getElementById('addov').classList.remove('on');
+  if (_ocrRunning && !_ocrCancel) cancelPdfOcr();
+}
 
 function showBatchImport() {
   S.batchFiles = [];
@@ -6429,6 +6507,8 @@ init();
 <script src="quran.js"></script>
 <!-- A PDF's text, every page, and where each page lies in it (3.6). -->
 <script src="pdf-text.js"></script>
+<!-- A scanned PDF read by the offline OCR, page by page; a failure is said (3.6.1). -->
+<script src="pdf-ocr.js"></script>
 <!-- Markdown source as plain prose (3.6: the one converter). -->
 <script src="markdown-text.js"></script>
 <!-- The notebook's export: the document model, Markdown and text (W6). -->

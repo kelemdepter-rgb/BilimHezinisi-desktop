@@ -27,7 +27,7 @@ contextBridge.exposeInMainWorld('electron', {
   dbDeleteNote: (id) => ipcRenderer.invoke('db-delete-note', id),
   dbGetProgress: (bookId) => ipcRenderer.invoke('db-get-progress', bookId),
   dbSaveProgress: (bookId, position, page, charOffset) => ipcRenderer.invoke('db-save-progress', bookId, position, page, charOffset),
-  dbAddRecent: (bookId) => ipcRenderer.invoke('db-add-recent', bookId),
+  dbAddRecent: (bookId, time) => ipcRenderer.invoke('db-add-recent', bookId, time),
   dbGetRecent: () => ipcRenderer.invoke('db-get-recent'),
   dbGetSetting: (key, defaultVal) => ipcRenderer.invoke('db-get-setting', key, defaultVal),
   dbSetSetting: (key, value) => ipcRenderer.invoke('db-set-setting', key, value),
@@ -68,6 +68,10 @@ contextBridge.exposeInMainWorld('electron', {
   // Online Gemini OCR (main process only; gated on AI enabled + key).
   ocrGemini: (images, opts) => ipcRenderer.invoke('ocr-gemini', images, opts),
   ocrCancel: () => ipcRenderer.invoke('ocr-cancel'),
+  // One engine per OCR run (3.6.1): ended when the run is over, and K, the
+  // number of pages the engine reads at once.
+  ocrEnd: (langs) => ipcRenderer.invoke('ocr-end', langs),
+  ocrWorkerCount: () => ipcRenderer.invoke('ocr-worker-count'),
   onOcrProgress: (callback) => {
     const handler = (event, data) => callback(data);
     ipcRenderer.on('ocr-progress', handler);
